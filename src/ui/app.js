@@ -1,194 +1,171 @@
 const { ipcRenderer } = require('electron');
 
-// Navigation
-document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
-        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+// State
+let currentView = 'sessions';
 
-        item.classList.add('active');
-        const pageId = item.id.replace('nav-', '');
-        document.getElementById(pageId).classList.add('active');
+// DOM Elements
+const views = {
+    sessions: document.getElementById('sessions'),
+    proxies: document.getElementById('proxies'),
+    warmup: document.getElementById('warmup'),
+    mailer: document.getElementById('mailer'),
+    settings: document.getElementById('settings')
+};
 
-        // Refresh specific pages
-        if (pageId === 'accounts') loadAccounts();
-        if (pageId === 'warmup') loadWarmup();
-        if (pageId === 'settings') loadSettings();
-        if (pageId === 'proxies') loadProxies();
-        if (pageId === 'mailer') loadMailer();
-    });
+const navItems = {
+    sessions: document.getElementById('nav-sessions'),
+    proxies: document.getElementById('nav-proxies'),
+    warmup: document.getElementById('nav-warmup'),
+    mailer: document.getElementById('nav-mailer'),
+    settings: document.getElementById('nav-settings')
+};
+
+// Navigation Logic
+Object.keys(navItems).forEach(key => {
+    navItems[key].addEventListener('click', () => switchView(key));
 });
 
-// Dashboard
-async function loadDashboard() {
+function switchView(viewName) {
+    // Update Nav
+    Object.values(navItems).forEach(el => el.classList.remove('active'));
+    navItems[viewName].classList.add('active');
+
+    // Update View
+    Object.values(views).forEach(el => el.classList.remove('active'));
+    views[viewName].classList.add('active');
+
+    currentView = viewName;
+    refreshCurrentView();
+}
+
+async function refreshCurrentView() {
+    updateStatusBar();
+    if (currentView === 'sessions') loadSessions();
+    if (currentView === 'proxies') loadProxies();
+    if (currentView === 'warmup') loadWarmupQueue();
+    if (currentView === 'settings') loadSettings();
+}
+
+// --- STATUS BAR ---
+async function updateStatusBar() {
     const stats = await ipcRenderer.invoke('get-statistics');
+    document.getElementById('sb-total').textContent = stats.accounts.total || 0;
+    document.getElementById('sb-warmed').textContent = stats.accounts.warmed || 0;
+    // Mock threads for now
+    document.getElementById('sb-threads').textContent = '0';
+}
 
-    document.getElementById('stat-total-accounts').textContent = stats.accounts.total || 0;
-    document.getElementById('stat-warmed-accounts').textContent = stats.accounts.warmed || 0;
-    document.getElementById('stat-active-proxies').textContent = stats.proxies.active || 0;
-    document.getElementById('stat-emails-sent').textContent = `${stats.emails.sent || 0} (${stats.emails.successRate || 0}%)`;
+// --- SESSIONS VIEW ---
+async function loadSessions() {
+    const sessions = await ipcRenderer.invoke('get-accounts');
+    const tbody = document.getElementById('sessions-tbody');
+    tbody.innerHTML = '';
 
-    // Load recent activity
-    const activityList = document.getElementById('activity-list');
-    activityList.innerHTML = '';
+    sessions.forEach(s => {
+        const row = document.createElement('tr');
+        const statusClass = s.status === 'ready' ? 'success' : (s.status === 'banned' ? 'danger' : 'neutral');
 
-    stats.recentActivity.slice(0, 10).forEach(activity => {
-        const item = document.createElement('div');
-        item.className = 'activity-item';
-
-        const icon = activity.status === 'success' ? '✅' : '❌';
-        const time = new Date(activity.created_at).toLocaleTimeString();
-
-        item.innerHTML = `
-            <span class="activity-icon">${icon}</span>
-            <span class="activity-text">${activity.action}: ${activity.details || 'Completed'}</span>
-            <span class="activity-time">${time}</span>
+        row.innerHTML = `
+            <td><input type="checkbox" class="session-check" value="${s.id}"></td>
+            <td>${s.id}</td>
+            <td>
+                <div style="font-weight:600">${s.email}</div>
+                <div style="color:var(--text-muted); font-size:11px">PW: ${s.password.substring(0, 6)}...</div>
+            </td>
+            <td><span class="status-dot dot-${statusClass}"></span>${s.status}</td>
+            <td>${s.proxy_id ? 'Pro' : '-'}</td>
+            <td>${s.warmup_status} <span style="color:var(--text-muted)">(${s.warmup_score || 0})</span></td>
+            <td>${new Date(s.created_at).toLocaleDateString()}</td>
+            <td>
+                 <button class="btn-icon" onclick="deleteSession(${s.id})"><i class="fas fa-trash"></i></button>
+                 <button class="btn-icon" onclick="openSession(${s.id})"><i class="fas fa-external-link-alt"></i></button>
+            </td>
         `;
-
-        activityList.appendChild(item);
+        tbody.appendChild(row);
     });
 }
 
-// Proxies
+document.getElementById('refresh-sessions').addEventListener('click', loadSessions);
+
+// --- PROXIES VIEW ---
 async function loadProxies() {
     const proxies = await ipcRenderer.invoke('get-proxies');
     const tbody = document.getElementById('proxies-tbody');
     tbody.innerHTML = '';
 
-    proxies.forEach(proxy => {
+    proxies.forEach(p => {
         const row = document.createElement('tr');
+        const statusClass = p.status === 'active' ? 'success' : 'danger';
         row.innerHTML = `
-            <td>${proxy.host}</td>
-            <td>${proxy.port}</td>
-            <td>${proxy.protocol}</td>
-            <td>${proxy.is_mobile ? 'Yes' : 'No'}</td>
-            <td>${proxy.success_rate}%</td>
-            <td><span class="status-badge status-${proxy.status}">${proxy.status}</span></td>
+            <td>${p.host}</td>
+            <td>${p.port}</td>
+            <td>${p.protocol}</td>
+            <td>${p.type || 'http'}</td>
+            <td>${p.country || '-'}</td>
+            <td><span class="status-dot dot-${statusClass}"></span>${p.status}</td>
             <td>
-                <button class="btn-icon delete-proxy" data-id="${proxy.id}">🗑️</button>
+                <button class="btn-icon" onclick="deleteProxy(${p.id})"><i class="fas fa-trash"></i></button>
             </td>
         `;
         tbody.appendChild(row);
     });
-
-    document.querySelectorAll('.delete-proxy').forEach(btn => {
-        btn.addEventListener('click', (e) => deleteProxy(e.target.closest('button').dataset.id));
-    });
 }
 
-async function deleteProxy(id) {
-    if (confirm('Delete this proxy?')) {
-        await ipcRenderer.invoke('delete-proxy', id);
-        loadProxies();
-    }
-}
-
-// Proxy Modal Logic
-const modal = document.getElementById('sphere-modal');
-const modalInput = document.getElementById('modal-input');
-const modalActionBtn = document.getElementById('modal-action-btn');
-
-document.getElementById('add-proxy-btn').addEventListener('click', () => {
-    modal.style.display = 'flex';
-    modalInput.value = '';
-    modalInput.focus();
-});
-
-document.getElementById('modal-close').addEventListener('click', () => {
-    modal.style.display = 'none';
-});
-
-modalActionBtn.addEventListener('click', async () => {
-    const content = modalInput.value.trim();
-    if (!content) return;
-
+document.getElementById('btn-add-proxy').addEventListener('click', () => showModal('Add Proxies', `
+    <textarea id="modal-proxy-input" class="sphere-input" rows="10" placeholder="host:port:user:pass"></textarea>
+`, async () => {
+    const content = document.getElementById('modal-proxy-input').value;
     const lines = content.split('\n');
-    let count = 0;
-
     for (const line of lines) {
-        if (line.trim()) {
-            await ipcRenderer.invoke('add-proxy', line.trim());
-            count++;
-        }
+        if (line.trim()) await ipcRenderer.invoke('add-proxy', line.trim());
     }
-
-    alert(`Added ${count} proxies successfully.`);
-    modal.style.display = 'none';
     loadProxies();
-});
+}));
 
-// Accounts
-async function loadAccounts() {
-    const accounts = await ipcRenderer.invoke('get-accounts');
-    const tbody = document.getElementById('accounts-tbody');
-    tbody.innerHTML = '';
-
-    accounts.forEach(acc => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${acc.email}</td>
-            <td>${acc.password.substring(0, 8)}...</td>
-            <td>${acc.recovery_email || '-'}</td>
-            <td><span class="status-badge status-${acc.status}">${acc.status}</span></td>
-            <td>${acc.warmup_status}</td>
-            <td>${new Date(acc.created_at).toLocaleDateString()}</td>
-            <td>
-                <button class="btn-icon run-warmup" data-id="${acc.id}">🔥</button>
-                <button class="btn-icon delete-account" data-id="${acc.id}">🗑️</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-// Settings (CLEANED v5)
+// --- SETTINGS VIEW ---
 async function loadSettings() {
     const config = await ipcRenderer.invoke('get-config');
-
-    document.getElementById('sms-grizzly-key').value = config.smsServices?.services?.['grizzly']?.apiKey || '';
-    document.getElementById('sms-simsms-key').value = config.smsServices?.services?.['simsms']?.apiKey || '';
-    document.getElementById('captcha-key').value = config.captchaServices?.apiKey || '';
-    document.getElementById('groq-key').value = config.ai?.apiKey || '';
-    document.getElementById('max-workers').value = config.app?.maxParallelWorkers || 35;
+    document.getElementById('set-grizzly').value = config.smsServices?.services?.['grizzly']?.apiKey || '';
+    document.getElementById('set-simsms').value = config.smsServices?.services?.['simsms']?.apiKey || '';
+    document.getElementById('set-capguru').value = config.captchaServices?.apiKey || '';
+    document.getElementById('set-groq').value = config.ai?.apiKey || '';
+    document.getElementById('set-threads').value = config.app?.maxParallelWorkers || 35;
 }
 
-document.getElementById('save-settings').addEventListener('click', async () => {
-    await ipcRenderer.invoke('update-config', 'smsServices.services.grizzly.apiKey', document.getElementById('sms-grizzly-key').value);
-    await ipcRenderer.invoke('update-config', 'smsServices.services.grizzly.enabled', !!document.getElementById('sms-grizzly-key').value);
-    await ipcRenderer.invoke('update-config', 'smsServices.services.simsms.apiKey', document.getElementById('sms-simsms-key').value);
-    await ipcRenderer.invoke('update-config', 'smsServices.services.simsms.enabled', !!document.getElementById('sms-simsms-key').value);
+document.getElementById('btn-save-settings').addEventListener('click', async () => {
+    await ipcRenderer.invoke('update-config', 'smsServices.services.grizzly.apiKey', document.getElementById('set-grizzly').value);
+    await ipcRenderer.invoke('update-config', 'smsServices.services.simsms.apiKey', document.getElementById('set-simsms').value);
+    await ipcRenderer.invoke('update-config', 'captchaServices.apiKey', document.getElementById('set-capguru').value);
+    await ipcRenderer.invoke('update-config', 'ai.apiKey', document.getElementById('set-groq').value);
+    await ipcRenderer.invoke('update-config', 'app.maxParallelWorkers', parseInt(document.getElementById('set-threads').value));
 
-    await ipcRenderer.invoke('update-config', 'captchaServices.apiKey', document.getElementById('captcha-key').value);
-
-    await ipcRenderer.invoke('update-config', 'ai.apiKey', document.getElementById('groq-key').value);
-    await ipcRenderer.invoke('update-config', 'app.maxParallelWorkers', parseInt(document.getElementById('max-workers').value));
-
-    alert('Settings saved successfully!');
+    // Show visual feedback
+    const btn = document.getElementById('btn-save-settings');
+    const originalText = btn.textContent;
+    btn.textContent = 'Saved!';
+    btn.classList.add('btn-primary'); // Highlight
+    setTimeout(() => {
+        btn.textContent = originalText;
+        btn.classList.remove('btn-primary');
+    }, 1500);
 });
 
-// Registration
-document.getElementById('start-reg-btn').addEventListener('click', async () => {
-    const count = parseInt(document.getElementById('reg-count').value);
-    if (count < 1) return alert('Invalid count');
+// --- MODAL SYSTEM ---
+function showModal(title, htmlContent, onConfirm) {
+    const overlay = document.getElementById('ui-modal');
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = htmlContent;
+    overlay.style.display = 'flex';
 
-    await ipcRenderer.invoke('start-registration', count, 'google');
-    alert(`Started registration for ${count} accounts`);
-});
+    const confirmBtn = document.getElementById('modal-confirm-btn');
+    confirmBtn.onclick = async () => {
+        if (onConfirm) await onConfirm();
+        overlay.style.display = 'none';
+    };
 
-document.getElementById('stop-reg-btn').addEventListener('click', async () => {
-    await ipcRenderer.invoke('stop-registration');
-    alert('Stopped');
-});
+    document.querySelector('.modal-close').onclick = () => overlay.style.display = 'none';
+}
 
-// Export
-document.getElementById('export-btn').addEventListener('click', async () => {
-    const format = document.getElementById('export-format').value;
-    const filePath = await ipcRenderer.invoke('export-accounts', format, {});
-    alert(`Exported to: ${filePath}`);
-});
-
-// Initial load
-loadDashboard();
-setInterval(() => {
-    if (document.getElementById('dashboard').classList.contains('active')) loadDashboard();
-}, 5000);
+// Initial Load
+switchView('sessions');
+setInterval(updateStatusBar, 5000);
