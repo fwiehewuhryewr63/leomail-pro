@@ -16,20 +16,22 @@ class CaptchaService {
     /**
      * Solve reCAPTCHA v2
      */
-    async solveRecaptchaV2(siteKey, pageUrl) {
-        logger.info('Solving reCAPTCHA v2...');
+    async solve(page, siteKey) {
+        const pageUrl = page.url();
+        let token;
 
-        switch (this.provider) {
-            case '2captcha':
-                return await this.solve2CaptchaV2(siteKey, pageUrl);
-            case 'capguru':
-                return await this.solveCapGuruV2(siteKey, pageUrl);
-            case 'anti-captcha':
-                return await this.solveAntiCaptchaV2(siteKey, pageUrl);
-            case 'capmonster':
-                return await this.solveCapMonsterV2(siteKey, pageUrl);
-            default:
-                throw new Error(`Unknown captcha provider: ${this.provider}`);
+        try {
+            switch (this.provider) {
+                case 'capguru':
+                    token = await this.solveCapGuruV2(siteKey, pageUrl);
+                    break;
+                default:
+                    throw new Error(`Unknown captcha provider: ${this.provider}`);
+            }
+            return token;
+        } catch (error) {
+            logger.error(`Captcha solving failed for provider ${this.provider}`, error);
+            throw error;
         }
     }
 

@@ -47,52 +47,89 @@
         <!-- Main Content -->
         <div class="main-content">
             <!-- Dashboard Page -->
-            <div id="dashboard" class="page active">
-                <header>
-                    <h1>Dashboard</h1>
-                    <div class="status-badge" id="reg-status-badge">
-                        <span class="status-dot"></span> System Ready
-                    </div>
+            <div class="page active" id="dashboard">
+                <header class="page-header">
+                    <h2>Mission Control</h2>
+                    <p>System Status & Analytics</p>
                 </header>
 
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-icon">📧</div>
-                        <div class="stat-info">
-                            <span class="stat-label">Total Accounts</span>
-                            <span class="stat-value" id="stat-total-accounts">0</span>
-                        </div>
+                        <span class="stat-label">Total Accounts</span>
+                        <span class="stat-value" id="stat-total-accounts">0</span>
                     </div>
-
                     <div class="stat-card">
-                        <div class="stat-icon">✅</div>
-                        <div class="stat-info">
-                            <span class="stat-label">Warmed Accounts</span>
-                            <span class="stat-value" id="stat-warmed-accounts">0</span>
-                        </div>
+                        <span class="stat-label">Warmed Up</span>
+                        <span class="stat-value" id="stat-warmed-accounts">0</span>
                     </div>
-
+                    <!-- Renamed and Updated Stats -->
                     <div class="stat-card">
-                        <div class="stat-icon">📱</div>
-                        <div class="stat-info">
-                            <span class="stat-label">Mobile Proxies</span>
-                            <span class="stat-value" id="stat-mobile-proxies">0</span>
-                        </div>
+                        <span class="stat-label">Active Proxies</span>
+                        <span class="stat-value" id="stat-active-proxies">0</span>
                     </div>
-
                     <div class="stat-card">
-                        <div class="stat-icon">⚡</div>
-                        <div class="stat-info">
-                            <span class="stat-label">Active Workers</span>
-                            <span class="stat-value" id="stat-active-workers">0</span>
-                        </div>
+                        <span class="stat-label">Emails Sent</span>
+                        <span class="stat-value" id="stat-emails-sent">0</span>
                     </div>
                 </div>
 
                 <div class="activity-section">
-                    <h3>Recent Activity</h3>
-                    <div class="activity-list" id="activity-list">
-                        <!-- Activity items will be inserted here -->
+                    <h3>Live Activity Feed</h3>
+                    <div id="activity-list" class="activity-list">
+                        <!-- Activity items will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div class="page" id="settings">
+                <header class="page-header">
+                    <h2>Configuration</h2>
+                    <p>API Integrations & System Tuning</p>
+                </header>
+
+                <div class="settings-sections">
+                    <div class="settings-section">
+                        <h3><i class="fas fa-sms"></i> SMS Verification</h3>
+                        <p class="section-desc">Smart Balance Strategy (Grizzly & SimSMS)</p>
+
+                        <div class="input-group">
+                            <label>Grizzly SMS API Key</label>
+                            <input type="password" id="sms-grizzly-key" placeholder="Enter Grizzly Key"
+                                class="sphere-input">
+                        </div>
+                        <div class="input-group">
+                            <label>SimSMS API Key</label>
+                            <input type="password" id="sms-simsms-key" placeholder="Enter SimSMS Key"
+                                class="sphere-input">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3><i class="fas fa-robot"></i> Captcha Solving</h3>
+                        <div class="input-group">
+                            <label>Cap.Guru API Key</label>
+                            <input type="password" id="captcha-key" placeholder="Enter Cap.Guru Key"
+                                class="sphere-input">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3><i class="fas fa-brain"></i> AI & Performance</h3>
+                        <div class="input-group">
+                            <label>Groq AI API Key</label>
+                            <input type="password" id="groq-key" placeholder="sk-..." class="sphere-input">
+                        </div>
+                        <div class="input-group">
+                            <label>Max Parallel Workers</label>
+                            <input type="number" id="max-workers" placeholder="35" class="sphere-input">
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button id="save-settings" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Configuration
+                        </button>
                     </div>
                 </div>
             </div>

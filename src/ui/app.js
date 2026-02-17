@@ -52,8 +52,10 @@ async function loadDashboard() {
 
     document.getElementById('stat-total-accounts').textContent = stats.accounts.total || 0;
     document.getElementById('stat-warmed-accounts').textContent = stats.accounts.warmed || 0;
-    document.getElementById('stat-mobile-proxies').textContent = stats.proxies.mobile || 0;
-    document.getElementById('stat-active-workers').textContent = stats.queueStatus.activeWorkers || 0;
+    // Renamed to Active Proxies as requested
+    document.getElementById('stat-active-proxies').textContent = stats.proxies.active || 0;
+    // Added Emails Sent stats
+    document.getElementById('stat-emails-sent').textContent = `${stats.emails.sent || 0} (${stats.emails.successRate || 0}%)`;
 
     // Load recent activity
     const activityList = document.getElementById('activity-list');
@@ -75,6 +77,33 @@ async function loadDashboard() {
         activityList.appendChild(item);
     });
 }
+
+// ... (Rest of file unchanged)
+
+// Settings
+async function loadSettings() {
+    const config = await ipcRenderer.invoke('get-config');
+
+    document.getElementById('sms-grizzly-key').value = config.smsServices?.services?.['grizzly']?.apiKey || '';
+    document.getElementById('sms-simsms-key').value = config.smsServices?.services?.['simsms']?.apiKey || '';
+    document.getElementById('captcha-key').value = config.captchaServices?.apiKey || '';
+    document.getElementById('groq-key').value = config.ai?.apiKey || '';
+    document.getElementById('max-workers').value = config.app?.maxParallelWorkers || 35;
+}
+
+document.getElementById('save-settings').addEventListener('click', async () => {
+    await ipcRenderer.invoke('update-config', 'smsServices.services.grizzly.apiKey', document.getElementById('sms-grizzly-key').value);
+    await ipcRenderer.invoke('update-config', 'smsServices.services.grizzly.enabled', !!document.getElementById('sms-grizzly-key').value);
+    await ipcRenderer.invoke('update-config', 'smsServices.services.simsms.apiKey', document.getElementById('sms-simsms-key').value);
+    await ipcRenderer.invoke('update-config', 'smsServices.services.simsms.enabled', !!document.getElementById('sms-simsms-key').value);
+
+    await ipcRenderer.invoke('update-config', 'captchaServices.apiKey', document.getElementById('captcha-key').value);
+
+    await ipcRenderer.invoke('update-config', 'ai.apiKey', document.getElementById('groq-key').value);
+    await ipcRenderer.invoke('update-config', 'app.maxParallelWorkers', parseInt(document.getElementById('max-workers').value));
+
+    alert('Settings saved successfully! Sphere v5 active.');
+});
 
 // Registration
 document.getElementById('start-reg-btn').addEventListener('click', async () => {

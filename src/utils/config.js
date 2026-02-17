@@ -63,19 +63,10 @@ class Config {
             },
 
             // SMS services
+            // SMS services
             smsServices: {
-                enabled: true,
-                priority: ['sms-activate', '5sim', 'onlinesim'],
+                priority: ['grizzly', 'simsms'], // Default priority
                 services: {
-                    'sms-activate': {
-                        apiKey: '',
-                        enabled: false
-                    },
-                    '5sim': {
-                        apiKey: '',
-                        enabled: false
-                    },
-                    'onlinesim': { apiKey: '', enabled: false },
                     'grizzly': { apiKey: '', enabled: false },
                     'simsms': { apiKey: '', enabled: false }
                 }
