@@ -150,6 +150,36 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
     }, 1500);
 });
 
+// --- WARMUP VIEW ---
+async function loadWarmupQueue() {
+    // Mock data for now or fetch from backend if available
+    const tbody = document.getElementById('warmup-tbody');
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px;">>> TRAINING_QUEUE_EMPTY</td></tr>';
+
+    // Update stats
+    const stats = await ipcRenderer.invoke('get-statistics');
+    document.getElementById('warmup-active-count').textContent = stats.warmup?.active || 0;
+    document.getElementById('warmup-pending-count').textContent = stats.warmup?.pending || 0;
+}
+
+// --- MAILER VIEW ---
+async function loadMailer() {
+    const list = document.getElementById('mailer-accounts-list');
+    const accounts = await ipcRenderer.invoke('get-accounts');
+
+    if (accounts.length === 0) {
+        list.innerHTML = '<div style="padding:20px">>> NO_DATA</div>';
+        return;
+    }
+
+    list.innerHTML = accounts.map(acc => `
+        <div class="nav-item" style="width:100%; justify-content:flex-start; padding:10px; height:auto; border-radius:4px; margin-bottom:5px;">
+            <i class="fas fa-user-secret" style="margin-right:10px"></i>
+            ${acc.email}
+        </div>
+    `).join('');
+}
+
 // --- MODAL SYSTEM ---
 function showModal(title, htmlContent, onConfirm) {
     const overlay = document.getElementById('ui-modal');
