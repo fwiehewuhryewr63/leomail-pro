@@ -4,441 +4,238 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LEOmail Pro</title>
+    <title>LEOmail Pro v6 [Sphere Edition]</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
     <div class="app-container">
-        <!-- Sidebar -->
-        <div class="sidebar">
-            <div class="logo">
-                <div class="logo-icon">🦁</div>
-                <div class="logo-text">LEOmail <span>Pro</span></div>
+        <!-- Sidebar (Slim) -->
+        <aside class="sidebar">
+            <div class="brand-icon">
+                <i class="fas fa-cube"></i>
             </div>
-            <nav>
-                <div class="nav-item active" data-page="dashboard">
-                    <i class="fas fa-chart-line"></i> Dashboard
+            <nav class="nav-menu">
+                <div class="nav-item active" id="nav-sessions" title="Session Manager">
+                    <i class="fas fa-list"></i>
+                    <span class="tooltip">Sessions</span>
                 </div>
-                <div class="nav-item" data-page="registration">
-                    <i class="fas fa-user-plus"></i> Registration
+                <div class="nav-item" id="nav-proxies" title="Proxy Manager">
+                    <i class="fas fa-network-wired"></i>
+                    <span class="tooltip">Proxies</span>
                 </div>
-                <div class="nav-item" data-page="mailer">
-                    <i class="fas fa-paper-plane"></i> Mailer
+                <div class="nav-item" id="nav-warmup" title="Warmup Process">
+                    <i class="fas fa-fire"></i>
+                    <span class="tooltip">Warmup</span>
                 </div>
-                <div class="nav-item" data-page="warmup">
-                    <i class="fas fa-fire"></i> Warm-up
+                <div class="nav-item" id="nav-mailer" title="Direct Mailer">
+                    <i class="fas fa-paper-plane"></i>
+                    <span class="tooltip">Mailer</span>
                 </div>
-                <div class="nav-item" data-page="accounts">
-                    <i class="fas fa-users"></i> Accounts
-                </div>
-                <div class="nav-item" data-page="proxies">
-                    <i class="fas fa-server"></i> Proxies
-                </div>
-                <div class="nav-item" data-page="export">
-                    <i class="fas fa-download"></i> Export
-                </div>
-                <div class="nav-item" data-page="settings">
-                    <i class="fas fa-cog"></i> Settings
+                <div class="nav-item" id="nav-settings" title="Configuration">
+                    <i class="fas fa-cog"></i>
+                    <span class="tooltip">Settings</span>
                 </div>
             </nav>
-        </div>
+            <div class="sidebar-footer">
+                <div class="nav-item" id="nav-export" title="Export Data">
+                    <i class="fas fa-download"></i>
+                </div>
+            </div>
+        </aside>
 
         <!-- Main Content -->
-        <div class="main-content">
-            <!-- Dashboard Page -->
-            <div class="page active" id="dashboard">
-                <header class="page-header">
-                    <h2>Mission Control</h2>
-                    <p>System Status & Analytics</p>
-                </header>
+        <main class="main-content">
 
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <span class="stat-label">Total Accounts</span>
-                        <span class="stat-value" id="stat-total-accounts">0</span>
-                    </div>
-                    <div class="stat-card">
-                        <span class="stat-label">Warmed Up</span>
-                        <span class="stat-value" id="stat-warmed-accounts">0</span>
-                    </div>
-                    <!-- Renamed and Updated Stats -->
-                    <div class="stat-card">
-                        <span class="stat-label">Active Proxies</span>
-                        <span class="stat-value" id="stat-active-proxies">0</span>
-                    </div>
-                    <div class="stat-card">
-                        <span class="stat-label">Emails Sent</span>
-                        <span class="stat-value" id="stat-emails-sent">0</span>
-                    </div>
-                </div>
-
-                <div class="activity-section">
-                    <h3>Live Activity Feed</h3>
-                    <div id="activity-list" class="activity-list">
-                        <!-- Activity items will be populated here -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Settings Page -->
-            <div class="page" id="settings">
-                <header class="page-header">
-                    <h2>Configuration</h2>
-                    <p>API Integrations & System Tuning</p>
-                </header>
-
-                <div class="settings-sections">
-                    <div class="settings-section">
-                        <h3><i class="fas fa-sms"></i> SMS Verification</h3>
-                        <p class="section-desc">Smart Balance Strategy (Grizzly & SimSMS)</p>
-
-                        <div class="input-group">
-                            <label>Grizzly SMS API Key</label>
-                            <input type="password" id="sms-grizzly-key" placeholder="Enter Grizzly Key"
-                                class="sphere-input">
+            <!-- VIEW: SESSIONS (Default) -->
+            <div class="view active" id="sessions">
+                <div class="toolbar">
+                    <div class="toolbar-group">
+                        <div class="search-bar">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="session-search" placeholder="Search sessions...">
                         </div>
-                        <div class="input-group">
-                            <label>SimSMS API Key</label>
-                            <input type="password" id="sms-simsms-key" placeholder="Enter SimSMS Key"
-                                class="sphere-input">
-                        </div>
+                        <button class="btn btn-icon" id="refresh-sessions"><i class="fas fa-sync"></i></button>
                     </div>
-
-                    <div class="settings-section">
-                        <h3><i class="fas fa-robot"></i> Captcha Solving</h3>
-                        <div class="input-group">
-                            <label>Cap.Guru API Key</label>
-                            <input type="password" id="captcha-key" placeholder="Enter Cap.Guru Key"
-                                class="sphere-input">
-                        </div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3><i class="fas fa-brain"></i> AI & Performance</h3>
-                        <div class="input-group">
-                            <label>Groq AI API Key</label>
-                            <input type="password" id="groq-key" placeholder="sk-..." class="sphere-input">
-                        </div>
-                        <div class="input-group">
-                            <label>Max Parallel Workers</label>
-                            <input type="number" id="max-workers" placeholder="35" class="sphere-input">
-                        </div>
-                    </div>
-
-                    <div class="settings-actions">
-                        <button id="save-settings" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Save Configuration
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Registration Page -->
-            <div id="registration" class="page">
-                <header>
-                    <h1>Registration Queue</h1>
-                </header>
-
-                <div class="control-panel">
-                    <div class="control-group">
-                        <label>Provider</label>
-                        <select id="reg-provider">
-                            <option value="gmail">Gmail</option>
-                            <option value="yahoo">Yahoo</option>
-                            <option value="outlook">Outlook</option>
-                        </select>
-                    </div>
-                    <div class="control-group">
-                        <label>Captcha Provider</label>
-                        <select id="captcha-provider">
-                            <option value="capguru">Cap.Guru (Recommended)</option>
-                            <option value="2captcha">2Captcha</option>
-                            <option value="anti-captcha">Anti-Captcha</option>
-                            <option value="capmonster">CapMonster</option>
-                        </select>
-                    </div>
-                    <div class="control-group">
-                        <label>Accounts to Create</label>
-                        <input type="number" id="reg-count" value="10" min="1" max="1000">
-                    </div>
-                    <button class="btn btn-primary" id="start-reg-btn">Start Registration</button>
-                    <button class="btn btn-secondary" id="stop-reg-btn">Stop</button>
-                </div>
-
-                <div class="queue-status">
-                    <div class="status-item">
-                        <span class="label">Queue Length:</span>
-                        <span class="value" id="queue-length">0</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="label">In Progress:</span>
-                        <span class="value" id="queue-progress">0</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="label">Completed:</span>
-                        <span class="value" id="queue-completed">0</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="label">Failed:</span>
-                        <span class="value" id="queue-failed">0</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="label">Success Rate:</span>
-                        <span class="value" id="queue-success-rate">0%</span>
+                    <div class="toolbar-group">
+                        <button class="btn btn-primary" id="btn-create-session"><i class="fas fa-plus"></i> Create
+                            Session</button>
+                        <button class="btn btn-danger" id="btn-delete-selected"><i class="fas fa-trash"></i></button>
                     </div>
                 </div>
 
-                <div class="progress-bar">
-                    <div class="progress-fill" id="registration-progress"></div>
-                </div>
-            </div>
-
-            <!-- Warm-up Page -->
-            <div class="page" id="warmup">
-                <header class="page-header">
-                    <h2>Account Warm-up</h2>
-                    <p>AI-powered email activity simulation</p>
-                </header>
-
-                <div class="warmup-stats">
-                    <div class="warmup-stat">
-                        <span class="label">Pending</span>
-                        <span class="value" id="warmup-pending">0</span>
-                    </div>
-                    <div class="warmup-stat">
-                        <span class="label">Active</span>
-                        <span class="value" id="warmup-active">0</span>
-                    </div>
-                    <div class="warmup-stat">
-                        <span class="label">Completed</span>
-                        <span class="value" id="warmup-completed">0</span>
-                    </div>
-                </div>
-
-                <div class="warmup-list" id="warmup-list">
-                    <!-- Warmup items will be inserted here -->
-                </div>
-            </div>
-
-            <!-- Accounts Page -->
-            <div class="page" id="accounts">
-                <header class="page-header">
-                    <h2>Account Manager</h2>
-                    <p>View and manage your Gmail accounts</p>
-                </header>
-
-                <div class="accounts-table">
-                    <table>
+                <div class="data-grid-container">
+                    <table class="data-grid">
                         <thead>
                             <tr>
-                                <th>Email</th>
-                                <th>Password</th>
-                                <th>Recovery Email</th>
-                                <th>Status</th>
-                                <th>Warmup</th>
-                                <th>Created</th>
-                                <th>Actions</th>
+                                <th width="40"><input type="checkbox" id="select-all-sessions"></th>
+                                <th width="60">ID</th>
+                                <th width="200">Values (Email)</th>
+                                <th width="150">Status</th>
+                                <th width="150">Proxy</th>
+                                <th width="100">Warmup</th>
+                                <th width="120">Created</th>
+                                <th width="100">Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="accounts-tbody">
-                            <!-- Account rows will be inserted here -->
+                        <tbody id="sessions-tbody">
+                            <!-- Rows injected by JS -->
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- Proxies Page -->
-            <div class="page" id="proxies">
-                <header class="page-header">
+            <!-- VIEW: PROXIES -->
+            <div class="view" id="proxies">
+                <div class="toolbar">
                     <h2>Proxy Manager</h2>
-                    <p>Manage your proxy pool</p>
-                </header>
-
-                <div class="proxy-controls">
-                    <button class="btn btn-primary" id="add-proxy-btn">
-                        <span class="icon">➕</span>
-                        Add Proxy
-                    </button>
-                    <button class="btn btn-secondary" id="import-proxies-btn">
-                        <span class="icon">📁</span>
-                        Import from File
-                    </button>
+                    <div class="toolbar-group">
+                        <button class="btn btn-primary" id="btn-add-proxy"><i class="fas fa-plus"></i> Add
+                            Proxies</button>
+                        <button class="btn btn-secondary" id="btn-check-proxies"><i class="fas fa-check-circle"></i>
+                            Check All</button>
+                    </div>
                 </div>
-
-                <div class="proxies-table">
-                    <table>
+                <div class="data-grid-container">
+                    <table class="data-grid">
                         <thead>
                             <tr>
                                 <th>Host</th>
                                 <th>Port</th>
+                                <th>Protocol</th>
                                 <th>Type</th>
-                                <th>Mobile</th>
-                                <th>Success Rate</th>
+                                <th>Geo</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="proxies-tbody">
-                            <!-- Proxy rows will be inserted here -->
+                            <!-- Rows injected by JS -->
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- Export Page -->
-            <div id="export" class="page">
-                <header>
-                    <h1>Export Accounts</h1>
-                </header>
-
-                <div class="control-panel">
-                    <div class="control-group">
-                        <label>Format</label>
-                        <select id="export-format">
-                            <option value="email:password">Email:Password</option>
-                            <option value="csv">CSV (Full Data)</option>
-                            <option value="json">JSON (Full Data)</option>
-                        </select>
+            <!-- VIEW: WARMUP -->
+            <div class="view" id="warmup">
+                <div class="toolbar">
+                    <h2>Warmup Queue</h2>
+                    <div class="queue-stats">
+                        <span class="stat-tag">Active: <b id="warmup-active-count">0</b></span>
+                        <span class="stat-tag">Pending: <b id="warmup-pending-count">0</b></span>
                     </div>
-                    <button class="btn btn-primary" id="export-btn">Export Accounts</button>
+                </div>
+                <!-- Reusing data grid for consistency -->
+                <div class="data-grid-container">
+                    <table class="data-grid">
+                        <thead>
+                            <tr>
+                                <th>Session</th>
+                                <th>Current Task</th>
+                                <th>Progress</th>
+                                <th>Last Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="warmup-tbody"></tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- Mailer Page -->
-            <div id="mailer" class="page">
-                <header>
-                    <h1>Built-in Mailer</h1>
-                </header>
-
-                <div class="mailer-container">
-                    <div class="account-selector-panel">
-                        <h3>Select Account</h3>
-                        <div class="account-search">
-                            <input type="text" id="mailer-account-search" placeholder="Search accounts...">
+            <!-- VIEW: MAILER -->
+            <div class="view" id="mailer">
+                <div class="split-view">
+                    <div class="split-sidebar">
+                        <div class="toolbar-mini">
+                            <input type="text" class="mini-search" placeholder="Filter...">
                         </div>
-                        <div id="mailer-accounts-list" class="account-scroll-list">
-                            <!-- Accounts will be listed here -->
+                        <div id="mailer-accounts-list" class="list-group">
+                            <!-- Account list -->
                         </div>
                     </div>
-
-                    <div class="mail-interface">
-                        <div id="mail-no-selection" class="empty-state">
-                            <i class="fas fa-envelope-open"></i>
-                            <p>Select an account to start mailing</p>
-                        </div>
-
-                        <div id="mail-active-panel" style="display: none;">
-                            <div class="mail-tabs">
-                                <button class="mail-tab active" data-tab="inbox">Inbox</button>
-                                <button class="mail-tab" data-tab="compose">Compose</button>
-                            </div>
-
-                            <div id="mail-inbox-tab" class="mail-tab-content active">
-                                <div class="inbox-toolbar">
-                                    <button class="btn btn-small" id="refresh-inbox-btn"><i class="fas fa-sync"></i>
-                                        Refresh</button>
-                                </div>
-                                <div id="inbox-list" class="inbox-list">
-                                    <!-- Emails will be listed here -->
-                                </div>
-                            </div>
-
-                            <div id="mail-compose-tab" class="mail-tab-content">
-                                <div class="compose-form">
-                                    <input type="email" id="mail-to" placeholder="Recipient address">
-                                    <input type="text" id="mail-subject" placeholder="Subject">
-                                    <textarea id="mail-body" placeholder="Write your message..."></textarea>
-                                    <div class="compose-footer">
-                                        <button class="btn btn-secondary" id="ai-generate-body">
-                                            <i class="fas fa-robot"></i> AI Generate
-                                        </button>
-                                        <button class="btn btn-primary" id="send-mail-btn">
-                                            <i class="fas fa-paper-plane"></i> Send Email
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="split-content" id="mail-content-area">
+                        <div class="empty-state">Select a session to view mail</div>
+                        <!-- Mail UI injected here -->
                     </div>
                 </div>
             </div>
 
-            <!-- Settings Page -->
-            <div class="page" id="settings">
-                <header class="page-header">
-                    <h2>Settings</h2>
-                    <p>Configure your automation system</p>
-                </header>
-
-                <div class="settings-sections">
-                    <div class="settings-section">
-                        <h3>SMS Services Priority</h3>
-                        <div class="input-group">
-                            <label>Grizzly SMS API Key</label>
-                            <input type="password" id="sms-grizzly-key" placeholder="Enter API Key">
-                        </div>
-                        <div class="input-group">
-                            <label>SimSMS API Key</label>
-                            <input type="password" id="sms-simsms-key" placeholder="Enter API Key">
-                        </div>
-                        <div class="input-group">
-                            <label>SMS-Activate API Key</label>
-                            <input type="text" id="sms-activate-key" placeholder="Enter API key">
-                        </div>
-                        <div class="input-group">
-                            <label>5sim API Key</label>
-                            <input type="text" id="5sim-key" placeholder="Enter API key">
-                        </div>
-                        <p class="hint">The system automatically uses the most profitable price ladder strategy.</p>
+            <!-- VIEW: SETTINGS -->
+            <div class="view" id="settings">
+                <div class="settings-container">
+                    <div class="settings-header">
+                        <h2>Global Configuration</h2>
                     </div>
 
-                    <div class="settings-section">
-                        <h3>AI Configuration</h3>
-                        <div class="input-group">
-                            <label>Groq API Key (Optional)</label>
-                            <input type="text" id="groq-key" placeholder="Enter API key for better email generation">
+                    <div class="settings-form">
+                        <div class="form-section">
+                            <h3><i class="fas fa-sms"></i> SMS Provider</h3>
+                            <div class="form-row">
+                                <label>Grizzly SMS Key</label>
+                                <input type="password" id="set-grizzly" class="sphere-input">
+                            </div>
+                            <div class="form-row">
+                                <label>SimSMS Key</label>
+                                <input type="password" id="set-simsms" class="sphere-input">
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="settings-section">
-                        <h3>Performance</h3>
-                        <div class="input-group">
-                            <label>Max Parallel Workers</label>
-                            <input type="number" id="max-workers" value="35" min="1" max="100">
+                        <div class="form-section">
+                            <h3><i class="fas fa-robot"></i> Captcha</h3>
+                            <div class="form-row">
+                                <label>Cap.Guru Key</label>
+                                <input type="password" id="set-capguru" class="sphere-input">
+                            </div>
                         </div>
-                    </div>
 
-                    <button class="btn btn-primary" id="save-settings">
-                        <span class="icon">💾</span>
-                        Save Settings
-                    </button>
+                        <div class="form-section">
+                            <h3><i class="fas fa-dna"></i> System</h3>
+                            <div class="form-row">
+                                <label>Max Threads</label>
+                                <input type="number" id="set-threads" class="sphere-input" value="35">
+                            </div>
+                            <div class="form-row">
+                                <label>Groq AI Key</label>
+                                <input type="password" id="set-groq" class="sphere-input">
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success btn-block" id="btn-save-settings">Save Configuration</button>
+                    </div>
                 </div>
             </div>
-            </main>
-        </div>
 
-        <!-- Sphere Modal -->
-        <div id="sphere-modal" class="sphere-modal-overlay" style="display: none;">
-            <div class="sphere-modal">
-                <div class="modal-header">
-                    <h3 id="modal-title">Add Proxy</h3>
-                    <button id="modal-close" class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="input-group">
-                        <label>Proxy String (host:port:user:pass)</label>
-                        <textarea id="modal-input" class="sphere-input" placeholder="192.168.1.1:8000:user:pass"
-                            rows="4"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="modal-action-btn" class="btn btn-primary">Add</button>
-                </div>
+        </main>
+
+        <!-- Status Bar -->
+        <footer class="status-bar">
+            <div class="status-item"><i class="fas fa-server"></i> Total: <span id="sb-total">0</span></div>
+            <div class="status-item"><i class="fas fa-check"></i> Warmed: <span id="sb-warmed">0</span></div>
+            <div class="status-item"><i class="fas fa-bolt"></i> Threads: <span id="sb-threads">0</span></div>
+            <div class="status-item right"><span id="sb-version">v6.0.0 Sphere</span></div>
+        </footer>
+    </div>
+
+    <!-- Sphere Modal (Universal) -->
+    <div id="ui-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <div class="modal-header">
+                <h3 id="modal-title">Title</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-content" id="modal-body">
+                <!-- Injected -->
+            </div>
+            <div class="modal-actions" id="modal-actions">
+                <button class="btn btn-primary" id="modal-confirm-btn">OK</button>
             </div>
         </div>
+    </div>
 
-        <script src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 
 </html>
