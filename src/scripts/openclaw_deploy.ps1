@@ -97,7 +97,7 @@ $StartScript = "@echo off
 title OpenClaw Agent [Grok]
 cd /d $InstallDir
 cls
-echo >>> STARTING OPENCLAW AGENT (GROK_OVERLORD)
+echo [v] STARTING OPENCLAW AGENT (GROK_OVERLORD)
 npm start"
 Set-Content -Path "$InstallDir\launch_agent.bat" -Value $StartScript
 
