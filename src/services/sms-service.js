@@ -378,3 +378,5 @@ class SimSMSService extends SMSActivateService {
         return response.data; // SimSMS often returns direct pricing
     }
 }
+
+module.exports = SMSService;
