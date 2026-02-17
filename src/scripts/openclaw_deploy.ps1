@@ -1,5 +1,5 @@
-# OpenClaw Hardened Auto-Deployment Script for Windows Server (v2.0)
-# This version is designed to resolve conflicts from previous failed attempts (Docker, etc.)
+# OpenClaw Hardened Auto-Deployment Script for Windows Server (v2.1)
+# This version fixes the Hex color error and silences Docker daemon connection warnings.
 # Usage: .\openclaw_deploy.ps1 -GrokKey "YOUR_API_KEY" -ForceCleanup $true
 
 param (
@@ -11,7 +11,7 @@ $InstallDir = "C:\OpenClaw_Agent"
 $RepoUrl = "https://github.com/openclaw/openclaw.git" 
 $TargetPort = 3000
 
-Write-Host ">>> STARTING HARDENED OPENCLAW DEPLOYMENT..." -ForegroundColor Hex "#00FF41"
+Write-Host ">>> STARTING HARDENED OPENCLAW DEPLOYMENT..." -ForegroundColor Green
 
 # --- PHASE 0: CONFLICT RESOLUTION ---
 Write-Host ">>> PHASE 0: SANITIZING ENVIRONMENT..." -ForegroundColor Cyan
@@ -21,10 +21,16 @@ if ($ForceCleanup) {
     Write-Host "> Checking for ghost Node processes..." -ForegroundColor Gray
     Get-Process -Name "node" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-    # 2. Check for Docker conflicts (since user mentioned failed Docker attempts)
+    # 2. Check for Docker conflicts (Silent check for Daemon)
     if (Get-Command docker -ErrorAction SilentlyContinue) {
-        Write-Host "> Docker detected. Cleaning up stale OpenClaw containers..." -ForegroundColor Gray
-        docker ps -a -q --filter "name=openclaw" | ForEach-Object { docker stop $_; docker rm $_ } 2>$null
+        Write-Host "> Docker found. Attempting to clean OpenClaw containers..." -ForegroundColor Gray
+        # We try to list containers; if it fails (daemon off), we just skip
+        $dockerActive = docker ps -q 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            docker ps -a -q --filter "name=openclaw" | ForEach-Object { docker stop $_; docker rm $_ } 2>$null
+        } else {
+            Write-Host "- Docker daemon not reachable or not running. Skipping Docker cleanup." -ForegroundColor Gray
+        }
     }
 
     # 3. Check and free Port 3000
@@ -95,7 +101,7 @@ echo >>> STARTING OPENCLAW AGENT (GROK_OVERLORD)
 npm start"
 Set-Content -Path "$InstallDir\launch_agent.bat" -Value $StartScript
 
-Write-Host "`n>>> DEPLOYMENT SUCCESSFUL." -ForegroundColor Hex "#00FF41"
+Write-Host "`n>>> DEPLOYMENT SUCCESSFUL." -ForegroundColor Green
 Write-Host "Isolated folder: $InstallDir" -ForegroundColor White
 Write-Host "1. Run '$InstallDir\launch_agent.bat' to start." -ForegroundColor Cyan
 Write-Host "2. All ghost processes and Docker conflicts have been cleared." -ForegroundColor Yellow
