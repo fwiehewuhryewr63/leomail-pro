@@ -1,0 +1,65 @@
+{
+  "name": "leomail",
+  "version": "1.0.0",
+  "description": "LEOmail - Advanced Multi-Provider Email Registration & Management Platform",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "test:registration": "node tests/test-registration.js",
+    "test:performance": "node tests/test-performance.js",
+    "test:warmup": "node tests/test-warmup.js"
+  },
+  "keywords": [
+    "leomail",
+    "antidetect",
+    "gmail",
+    "yahoo",
+    "outlook",
+    "automation",
+    "ai-emails",
+    "smtp",
+    "imap"
+  ],
+  "author": "LEOmail Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "puppeteer-core": "^21.6.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "express": "^4.18.2",
+    "ws": "^8.14.2",
+    "axios": "^1.6.2",
+    "sqlite3": "^5.1.6",
+    "bcrypt": "^5.1.1",
+    "uuid": "^9.0.1",
+    "@faker-js/faker": "^8.3.1",
+    "node-cron": "^3.0.3",
+    "groq-sdk": "^0.3.0",
+    "proxy-chain": "^2.4.0",
+    "user-agents": "^1.1.0",
+    "nodemailer": "^6.9.7",
+    "imap": "^0.8.19",
+    "mailparser": "^3.6.5"
+  },
+  "build": {
+    "appId": "com.gmailautoreg.system",
+    "productName": "Gmail AutoReg Pro",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "resources/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    }
+  }
+}
