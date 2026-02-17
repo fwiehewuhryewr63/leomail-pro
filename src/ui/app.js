@@ -166,6 +166,25 @@ function showModal(title, htmlContent, onConfirm) {
     document.querySelector('.modal-close').onclick = () => overlay.style.display = 'none';
 }
 
+// --- ACTIONS ---
+window.deleteSession = async (id) => {
+    if (confirm('Delete session?')) {
+        await ipcRenderer.invoke('delete-account', id);
+        loadSessions();
+    }
+};
+
+window.openSession = async (id) => {
+    await ipcRenderer.invoke('launch-browser', id);
+};
+
+window.deleteProxy = async (id) => {
+    if (confirm('Delete proxy?')) {
+        await ipcRenderer.invoke('delete-proxy', id);
+        loadProxies();
+    }
+};
+
 // Initial Load
 switchView('sessions');
 setInterval(updateStatusBar, 5000);
