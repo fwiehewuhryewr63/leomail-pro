@@ -13,7 +13,7 @@ class SMSService {
             'grizzly': new GrizzlySMSService(),
             'simsms': new SimSMSService()
         };
-        this.priceHistory = {}; // Track success to reset price tier
+        this.priceHistory = {};
     }
 
     /**
@@ -86,12 +86,12 @@ class SMSService {
 }
 
 /**
- * SMS-Activate.org Service
+ * Base Service Protocol (SMS-Activate Standard)
  */
-class SMSActivateService {
+class BaseSMSTrotocol {
     constructor() {
         this.apiKey = '';
-        this.baseUrl = 'https://api.sms-activate.org/stubs/handler_api.php';
+        this.baseUrl = '';
     }
 
     setApiKey(key) {
@@ -121,7 +121,7 @@ class SMSActivateService {
 
             throw new Error(data);
         } catch (error) {
-            logger.error('SMS-Activate getNumber failed', error);
+            logger.error('Service getNumber failed', error);
             throw error;
         }
     }
@@ -136,68 +136,53 @@ class SMSActivateService {
                         api_key: this.apiKey,
                         action: 'getStatus',
                         id: activationId
-                    number: response.data.number
-                    };
-                }
-
-            throw new Error(response.data.msg || 'Failed to get number');
-            } catch (error) {
-                logger.error('OnlineSim getNumber failed', error);
-                throw error;
-            }
-        }
-
-    async getCode(activationId, timeout) {
-            const startTime = Date.now();
-
-            while (Date.now() - startTime < timeout) {
-                try {
-                    const response = await axios.get(`${this.baseUrl}/getState.php`, {
-                        params: {
-                            apikey: this.apiKey,
-                            tzid: activationId
-                        }
-                    });
-
-                    if (response.data[0] && response.data[0].msg) {
-                        const code = response.data[0].msg.match(/\d{6}/);
-                        if (code) {
-                            logger.success('SMS code received', { code: code[0] });
-                            return code[0];
-                        }
                     }
+                });
 
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                } catch (error) {
-                    logger.error('Error checking SMS status', error);
+                const data = response.data;
+
+                if (data.includes('STATUS_OK')) {
+                    const code = data.split(':')[1];
+                    logger.success('SMS code received', { code });
+                    return code;
                 }
+
+                if (data.includes('STATUS_CANCEL')) {
+                    throw new Error('Activation cancelled');
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            } catch (error) {
+                logger.error('Error checking SMS status', error);
             }
-
-            throw new Error('SMS code timeout');
         }
 
-    async cancel(activationId) {
-            await axios.get(`${this.baseUrl}/setOperationRevise.php`, {
-                params: {
-                    apikey: this.apiKey,
-                    tzid: activationId
-                }
-            });
-        }
-
-        getCountryCode(country) {
-            const codes = {
-                'us': 7,
-                'uk': 44,
-                'ca': 1
-            };
-            return codes[country.toLowerCase()] || 7;
-        }
+        throw new Error('SMS code timeout');
     }
 
+    async cancel(activationId) {
+        await axios.get(this.baseUrl, {
+            params: {
+                api_key: this.apiKey,
+                action: 'setStatus',
+                status: 8,
+                id: activationId
+            }
+        });
+    }
+
+    getCountryCode(country) {
+        const codes = {
+            'us': 0, // Default mapping, services might override
+            'uk': 16,
+            'ca': 36
+        };
+        return codes[country.toLowerCase()] || 0;
+    }
+}
+
 /**
- * GrizzlySMS Service (Standard Handler API)
- * https://grizzlysms.com/docs
+ * GrizzlySMS Service
  */
 class GrizzlySMSService extends BaseSMSTrotocol {
     constructor() {
@@ -209,7 +194,7 @@ class GrizzlySMSService extends BaseSMSTrotocol {
         const response = await axios.get(this.baseUrl, {
             params: { api_key: this.apiKey, action: 'getPrices', service: service === 'google' ? 'go' : service }
         });
-        // Grizzly returns nested object { country: { service: { cost: X, count: Y } } }
+
         const prices = {};
         for (const [countryId, services] of Object.entries(response.data)) {
             const srv = service === 'google' ? 'go' : service;
@@ -234,7 +219,7 @@ class SimSMSService extends BaseSMSTrotocol {
         const response = await axios.get(this.baseUrl, {
             params: { api_key: this.apiKey, action: 'getPrices', service: service === 'google' ? 'go' : service }
         });
-        return response.data; // SimSMS often returns direct pricing
+        return response.data;
     }
 }
 
