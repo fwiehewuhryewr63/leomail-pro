@@ -57,7 +57,7 @@ if (!$nodeVersion) {
 }
 Write-Host "v Environment Verified." -ForegroundColor Green
 
-# --- PHASE 2: INSTALLATION ---
+# --- PHASE 2: ISOLATED DEPLOYMENT ---
 Write-Host ">>> PHASE 2: ISOLATED DEPLOYMENT..." -ForegroundColor Cyan
 
 if (!(Test-Path $InstallDir)) {
@@ -67,13 +67,17 @@ Set-Location $InstallDir
 
 Write-Host "> Cloning fresh repository..." -ForegroundColor Gray
 git clone $RepoUrl . 2>$null
-if ($LASTEXITCODE -ne 0 -and !(Test-Path ".git")) {
-    Write-Host "X Git clone failed. Check internet connection." -ForegroundColor Red
+if (!(Test-Path "package.json")) {
+    Write-Host "X Repository content not found (clone failed). Check internet or GitHub access." -ForegroundColor Red
     Exit
 }
 
 Write-Host "> Installing dependencies (isolated)..." -ForegroundColor Gray
-npm install --silent --no-audit --no-fund
+# Using npm.cmd for better Windows compatibility
+& npm.cmd install --silent --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "! npm install returned an error. Agent might be unstable." -ForegroundColor Yellow
+}
 
 # --- PHASE 3: CONFIGURATION ---
 Write-Host ">>> PHASE 3: IDENTITY PROVISIONING..." -ForegroundColor Cyan

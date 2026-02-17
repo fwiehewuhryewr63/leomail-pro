@@ -19,32 +19,32 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="brand-icon">
-                <i class="fas fa-biohazard"></i>
+                <i class="fas fa-ghost"></i>
             </div>
             <nav class="nav-menu">
-                <div class="nav-item active" id="nav-sessions" title="Characters">
-                    <i class="fas fa-user-astronaut"></i>
-                    <span class="tooltip">Characters</span>
-                </div>
-                <div class="nav-item" id="nav-proxies" title="Gateways">
-                    <i class="fas fa-network-wired"></i>
-                    <span class="tooltip">Gateways</span>
-                </div>
-                <div class="nav-item" id="nav-warmup" title="Training">
-                    <i class="fas fa-dumbbell"></i>
-                    <span class="tooltip">Training</span>
-                </div>
-                <div class="nav-item" id="nav-mailer" title="Messaging">
-                    <i class="fas fa-terminal"></i>
-                    <span class="tooltip">Comms</span>
-                </div>
-                <div class="nav-item" id="nav-ai" title="AI Core">
-                    <i class="fas fa-brain"></i>
-                    <span class="tooltip">AI_Core</span>
-                </div>
-                <div class="nav-item" id="nav-settings" title="System">
+                <div class="nav-item active" id="nav-sessions" title="Agent Nodes">
                     <i class="fas fa-microchip"></i>
-                    <span class="tooltip">System</span>
+                    <span class="tooltip">Nodes</span>
+                </div>
+                <div class="nav-item" id="nav-proxies" title="Stream Intel">
+                    <i class="fas fa-satellite-dish"></i>
+                    <span class="tooltip">Intel</span>
+                </div>
+                <div class="nav-item" id="nav-warmup" title="Capabilities">
+                    <i class="fas fa-bolt"></i>
+                    <span class="tooltip">Power</span>
+                </div>
+                <div class="nav-item" id="nav-mailer" title="Command Terminal">
+                    <i class="fas fa-terminal"></i>
+                    <span class="tooltip">Shell</span>
+                </div>
+                <div class="nav-item" id="nav-ai" title="AI Brain">
+                    <i class="fas fa-brain"></i>
+                    <span class="tooltip">Brain</span>
+                </div>
+                <div class="nav-item" id="nav-settings" title="System Setup">
+                    <i class="fas fa-cog"></i>
+                    <span class="tooltip">Core</span>
                 </div>
             </nav>
             <div class="sidebar-footer">
@@ -57,20 +57,12 @@
         <!-- Main Content -->
         <main class="main-content">
 
-            <!-- VIEW: CHARACTERS (Sessions) -->
+            <!-- VIEW: AGENT NODES -->
             <div class="view active" id="sessions">
                 <div class="toolbar">
-                    <div class="terminal-text">>> SELECT_CHARACTER</div>
+                    <div class="terminal-text">>> ACTIVE_AGENT_NODES</div>
                     <div class="toolbar-group">
-                        <div class="search-bar">
-                            <span class="prompt">></span>
-                            <input type="text" id="session-search" placeholder="SEARCH_DB...">
-                        </div>
-                        <button class="btn btn-icon" id="refresh-sessions"><i class="fas fa-sync fa-spin"></i></button>
-                    </div>
-                    <div class="toolbar-group">
-                        <button class="btn btn-primary" id="btn-create-session">[+] SPAWN_NEW</button>
-                        <button class="btn btn-danger" id="btn-delete-selected">[x] TERMINATE</button>
+                        <button class="btn btn-primary" id="btn-refresh-agents">RESCAN_NETWORK</button>
                     </div>
                 </div>
 
@@ -78,73 +70,69 @@
                     <table class="data-grid">
                         <thead>
                             <tr>
-                                <th width="40">#</th>
-                                <th width="60">UID</th>
-                                <th width="200">IDENTITY (EMAIL)</th>
+                                <th width="100">NODE_ID</th>
+                                <th width="200">PROCESS_NAME</th>
                                 <th width="150">STATUS</th>
-                                <th width="150">GATEWAY</th>
-                                <th width="100">XP (WARMUP)</th>
-                                <th width="120">CREATION</th>
-                                <th width="100">ACTIONS</th>
+                                <th width="100">CPU_LOAD</th>
+                                <th width="100">RAM</th>
+                                <th>UPTIME</th>
+                                <th width="120">ACTIONS</th>
                             </tr>
                         </thead>
                         <tbody id="sessions-tbody">
-                            <!-- Rows injected by JS -->
+                            <!-- Injected: OpenClaw process info -->
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- VIEW: GATEWAYS (Proxies) -->
+            <!-- VIEW: STREAM INTEL (Intelligence Streams) -->
             <div class="view" id="proxies">
                 <div class="toolbar">
-                    <div class="terminal-text">>> GATEWAY_NODES</div>
+                    <div class="terminal-text">>> INTELLIGENCE_STREAMS</div>
                     <div class="toolbar-group">
-                        <button class="btn btn-primary" id="btn-add-proxy">ADD_NODE</button>
-                        <button class="btn btn-secondary" id="btn-check-proxies">PING_ALL</button>
+                        <button class="btn btn-primary">SYNC_STREAMS</button>
                     </div>
                 </div>
                 <div class="data-grid-container">
                     <table class="data-grid">
                         <thead>
                             <tr>
-                                <th>IP_ADDRESS</th>
-                                <th>PORT</th>
-                                <th>PROTO</th>
-                                <th>TYPE</th>
-                                <th>GEO</th>
-                                <th>SIGNAL</th>
+                                <th>STREAM_SOURCE</th>
+                                <th>PROTOCOL</th>
+                                <th>LATENCY</th>
+                                <th>DATA_THROUGHPUT</th>
+                                <th>SECURITY</th>
                                 <th>CMD</th>
                             </tr>
                         </thead>
-                        <tbody id="proxies-tbody">
-                            <!-- Rows injected by JS -->
-                        </tbody>
+                        <tbody id="proxies-tbody"></tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- VIEW: TRAINING (Warmup) -->
+            <!-- VIEW: CAPABILITIES (Agent Skills) -->
             <div class="view" id="warmup">
                 <div class="toolbar">
-                    <div class="terminal-text">>> TRAINING_PROGRAM</div>
-                    <div class="queue-stats">
-                        <span class="stat-tag">ACTIVE: <b id="warmup-active-count">0</b></span>
-                        <span class="stat-tag">QUEUED: <b id="warmup-pending-count">0</b></span>
-                    </div>
+                    <div class="terminal-text">>> AGENT_CAPABILITIES</div>
                 </div>
                 <div class="data-grid-container">
-                    <table class="data-grid">
-                        <thead>
-                            <tr>
-                                <th>SUBJECT</th>
-                                <th>CURRENT_DRILL</th>
-                                <th>PROGRESS</th>
-                                <th>LAST_LOG</th>
-                            </tr>
-                        </thead>
-                        <tbody id="warmup-tbody"></tbody>
-                    </table>
+                    <div class="ai-grid">
+                        <div class="ai-slot active">
+                            <div class="ai-slot-number"><i class="fas fa-terminal"></i></div>
+                            <div class="ai-input-group">
+                                <div>SHELL_EXECUTION</div>
+                                <div style="font-size:10px; color:var(--text-muted)">Enabled: Full access to OS</div>
+                            </div>
+                        </div>
+                        <div class="ai-slot active">
+                            <div class="ai-slot-number"><i class="fas fa-globe"></i></div>
+                            <div class="ai-input-group">
+                                <div>BROWSER_CONTROL</div>
+                                <div style="font-size:10px; color:var(--text-muted)">Enabled: Stealth navigation</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -164,17 +152,21 @@
                 </div>
             </div>
 
-            <!-- VIEW: COMMS (Mailer) - Full Width -->
+            <!-- VIEW: SHELL (Terminal) -->
             <div class="view" id="mailer">
                 <div class="toolbar">
-                    <div class="terminal-text">>> COMMS_LINK</div>
-                    <div class="toolbar-group">
-                        <button class="btn btn-primary" id="btn-refresh-mail">SYNC_INBOX</button>
-                    </div>
+                    <div class="terminal-text">>> OVERLORD_SHELL</div>
                 </div>
                 <div class="full-content-area" id="mail-content-area">
-                    <div class="empty-state">>> SELECT_CHARACTER_FROM_LIST</div>
-                    <!-- Mail list will be a modal or overlay now to keep full width -->
+                    <div id="terminal-output"
+                        style="flex:1; background:black; padding:15px; font-family:monospace; border:1px solid #003b00; overflow:auto;">
+                        [v] CONNECTED_TO_LOCAL_NODE...
+                        [i] WELCOME_TO_OPENCLAW_SHELL
+                    </div>
+                    <div class="search-bar" style="width:100%; margin-top:10px;">
+                        <span class="prompt">></span>
+                        <input type="text" placeholder="EXECUTE_COMMAND..." id="terminal-input">
+                    </div>
                 </div>
             </div>
 
