@@ -226,21 +226,37 @@ async function loadWarmupQueue() {
 
 // --- MAILER VIEW ---
 async function loadMailer() {
-    const list = document.getElementById('mailer-accounts-list');
+    const container = document.getElementById('mail-content-area');
     const accounts = await ipcRenderer.invoke('get-accounts');
 
     if (accounts.length === 0) {
-        list.innerHTML = '<div style="padding:20px">>> NO_DATA</div>';
+        container.innerHTML = '<div class="empty-state">>> NO_CHARACTERS_FOUND</div>';
         return;
     }
 
-    list.innerHTML = accounts.map(acc => `
-        <div class="nav-item" style="width:100%; justify-content:flex-start; padding:10px; height:auto; border-radius:4px; margin-bottom:5px;">
-            <i class="fas fa-user-secret" style="margin-right:10px"></i>
-            ${acc.email}
-        </div>
-    `).join('');
+    // Render Grid of Accounts to Select
+    let html = '<div class="ai-grid" style="grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));">';
+    accounts.forEach(acc => {
+        html += `
+            <div class="ai-slot" onclick="openMailInterface(${acc.id})" style="cursor:pointer; height:60px;">
+                <div class="ai-slot-number"><i class="fas fa-user-secret"></i></div>
+                <div class="ai-input-group">
+                    <div style="color:var(--matrix-green)">${acc.email}</div>
+                    <div style="font-size:10px; color:var(--text-muted)">ID: ${acc.id}</div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
 }
+
+window.openMailInterface = async (id) => {
+    // Placeholder for actual mail interactions
+    // In a real app, this would load the inbox for the selected ID
+    alert(`OPENING_COMMS_LINK: ${id}`);
+};
 
 // --- MODAL SYSTEM ---
 function showModal(title, htmlContent, onConfirm) {
