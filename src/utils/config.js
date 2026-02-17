@@ -56,8 +56,9 @@ class Config {
 
             // AI settings
             ai: {
-                provider: 'groq', // 'groq', 'huggingface', or 'openai'
-                apiKey: '',
+                provider: 'groq',
+                // keyPool: Array of { key: string, usage: number, addedAt: timestamp }
+                keyPool: [],
                 model: 'mixtral-8x7b-32768',
                 temperature: 0.7
             },

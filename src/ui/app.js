@@ -9,6 +9,7 @@ const views = {
     proxies: document.getElementById('proxies'),
     warmup: document.getElementById('warmup'),
     mailer: document.getElementById('mailer'),
+    ai: document.getElementById('ai-core'),
     settings: document.getElementById('settings')
 };
 
@@ -17,6 +18,7 @@ const navItems = {
     proxies: document.getElementById('nav-proxies'),
     warmup: document.getElementById('nav-warmup'),
     mailer: document.getElementById('nav-mailer'),
+    ai: document.getElementById('nav-ai'),
     settings: document.getElementById('nav-settings')
 };
 
@@ -43,8 +45,68 @@ async function refreshCurrentView() {
     if (currentView === 'sessions') loadSessions();
     if (currentView === 'proxies') loadProxies();
     if (currentView === 'warmup') loadWarmupQueue();
+    if (currentView === 'ai') loadAICore();
     if (currentView === 'settings') loadSettings();
 }
+
+// --- AI CORE VIEW ---
+async function loadAICore() {
+    const slots = await ipcRenderer.invoke('ai-get-keys');
+    const container = document.getElementById('ai-key-grid');
+    container.innerHTML = '';
+
+    let activeCount = 0;
+
+    slots.forEach((slot, index) => {
+        if (slot.active && slot.key) activeCount++;
+
+        // Calculate battery
+        const maxUsage = 1000; // Visual cap
+        const usage = slot.usage || 0;
+        const width = Math.max(0, Math.min(100, 100 - (usage / maxUsage * 100)));
+
+        let levelClass = '';
+        if (width < 50) levelClass = 'low';
+        if (width < 20) levelClass = 'critical';
+
+        const div = document.createElement('div');
+        div.className = `ai-slot ${slot.active && slot.key ? 'active' : ''}`;
+        div.innerHTML = `
+            <div class="ai-slot-number">${index + 1 < 10 ? '0' + (index + 1) : index + 1}</div>
+            <div class="ai-input-group">
+                <input type="password" class="ai-key-input" 
+                    value="${slot.key || ''}" 
+                    placeholder="ENTER_API_KEY..."
+                    onchange="updateAIKey(${index}, this.value)"
+                >
+                <div class="battery-container">
+                    <div class="battery-level ${levelClass}" style="width: ${width}%"></div>
+                </div>
+                <div class="usage-text">
+                    <span>PWR: ${Math.floor(width)}%</span>
+                    <span>USE: ${usage}</span>
+                </div>
+            </div>
+            <div class="slot-actions">
+                <button class="btn btn-icon" onclick="clearAIKey(${index})"><i class="fas fa-trash"></i></button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+
+    document.getElementById('ai-active-count').textContent = `${activeCount}/10`;
+}
+
+window.updateAIKey = async (index, key) => {
+    await ipcRenderer.invoke('ai-add-key', { key, index });
+    loadAICore(); // Refresh to show active state
+};
+
+window.clearAIKey = async (index) => {
+    await ipcRenderer.invoke('ai-remove-key', index);
+    loadAICore();
+};
+
 
 // --- STATUS BAR ---
 async function updateStatusBar() {

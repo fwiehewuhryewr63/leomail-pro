@@ -16,6 +16,7 @@ const AccountExporter = require('./export/account-exporter');
 const BalanceCalculator = require('./utils/balance-calculator');
 const config = require('./utils/config');
 const logger = require('./utils/logger');
+const AIKeyManager = require('./services/ai-key-manager');
 
 /**
  * Main Electron Application - LEOmail
@@ -95,6 +96,19 @@ async function initializeApp() {
 
 // IPC Handlers
 function setupIPCHandlers() {
+    // AI Core Handlers
+    ipcMain.handle('ai-get-keys', async () => {
+        return AIKeyManager.getKeys();
+    });
+
+    ipcMain.handle('ai-add-key', async (event, { key, index }) => {
+        return AIKeyManager.addKey(key, index);
+    });
+
+    ipcMain.handle('ai-remove-key', async (event, index) => {
+        return AIKeyManager.removeKey(index);
+    });
+
     // Registration
     ipcMain.handle('start-registration', async (event, count, provider) => {
         try {
