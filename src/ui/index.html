@@ -4,46 +4,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LEOmail Pro v6 [Sphere Edition]</title>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-        rel="stylesheet">
+    <title>THE MATRIX [v8.0]</title>
+    <!-- Matrix Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
+    <canvas id="matrix-bg"></canvas>
+    <div class="scanline"></div>
+
     <div class="app-container">
-        <!-- Sidebar (Slim) -->
+        <!-- Sidebar -->
         <aside class="sidebar">
             <div class="brand-icon">
-                <i class="fas fa-cube"></i>
+                <i class="fas fa-biohazard"></i>
             </div>
             <nav class="nav-menu">
-                <div class="nav-item active" id="nav-sessions" title="Session Manager">
-                    <i class="fas fa-list"></i>
-                    <span class="tooltip">Sessions</span>
+                <div class="nav-item active" id="nav-sessions" title="Characters">
+                    <i class="fas fa-user-astronaut"></i>
+                    <span class="tooltip">Characters</span>
                 </div>
-                <div class="nav-item" id="nav-proxies" title="Proxy Manager">
+                <div class="nav-item" id="nav-proxies" title="Gateways">
                     <i class="fas fa-network-wired"></i>
-                    <span class="tooltip">Proxies</span>
+                    <span class="tooltip">Gateways</span>
                 </div>
-                <div class="nav-item" id="nav-warmup" title="Warmup Process">
-                    <i class="fas fa-fire"></i>
-                    <span class="tooltip">Warmup</span>
+                <div class="nav-item" id="nav-warmup" title="Training">
+                    <i class="fas fa-dumbbell"></i>
+                    <span class="tooltip">Training</span>
                 </div>
-                <div class="nav-item" id="nav-mailer" title="Direct Mailer">
-                    <i class="fas fa-paper-plane"></i>
-                    <span class="tooltip">Mailer</span>
+                <div class="nav-item" id="nav-mailer" title="Messaging">
+                    <i class="fas fa-terminal"></i>
+                    <span class="tooltip">Comms</span>
                 </div>
-                <div class="nav-item" id="nav-settings" title="Configuration">
-                    <i class="fas fa-cog"></i>
-                    <span class="tooltip">Settings</span>
+                <div class="nav-item" id="nav-settings" title="System">
+                    <i class="fas fa-microchip"></i>
+                    <span class="tooltip">System</span>
                 </div>
             </nav>
             <div class="sidebar-footer">
-                <div class="nav-item" id="nav-export" title="Export Data">
-                    <i class="fas fa-download"></i>
+                <div class="nav-item" id="nav-export" title="Extract Data">
+                    <i class="fas fa-file-export"></i>
                 </div>
             </div>
         </aside>
@@ -51,20 +53,20 @@
         <!-- Main Content -->
         <main class="main-content">
 
-            <!-- VIEW: SESSIONS (Default) -->
+            <!-- VIEW: CHARACTERS (Sessions) -->
             <div class="view active" id="sessions">
                 <div class="toolbar">
+                    <div class="terminal-text">>> SELECT_CHARACTER</div>
                     <div class="toolbar-group">
                         <div class="search-bar">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="session-search" placeholder="Search sessions...">
+                            <span class="prompt">></span>
+                            <input type="text" id="session-search" placeholder="SEARCH_DB...">
                         </div>
-                        <button class="btn btn-icon" id="refresh-sessions"><i class="fas fa-sync"></i></button>
+                        <button class="btn btn-icon" id="refresh-sessions"><i class="fas fa-sync fa-spin"></i></button>
                     </div>
                     <div class="toolbar-group">
-                        <button class="btn btn-primary" id="btn-create-session"><i class="fas fa-plus"></i> Create
-                            Session</button>
-                        <button class="btn btn-danger" id="btn-delete-selected"><i class="fas fa-trash"></i></button>
+                        <button class="btn btn-primary" id="btn-create-session">[+] SPAWN_NEW</button>
+                        <button class="btn btn-danger" id="btn-delete-selected">[x] TERMINATE</button>
                     </div>
                 </div>
 
@@ -72,14 +74,14 @@
                     <table class="data-grid">
                         <thead>
                             <tr>
-                                <th width="40"><input type="checkbox" id="select-all-sessions"></th>
-                                <th width="60">ID</th>
-                                <th width="200">Values (Email)</th>
-                                <th width="150">Status</th>
-                                <th width="150">Proxy</th>
-                                <th width="100">Warmup</th>
-                                <th width="120">Created</th>
-                                <th width="100">Actions</th>
+                                <th width="40">#</th>
+                                <th width="60">UID</th>
+                                <th width="200">IDENTITY (EMAIL)</th>
+                                <th width="150">STATUS</th>
+                                <th width="150">GATEWAY</th>
+                                <th width="100">XP (WARMUP)</th>
+                                <th width="120">CREATION</th>
+                                <th width="100">ACTIONS</th>
                             </tr>
                         </thead>
                         <tbody id="sessions-tbody">
@@ -89,28 +91,26 @@
                 </div>
             </div>
 
-            <!-- VIEW: PROXIES -->
+            <!-- VIEW: GATEWAYS (Proxies) -->
             <div class="view" id="proxies">
                 <div class="toolbar">
-                    <h2>Proxy Manager</h2>
+                    <div class="terminal-text">>> GATEWAY_NODES</div>
                     <div class="toolbar-group">
-                        <button class="btn btn-primary" id="btn-add-proxy"><i class="fas fa-plus"></i> Add
-                            Proxies</button>
-                        <button class="btn btn-secondary" id="btn-check-proxies"><i class="fas fa-check-circle"></i>
-                            Check All</button>
+                        <button class="btn btn-primary" id="btn-add-proxy">ADD_NODE</button>
+                        <button class="btn btn-secondary" id="btn-check-proxies">PING_ALL</button>
                     </div>
                 </div>
                 <div class="data-grid-container">
                     <table class="data-grid">
                         <thead>
                             <tr>
-                                <th>Host</th>
-                                <th>Port</th>
-                                <th>Protocol</th>
-                                <th>Type</th>
-                                <th>Geo</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th>IP_ADDRESS</th>
+                                <th>PORT</th>
+                                <th>PROTO</th>
+                                <th>TYPE</th>
+                                <th>GEO</th>
+                                <th>SIGNAL</th>
+                                <th>CMD</th>
                             </tr>
                         </thead>
                         <tbody id="proxies-tbody">
@@ -120,24 +120,23 @@
                 </div>
             </div>
 
-            <!-- VIEW: WARMUP -->
+            <!-- VIEW: TRAINING (Warmup) -->
             <div class="view" id="warmup">
                 <div class="toolbar">
-                    <h2>Warmup Queue</h2>
+                    <div class="terminal-text">>> TRAINING_PROGRAM</div>
                     <div class="queue-stats">
-                        <span class="stat-tag">Active: <b id="warmup-active-count">0</b></span>
-                        <span class="stat-tag">Pending: <b id="warmup-pending-count">0</b></span>
+                        <span class="stat-tag">ACTIVE: <b id="warmup-active-count">0</b></span>
+                        <span class="stat-tag">QUEUED: <b id="warmup-pending-count">0</b></span>
                     </div>
                 </div>
-                <!-- Reusing data grid for consistency -->
                 <div class="data-grid-container">
                     <table class="data-grid">
                         <thead>
                             <tr>
-                                <th>Session</th>
-                                <th>Current Task</th>
-                                <th>Progress</th>
-                                <th>Last Action</th>
+                                <th>SUBJECT</th>
+                                <th>CURRENT_DRILL</th>
+                                <th>PROGRESS</th>
+                                <th>LAST_LOG</th>
                             </tr>
                         </thead>
                         <tbody id="warmup-tbody"></tbody>
@@ -145,65 +144,64 @@
                 </div>
             </div>
 
-            <!-- VIEW: MAILER -->
+            <!-- VIEW: COMMS (Mailer) -->
             <div class="view" id="mailer">
                 <div class="split-view">
                     <div class="split-sidebar">
                         <div class="toolbar-mini">
-                            <input type="text" class="mini-search" placeholder="Filter...">
+                            <div class="terminal-text">>> COMMS_LINK</div>
                         </div>
                         <div id="mailer-accounts-list" class="list-group">
                             <!-- Account list -->
                         </div>
                     </div>
                     <div class="split-content" id="mail-content-area">
-                        <div class="empty-state">Select a session to view mail</div>
-                        <!-- Mail UI injected here -->
+                        <div class="empty-state">>> AWAITING_CONNECTION...</div>
                     </div>
                 </div>
             </div>
 
-            <!-- VIEW: SETTINGS -->
+            <!-- VIEW: SYSTEM (Settings) -->
             <div class="view" id="settings">
                 <div class="settings-container">
                     <div class="settings-header">
-                        <h2>Global Configuration</h2>
+                        <h2>SYSTEM_CONFIG</h2>
                     </div>
 
                     <div class="settings-form">
                         <div class="form-section">
-                            <h3><i class="fas fa-sms"></i> SMS Provider</h3>
+                            <h3>[SMS_UPLINK]</h3>
                             <div class="form-row">
-                                <label>Grizzly SMS Key</label>
+                                <label>GRIZZLY_KEY</label>
                                 <input type="password" id="set-grizzly" class="sphere-input">
                             </div>
                             <div class="form-row">
-                                <label>SimSMS Key</label>
+                                <label>SIMSMS_KEY</label>
                                 <input type="password" id="set-simsms" class="sphere-input">
                             </div>
                         </div>
 
                         <div class="form-section">
-                            <h3><i class="fas fa-robot"></i> Captcha</h3>
+                            <h3>[SECURITY_BYPASS]</h3>
                             <div class="form-row">
-                                <label>Cap.Guru Key</label>
+                                <label>CAP_GURU_KEY</label>
                                 <input type="password" id="set-capguru" class="sphere-input">
                             </div>
                         </div>
 
                         <div class="form-section">
-                            <h3><i class="fas fa-dna"></i> System</h3>
+                            <h3>[CORE_PARAMS]</h3>
                             <div class="form-row">
-                                <label>Max Threads</label>
+                                <label>MAX_THREADS</label>
                                 <input type="number" id="set-threads" class="sphere-input" value="35">
                             </div>
                             <div class="form-row">
-                                <label>Groq AI Key</label>
+                                <label>AI_CORE_KEY (GROQ)</label>
                                 <input type="password" id="set-groq" class="sphere-input">
                             </div>
                         </div>
 
-                        <button class="btn btn-success btn-block" id="btn-save-settings">Save Configuration</button>
+                        <button class="btn btn-success btn-block" id="btn-save-settings">COMMIT_CHANGES</button>
                     </div>
                 </div>
             </div>
@@ -212,29 +210,28 @@
 
         <!-- Status Bar -->
         <footer class="status-bar">
-            <div class="status-item"><i class="fas fa-server"></i> Total: <span id="sb-total">0</span></div>
-            <div class="status-item"><i class="fas fa-check"></i> Warmed: <span id="sb-warmed">0</span></div>
-            <div class="status-item"><i class="fas fa-bolt"></i> Threads: <span id="sb-threads">0</span></div>
-            <div class="status-item right"><span id="sb-version">v6.0.0 Sphere</span></div>
+            <div class="status-item"><i class="fas fa-users"></i> TOT: <span id="sb-total">0</span></div>
+            <div class="status-item"><i class="fas fa-check-circle"></i> LVL_MAX: <span id="sb-warmed">0</span></div>
+            <div class="status-item"><i class="fas fa-bolt"></i> CPU: <span id="sb-threads">0</span></div>
+            <div class="status-item right"><span id="sb-version">MATRIX_v8.0</span></div>
         </footer>
     </div>
 
-    <!-- Sphere Modal (Universal) -->
+    <!-- Modal -->
     <div id="ui-modal" class="modal-overlay" style="display: none;">
         <div class="modal-window">
             <div class="modal-header">
-                <h3 id="modal-title">Title</h3>
+                <h3 id="modal-title">SYSTEM_MESSAGE</h3>
                 <button class="modal-close">&times;</button>
             </div>
-            <div class="modal-content" id="modal-body">
-                <!-- Injected -->
-            </div>
+            <div class="modal-content" id="modal-body"></div>
             <div class="modal-actions" id="modal-actions">
-                <button class="btn btn-primary" id="modal-confirm-btn">OK</button>
+                <button class="btn btn-primary" id="modal-confirm-btn">ACKNOWLEDGE</button>
             </div>
         </div>
     </div>
 
+    <script src="matrix.js"></script> <!-- Matrix Rain -->
     <script src="app.js"></script>
 </body>
 
