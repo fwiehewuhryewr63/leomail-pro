@@ -34,17 +34,25 @@ echo.
 echo [3/6] Обновление кода...
 where git >nul 2>&1
 if %errorlevel% equ 0 (
-    git stash >nul 2>&1
-    git pull origin main
-    if %errorlevel% neq 0 (
-        echo [WARN] git pull не удался, пробуем force...
-        git fetch --all
-        git reset --hard origin/main
+    if not exist ".git" (
+        echo [INIT] Git не инициализирован, клонируем...
+        cd ..
+        git clone https://github.com/fwiehewuhryewr63/leomail-pro.git Leomail_new
+        xcopy /E /I /Y "Leomail_new\*" "Leomail\" >nul 2>&1
+        rd /s /q Leomail_new >nul 2>&1
+        cd Leomail
+    ) else (
+        git stash >nul 2>&1
+        git pull origin main
+        if %errorlevel% neq 0 (
+            echo [WARN] git pull не удался, пробуем force...
+            git fetch --all
+            git reset --hard origin/main
+        )
     )
     echo [OK] Код обновлён
 ) else (
-    echo [WARN] Git не установлен — пропускаем git pull
-    echo        Скопируйте обновлённые файлы вручную
+    echo [WARN] Git не установлен — пропускаем
 )
 
 REM === 4. Update Python dependencies ===
