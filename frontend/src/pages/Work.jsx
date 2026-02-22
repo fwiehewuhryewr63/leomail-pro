@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 export default function Work() {
     const { t } = useI18n();

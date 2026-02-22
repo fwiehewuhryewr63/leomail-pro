@@ -3,7 +3,7 @@ import {
     UserCircle, Upload, FileUp, Trash2, Calendar, FileText, CheckCircle, ChevronDown, ChevronUp, Type
 } from 'lucide-react';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 const formatDate = (iso) => {
     if (!iso) return '—';

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 const SERVICE_KEYS = [
     { key: 'simsms_key', configPath: ['sms', 'simsms', 'api_key'], name: 'SimSMS', desc: 'SMS верификация (default)', required: true, service: 'simsms', services: ['Birth (все провайдеры)'] },

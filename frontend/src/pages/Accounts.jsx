@@ -4,7 +4,7 @@ import {
     ChevronDown, X, AlertTriangle, Calendar, Globe
 } from 'lucide-react';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 const statusConfig = {
     new: { label: 'Новый', color: '#64748b', icon: <Clock size={12} /> },

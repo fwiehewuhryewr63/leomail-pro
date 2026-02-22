@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Plus, Trash2, Eye, X, Upload, Package, AlertTriangle, CheckCircle, Archive } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 const VAR_COLORS = {
     LINK: '#d4a853',

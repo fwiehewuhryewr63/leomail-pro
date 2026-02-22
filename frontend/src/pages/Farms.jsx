@@ -4,7 +4,7 @@ import {
     Activity, Calendar, Mail, AlertTriangle, TrendingUp
 } from 'lucide-react';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 export default function Farms() {
     const [farms, setFarms] = useState([]);

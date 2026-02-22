@@ -6,7 +6,7 @@ import {
 import { useI18n } from '../i18n/I18nContext';
 import { useNavigate } from 'react-router-dom';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 export default function Dashboard() {
     const [s, setS] = useState({});

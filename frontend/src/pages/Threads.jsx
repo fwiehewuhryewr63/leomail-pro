@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, Cpu, RefreshCw, Play, CheckCircle, XCircle, Clock, Eye, Monitor, StopCircle, Square } from 'lucide-react';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 const statusMap = {
     running: { icon: Play, color: 'var(--accent)', label: 'Работает', bg: 'rgba(212,168,38,0.08)' },

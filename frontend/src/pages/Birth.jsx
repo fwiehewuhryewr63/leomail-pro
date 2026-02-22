@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 const PROVIDERS = [
     { id: 'gmail', name: 'Gmail', color: '#EA4335', icon: '📮', sms: 'simsms', mobileHint: true },

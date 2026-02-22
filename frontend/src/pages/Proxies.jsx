@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Shield, Upload, Trash2, RefreshCw, CheckCircle, XCircle, Clock, Wifi, WifiOff, Globe2, Calendar, Edit3, Link2, Unlink, Save, X, Zap } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 export default function Proxies() {
     const { t } = useI18n();

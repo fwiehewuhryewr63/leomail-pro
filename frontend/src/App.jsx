@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { I18nProvider } from './i18n/I18nContext';
+import { API } from './api';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Birth from './pages/Birth';
@@ -23,7 +24,7 @@ function App() {
 
   useEffect(() => {
     const check = () =>
-      fetch('http://localhost:8000/api/health')
+      fetch(`${API}/health`)
         .then(r => r.json())
         .then(() => setStatus('online'))
         .catch(() => setStatus('offline'));

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Database, Upload, Trash2, Eye, CheckCircle, X, Crown, Mail, User, Users as UsersIcon } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
-const API = 'http://localhost:8000/api';
+import { API } from '../api';
 
 export default function Databases() {
     const { t } = useI18n();
