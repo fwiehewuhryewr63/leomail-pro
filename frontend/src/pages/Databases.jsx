@@ -1,0 +1,274 @@
+import React, { useState, useEffect } from 'react';
+import { Database, Upload, Trash2, Eye, CheckCircle, X, Crown, Mail, User, Users as UsersIcon } from 'lucide-react';
+import { useI18n } from '../i18n/I18nContext';
+
+const API = 'http://localhost:8000/api';
+
+export default function Databases() {
+    const { t } = useI18n();
+    const [databases, setDatabases] = useState([]);
+    const [showUpload, setShowUpload] = useState(false);
+    const [uploadName, setUploadName] = useState('');
+    const [uploadText, setUploadText] = useState('');
+    const [detectedFormat, setDetectedFormat] = useState('email');
+    const [preview, setPreview] = useState(null);
+    const [selected, setSelected] = useState(new Set());
+
+    const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+    const toggleAll = () => setSelected(prev => prev.size === databases.length ? new Set() : new Set(databases.map(d => d.id)));
+    const batchDelete = async () => {
+        if (!confirm(`Удалить ${selected.size} баз?`)) return;
+        await fetch(`${API}/databases/batch-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected] }) });
+        setSelected(new Set()); load();
+    };
+
+    const load = () => fetch(`${API}/databases/`).then(r => r.json()).then(d => setDatabases(Array.isArray(d) ? d : [])).catch(() => { });
+    useEffect(() => { load(); }, []);
+
+    const detectFormat = (text) => {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l && l.includes('@'));
+        if (lines.length === 0) return 'email';
+        const firstLine = lines[0];
+        const parts = firstLine.split(',').map(p => p.trim());
+        if (parts.length >= 3) return 'email_first_last';
+        if (parts.length === 2) return 'email_first';
+        return 'email';
+    };
+
+    const parseEntries = (text) => {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+        return lines.map(l => {
+            const parts = l.split(',').map(p => p.trim());
+            const email = parts[0] || '';
+            if (!email.includes('@')) return null;
+            return {
+                email,
+                first_name: parts[1] || '',
+                last_name: parts[2] || '',
+            };
+        }).filter(Boolean);
+    };
+
+    const uploadDB = async () => {
+        if (!uploadName || !uploadText.trim()) return;
+        const entries = parseEntries(uploadText);
+        if (entries.length === 0) return;
+
+        const data = await (await fetch(`${API}/databases/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: uploadName, entries })
+        })).json();
+        if (data.error) { alert(data.error); return; }
+        setUploadName(''); setUploadText(''); setShowUpload(false); load();
+    };
+
+    const deleteDB = async (id) => { if (!confirm(t('confirmDeleteDB'))) return; await fetch(`${API}/databases/${id}`, { method: 'DELETE' }); load(); };
+    const viewDB = async (id) => setPreview(await (await fetch(`${API}/databases/${id}`)).json());
+
+    const handleFile = (e) => {
+        const file = e.dataTransfer?.files[0] || e.target?.files[0];
+        if (file) {
+            if (!uploadName) setUploadName(file.name.replace(/\.[^/.]+$/, ""));
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const text = ev.target.result;
+                setUploadText(text);
+                setDetectedFormat(detectFormat(text));
+            };
+            reader.readAsText(file);
+        }
+    };
+
+    // Auto-detect on text change
+    useEffect(() => {
+        if (uploadText.trim()) {
+            setDetectedFormat(detectFormat(uploadText));
+        }
+    }, [uploadText]);
+
+    const detectedCount = uploadText.trim() ? parseEntries(uploadText).length : 0;
+
+    const FORMAT_INFO = {
+        email: {
+            label: '{{EMAILNAME}}',
+            desc: 'Только email',
+            color: 'var(--text-muted)',
+            example: 'john@gmail.com\nanna@yahoo.com\nmike@outlook.com',
+        },
+        email_first: {
+            label: '{{EMAILNAME}},{{FIRSTNAME}}',
+            desc: 'Email + Имя',
+            color: 'var(--info)',
+            example: 'john@gmail.com,John\nanna@yahoo.com,Anna\nmike@outlook.com,Mike',
+        },
+        email_first_last: {
+            label: '{{EMAILNAME}},{{FIRSTNAME}},{{LASTNAME}}',
+            desc: 'Email + Имя + Фамилия',
+            color: 'var(--accent)',
+            example: 'john@gmail.com,John,Smith\nanna@yahoo.com,Anna,Johnson\nmike@outlook.com,Mike,Brown',
+        },
+    };
+
+    const fmt = FORMAT_INFO[detectedFormat];
+
+    return (
+        <div className="page">
+            <h2 className="page-title"><Database size={22} /> {t('databasesTitle')}</h2>
+
+            <button className="btn btn-primary" onClick={() => setShowUpload(!showUpload)} style={{ marginBottom: 16 }}>
+                <Upload size={14} /> {t('uploadDatabase')}
+            </button>
+
+            {showUpload && (
+                <div className="card" style={{ marginBottom: 16 }}>
+                    <div className="card-title">{t('uploadRecipients')}</div>
+
+                    <div className="form-group">
+                        <label className="form-label">{t('databaseName')}</label>
+                        <input className="form-input" value={uploadName} onChange={e => setUploadName(e.target.value)}
+                            placeholder="USA Finance 2024..." />
+                    </div>
+
+                    {/* Format detection */}
+                    <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Supported Formats
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                            {Object.entries(FORMAT_INFO).map(([key, info]) => (
+                                <div key={key} style={{
+                                    padding: '10px 12px', borderRadius: 8,
+                                    border: detectedFormat === key ? `2px solid ${info.color}` : '1px solid var(--border-subtle)',
+                                    background: detectedFormat === key ? `${info.color}10` : 'var(--bg-elevated)',
+                                    transition: 'all 0.2s',
+                                }}>
+                                    <div style={{ fontSize: '0.72em', fontWeight: 700, color: detectedFormat === key ? info.color : 'var(--text-muted)', marginBottom: 3 }}>
+                                        {info.desc}
+                                    </div>
+                                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65em', color: 'var(--text-secondary)' }}>
+                                        {info.label}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Example */}
+                    <div style={{
+                        padding: '10px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 12,
+                        background: `${fmt.color}08`,
+                        border: `1px solid ${fmt.color}25`,
+                        fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78em', color: 'var(--text-secondary)',
+                    }}>
+                        <div style={{ color: fmt.color, fontWeight: 700, marginBottom: 4 }}>
+                            {t('format')}: {fmt.label}
+                        </div>
+                        {fmt.example.split('\n').map((line, i) => <div key={i}>{line}</div>)}
+                    </div>
+
+                    {/* Text area */}
+                    <div className="form-group">
+                        <div onDrop={e => { e.preventDefault(); handleFile(e); }} onDragOver={e => e.preventDefault()}
+                            style={{ border: '2px dashed var(--border-hover)', borderRadius: 12, padding: 8 }}>
+                            <textarea className="form-input" value={uploadText} onChange={e => setUploadText(e.target.value)}
+                                placeholder={"email@example.com,Name,LastName\nemail2@example.com,Name2\nemail3@example.com\n\n" + (t('orDragFile') || 'or drag & drop a .txt/.csv file')}
+                                rows={8}
+                                style={{ border: 'none', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em' }} />
+                        </div>
+                        <div style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{detectedCount > 0 ? `${detectedCount} ${t('recipientsDetected')}` : t('supportedFormats')}</span>
+                            {detectedCount > 0 && (
+                                <span style={{ color: fmt.color, fontWeight: 600 }}>
+                                    Format: {FORMAT_INFO[detectedFormat].desc}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <input type="file" accept=".txt,.csv" onChange={handleFile} style={{ display: 'none' }} id="db-file-input" />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn btn-primary" onClick={uploadDB} disabled={!uploadName || detectedCount === 0}>
+                            <CheckCircle size={14} /> {t('upload')} ({detectedCount})
+                        </button>
+                        <label htmlFor="db-file-input" className="btn" style={{ cursor: 'pointer' }}>{t('browseFile')}</label>
+                    </div>
+                </div>
+            )}
+
+            {databases.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
+                    <Database size={36} style={{ opacity: 0.3, marginBottom: 12 }} /><br />{t('noDatabases')}
+                </div>
+            ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                    {/* Batch select bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85em' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-muted)' }}>
+                            <input type="checkbox" checked={selected.size === databases.length && databases.length > 0} onChange={toggleAll} /> Выбрать всё
+                        </label>
+                        {selected.size > 0 && (
+                            <button className="btn btn-danger btn-sm" onClick={batchDelete} style={{ marginLeft: 'auto' }}>
+                                <Trash2 size={12} /> Удалить выбранные ({selected.size})
+                            </button>
+                        )}
+                    </div>
+                    {databases.map(d => (
+                        <div key={d.id} className="card" style={{ border: selected.has(d.id) ? '1px solid var(--danger)' : undefined }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} style={{ accentColor: 'var(--danger)' }} />
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span style={{ fontWeight: 600, fontSize: '0.9em' }}>{d.name}</span>
+                                            {d.with_name && (
+                                                <span style={{
+                                                    background: 'var(--gradient-primary)', color: '#000',
+                                                    padding: '1px 8px', borderRadius: 4, fontSize: '0.6em',
+                                                    fontWeight: 800, letterSpacing: '0.05em'
+                                                }}>
+                                                    <Crown size={8} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} />
+                                                    WITH NAMES
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>
+                                            {d.total_count?.toLocaleString()} {t('total')} · {d.used_count?.toLocaleString()} {t('used')} · {(d.total_count - d.used_count)?.toLocaleString()} {t('remaining')}
+                                            {d.invalid_count > 0 && <span style={{ color: 'var(--danger)' }}> · {d.invalid_count} {t('invalid')}</span>}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                    <button className="btn btn-sm" onClick={() => viewDB(d.id)}><Eye size={13} /></button>
+                                    <button className="btn btn-sm btn-danger" onClick={() => deleteDB(d.id)}><Trash2 size={13} /></button>
+                                </div>
+                            </div>
+                            <div style={{ marginTop: 8, width: '100%', height: 4, background: 'var(--bg-input)', borderRadius: 2, overflow: 'hidden' }}>
+                                <div style={{ width: `${d.total_count > 0 ? (d.used_count / d.total_count * 100) : 0}%`, height: '100%', background: 'var(--gradient-primary)', borderRadius: 2 }} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {preview && (
+                <div className="modal-overlay" onClick={() => setPreview(null)}>
+                    <div className="card modal-content" onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <div className="card-title" style={{ margin: 0 }}>{preview.name}</div>
+                            <button className="btn btn-sm" onClick={() => setPreview(null)}><X size={14} /></button>
+                        </div>
+                        <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginBottom: 12 }}>
+                            {t('first') || 'First'} {preview.preview?.length} {t('of') || 'of'} {preview.total_count}
+                        </div>
+                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78em', maxHeight: 320, overflow: 'auto' }}>
+                            {preview.preview?.map((e, i) => (
+                                <div key={i} style={{ padding: '3px 0', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>{e}</div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

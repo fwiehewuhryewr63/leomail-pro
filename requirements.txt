@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+requests
+loguru
+pyyaml
+psutil
+aiohttp
+aiohttp-socks
+beautifulsoup4
+python-multipart
+playwright

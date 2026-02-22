@@ -1,0 +1,32 @@
+# === User data (NEVER push to git) ===
+user_data/
+user_data_backup*/
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# === Node / Frontend ===
+frontend/node_modules/
+frontend/dist/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === OS ===
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# === Logs ===
+*.log
+
+# === Playwright ===
+browser_profiles/
