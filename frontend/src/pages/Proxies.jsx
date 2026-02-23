@@ -294,10 +294,8 @@ export default function Proxies() {
                                 <th>GEO</th>
                                 <th>{t('proxyExpires')}</th>
                                 <th style={{ textAlign: 'center', fontSize: '0.7em' }}>G</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>Y</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>A</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>O</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>H</th>
+                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>YA</th>
+                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>OH</th>
                                 <th>BOUND TO</th>
                                 <th>ACTIONS</th>
                             </tr>
@@ -356,11 +354,11 @@ export default function Proxies() {
                                             ) : '—'}
                                         </td>
 
-                                        {/* Per-provider usage G/Y/A/O/H */}
-                                        {['gmail', 'yahoo', 'aol', 'outlook', 'hotmail'].map(prov => {
-                                            const cnt = p[`use_${prov}`] || 0;
+                                        {/* Per-provider group usage G/YA/OH */}
+                                        {['G', 'YA', 'OH'].map(group => {
+                                            const cnt = p[`use_${group}`] || 0;
                                             return (
-                                                <td key={prov} style={{
+                                                <td key={group} style={{
                                                     textAlign: 'center', fontWeight: 600, fontSize: '0.8em',
                                                     color: cnt >= 3 ? 'var(--danger)' : cnt >= 2 ? 'var(--warning)' : cnt > 0 ? 'var(--text-primary)' : 'var(--text-muted)'
                                                 }}>
