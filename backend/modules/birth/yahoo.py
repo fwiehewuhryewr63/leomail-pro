@@ -540,10 +540,20 @@ async def register_single_yahoo(
                             "invalid phone",
                             "try another number",
                             "provide another one",
+                            "something went wrong",
+                            "oops",
+                            "error occurred",
+                            "can't proceed",
+                            "unable to verify",
+                            "try again later",
                             "не поддерживается",
                             "неверный номер",
                         ]
                         is_rejected = any(phrase.lower() in page_text.lower() for phrase in rejection_phrases)
+                        if is_rejected:
+                            # Log which phrase matched for debugging
+                            matched = [p for p in rejection_phrases if p.lower() in page_text.lower()]
+                            _log(f"Yahoo ошибка на странице: {matched}")
                     except Exception:
                         is_rejected = False
 
@@ -569,8 +579,20 @@ async def register_single_yahoo(
                             except Exception:
                                 pass
                             return None
-                        phone_accepted = True
-                        break
+
+                        # Check if we ACTUALLY moved from the phone page
+                        # If still on /account/create with phone form visible, phone was NOT accepted
+                        try:
+                            phone_still_visible = await page.locator(phone_page_input).first.is_visible()
+                        except Exception:
+                            phone_still_visible = False
+
+                        if phone_still_visible:
+                            _log("⚠️ Форма телефона всё ещё видна — номер не принят, пробуем другой")
+                            is_rejected = True
+                        else:
+                            phone_accepted = True
+                            break
 
                     # Phone rejected — cancel old number and get a new one
                     _log(f"Yahoo отклонил номер {display_phone} — берём новый")
