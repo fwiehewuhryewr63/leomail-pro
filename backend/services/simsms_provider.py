@@ -150,7 +150,7 @@ class SimSmsProvider:
         """
         import random
         if not countries:
-            return self.order_cheapest_number(service)
+            return self.order_best_number(service)
 
         service_code = SERVICE_CODES.get(service, "go")
         available = [c for c in countries if not blacklist or c not in blacklist]
@@ -185,26 +185,29 @@ class SimSmsProvider:
 
         return {"error": f"Нет номеров ни в одной из {len(available)} стран"}
 
-    def order_cheapest_number(self, service: str = "gmail") -> dict:
+    def order_best_number(self, service: str = "gmail") -> dict:
         """
-        Auto-select cheapest country and order number.
-        Tries getPrices first, falls back to cheap country list.
+        Auto-select MOST EXPENSIVE country for best quality real numbers.
+        Sorts by price descending — premium providers first.
         """
         service_code = SERVICE_CODES.get(service, "go")
 
-        # Try to get prices and find cheapest
+        # Get prices and sort by MOST EXPENSIVE first
         price_data = self.get_prices(service)
-        cheap_countries = price_data.get("prices", [])
+        all_countries = price_data.get("prices", [])
 
-        if cheap_countries:
-            # Try top 5 cheapest countries
-            for entry in cheap_countries[:5]:
+        if all_countries:
+            # Sort descending by cost — most expensive = best quality
+            all_countries.sort(key=lambda x: x["cost"], reverse=True)
+            # Try top 5 most expensive countries
+            for entry in all_countries[:5]:
                 country_code = entry["country_code"]
-                logger.info(f"SimSMS: trying {entry['country']} ({country_code}) — ${entry['cost']} ({entry['count']} avail)")
+                logger.info(f"SimSMS: trying PREMIUM {entry['country']} ({country_code}) — ${entry['cost']} ({entry['count']} avail)")
                 result = self._request("getNumber", service=service_code, country=country_code)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
                     if len(parts) >= 3:
+                        logger.info(f"SimSMS: got PREMIUM number from {entry['country']} (${entry['cost']})")
                         return {
                             "id": parts[1],
                             "number": parts[2],
@@ -214,23 +217,7 @@ class SimSmsProvider:
                         }
                 logger.info(f"SimSMS: {entry['country']} failed: {result}")
 
-        # Fallback: try a list of typically cheap countries
-        fallback_countries = ["id", "ph", "ke", "ng", "ru", "ua", "kz", "br", "mx"]
-        for country in fallback_countries:
-            country_code = COUNTRY_CODES.get(country, country)
-            result = self._request("getNumber", service=service_code, country=country_code)
-            if result.startswith("ACCESS_NUMBER:"):
-                parts = result.split(":")
-                if len(parts) >= 3:
-                    logger.info(f"SimSMS: got number from {country} (fallback)")
-                    return {
-                        "id": parts[1],
-                        "number": parts[2],
-                        "country": country,
-                        "service": service,
-                    }
-
-        return {"error": "Нет доступных номеров ни в одной стране"}
+        return {"error": "Нет доступных premium номеров"}
 
     def order_number(self, service: str = "gmail", country: str = "auto") -> dict:
         """
@@ -239,9 +226,9 @@ class SimSmsProvider:
         Response: ACCESS_NUMBER:$id:$number
         Errors: NO_NUMBERS, NO_BALANCE, BAD_KEY, BAD_SERVICE
         """
-        # Auto-cheapest mode
+        # Auto-best mode (most expensive = best quality)
         if country == "auto":
-            return self.order_cheapest_number(service)
+            return self.order_best_number(service)
 
         service_code = SERVICE_CODES.get(service, "go")
         country_code = COUNTRY_CODES.get(country, country)
