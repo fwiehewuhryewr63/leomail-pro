@@ -65,20 +65,20 @@ async def register_single_outlook(
     )
 
     def _log(msg: str):
-        tid = thread_log.id if thread_log else '?'
-        logger.info(f"[Outlook][#{tid}] {msg}")
+        n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
+        logger.info(f"[Outlook][Поток {n}] {msg}")
         if thread_log:
-            thread_log.current_action = f"#{thread_log.id} {msg}"
+            thread_log.current_action = f"Поток {n}: {msg}"
             try:
                 db.commit()
             except Exception:
                 pass
 
     def _err(msg: str):
-        tid = thread_log.id if thread_log else '?'
-        logger.error(f"[Outlook][#{tid}] {msg}")
+        n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
+        logger.error(f"[Outlook][Поток {n}] {msg}")
         if thread_log:
-            thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
+            thread_log.error_message = f"Поток {n}: {msg}"[:500]
             try:
                 db.commit()
             except Exception:
