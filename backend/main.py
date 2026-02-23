@@ -93,6 +93,38 @@ async def startup_event():
         except Exception:
             pass  # table may not exist yet
 
+        # tasks — stop_reason (graceful termination)
+        try:
+            task_cols = [c["name"] for c in inspector.get_columns("tasks")]
+            task_migrations = {
+                "stop_reason": "VARCHAR",
+            }
+            for col, col_type in task_migrations.items():
+                if col not in task_cols:
+                    conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Migrated: added {col} column to tasks")
+        except Exception:
+            pass
+
+        # proxies — per-provider usage counters
+        try:
+            proxy_cols2 = [c["name"] for c in inspector.get_columns("proxies")]
+            proxy_extra = {
+                "use_gmail": "INTEGER DEFAULT 0",
+                "use_yahoo": "INTEGER DEFAULT 0",
+                "use_aol": "INTEGER DEFAULT 0",
+                "use_outlook": "INTEGER DEFAULT 0",
+                "use_hotmail": "INTEGER DEFAULT 0",
+            }
+            for col, col_type in proxy_extra.items():
+                if col not in proxy_cols2:
+                    conn.execute(text(f"ALTER TABLE proxies ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Migrated: added {col} column to proxies")
+        except Exception:
+            pass
+
     # Initialize user_data directories
     init_directories()
 
