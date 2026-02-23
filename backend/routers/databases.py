@@ -290,6 +290,56 @@ async def batch_delete_databases(req: dict, db: Session = Depends(get_db)):
     db.commit()
     return {"deleted": len(recs)}
 
+
+@router.post("/{db_id}/reset-progress")
+async def reset_progress(db_id: int, db: Session = Depends(get_db)):
+    """Reset used_count and clear MailingStats for this database's recipients."""
+    from ..models import MailingStats
+
+    rec = db.query(RecipientDatabase).filter(RecipientDatabase.id == db_id).first()
+    if not rec:
+        return {"error": "Database not found"}
+
+    # Load emails from this database
+    emails_to_reset = set()
+    try:
+        fp = Path(rec.file_path)
+        if fp.exists() and fp.suffix == '.json':
+            entries = json.loads(fp.read_text(encoding='utf-8'))
+            for entry in entries:
+                email = entry.get("email", "").strip().lower()
+                if email:
+                    emails_to_reset.add(email)
+        elif fp.exists():
+            with open(fp, "r", encoding="utf-8") as f:
+                for line in f:
+                    email = line.strip().split(",")[0].strip().lower()
+                    if "@" in email:
+                        emails_to_reset.add(email)
+    except Exception as e:
+        logger.error(f"Error reading database file: {e}")
+
+    # Delete MailingStats entries for these emails
+    cleared = 0
+    if emails_to_reset:
+        cleared = db.query(MailingStats).filter(
+            MailingStats.recipient_email.in_(emails_to_reset),
+            MailingStats.status == "sent",
+        ).delete(synchronize_session=False)
+
+    # Reset used_count
+    old_used = rec.used_count
+    rec.used_count = 0
+    db.commit()
+
+    logger.info(f"Reset progress for '{rec.name}': used_count {old_used} → 0, cleared {cleared} stats")
+    return {
+        "ok": True,
+        "database": rec.name,
+        "cleared_stats": cleared,
+        "old_used_count": old_used,
+    }
+
 @router.delete("/{db_id}")
 async def delete_database(db_id: int, db: Session = Depends(get_db)):
     rec = db.query(RecipientDatabase).filter(RecipientDatabase.id == db_id).first()

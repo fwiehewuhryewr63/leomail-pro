@@ -563,15 +563,35 @@ async def run_work_task(
 
         # 2. Recipients
         all_recipients = []
+        db_records_for_tracking = []  # track DB records to update used_count
         for db_id in database_ids:
             db_record = db.query(RecipientDatabase).get(db_id)
             if db_record:
                 all_recipients.extend(_load_recipients(db_record))
+                db_records_for_tracking.append(db_record)
 
         if not all_recipients:
             logger.error("Work: no recipients loaded")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
                         stop_reason="Процесс завершился потому что — нет получателей в выбранных базах (базы пусты или не найдены)")
+            db.add(task); db.commit()
+            return
+
+        # Filter out already-sent recipients (skip those already in MailingStats)
+        sent_rows = db.query(MailingStats.recipient_email).filter(
+            MailingStats.status == "sent"
+        ).all()
+        already_sent = {row[0] for row in sent_rows}
+        before_filter = len(all_recipients)
+        all_recipients = [r for r in all_recipients if r["email"] not in already_sent]
+        skipped = before_filter - len(all_recipients)
+        if skipped > 0:
+            logger.info(f"Work: filtered {skipped} already-sent, {len(all_recipients)} remaining")
+
+        if not all_recipients:
+            logger.warning("Work: all recipients already sent")
+            task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — все получатели в выбранных базах уже получили письма (повторная отправка не нужна)")
             db.add(task); db.commit()
             return
 
@@ -693,6 +713,13 @@ async def run_work_task(
                     )
                     task.completed_items = (task.completed_items or 0) + result["sent"]
                     task.failed_items = (task.failed_items or 0) + result["errors"]
+
+                    # Update used_count on recipient databases
+                    if result["sent"] > 0:
+                        per_db = max(1, result["sent"] // max(1, len(db_records_for_tracking)))
+                        for db_rec in db_records_for_tracking:
+                            db_rec.used_count = (db_rec.used_count or 0) + per_db
+
                     db.commit()
 
                     # Check if links exhausted after this session

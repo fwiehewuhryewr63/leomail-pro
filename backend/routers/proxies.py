@@ -36,6 +36,7 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "id": p.id,
             "host": p.host,
             "port": p.port,
+            "username": p.username or "",
             "protocol": p.protocol,
             "proxy_type": p.proxy_type,
             "status": p.status,

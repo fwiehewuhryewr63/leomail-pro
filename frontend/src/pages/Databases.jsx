@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Upload, Trash2, Eye, CheckCircle, X, Crown, Mail, User, Users as UsersIcon } from 'lucide-react';
+import { Database, Upload, Trash2, Eye, CheckCircle, X, Crown, Mail, User, Users as UsersIcon, RefreshCw } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
 import { API } from '../api';
@@ -233,19 +233,47 @@ export default function Databases() {
                                             )}
                                         </div>
                                         <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>
-                                            {d.total_count?.toLocaleString()} {t('total')} · {d.used_count?.toLocaleString()} {t('used')} · {(d.total_count - d.used_count)?.toLocaleString()} {t('remaining')}
+                                            {d.total_count?.toLocaleString()} {t('total')}
+                                            {d.used_count > 0 && (
+                                                <span style={{ color: 'var(--success)', fontWeight: 600 }}> · Отправлено {Math.round(d.used_count / d.total_count * 100)}%</span>
+                                            )}
+                                            {' · '}{t('remaining')}: <span style={{ fontWeight: 600, color: (d.total_count - d.used_count) === 0 ? 'var(--success)' : 'var(--accent)' }}>{(d.total_count - d.used_count)?.toLocaleString()}</span>
                                             {d.invalid_count > 0 && <span style={{ color: 'var(--danger)' }}> · {d.invalid_count} {t('invalid')}</span>}
                                         </div>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: 4 }}>
                                     <button className="btn btn-sm" onClick={() => viewDB(d.id)}><Eye size={13} /></button>
+                                    {d.used_count > 0 && (
+                                        <button className="btn btn-sm" title="Сбросить прогресс" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+                                            onClick={async () => {
+                                                if (!confirm(`Сбросить прогресс базы "${d.name}"? Все получатели станут доступны для повторной рассылки.`)) return;
+                                                const res = await (await fetch(`${API}/databases/${d.id}/reset-progress`, { method: 'POST' })).json();
+                                                if (res.ok) {
+                                                    alert(`Прогресс сброшен! Очищено ${res.cleared_stats} записей`);
+                                                    load();
+                                                }
+                                            }}><RefreshCw size={13} /></button>
+                                    )}
                                     <button className="btn btn-sm btn-danger" onClick={() => deleteDB(d.id)}><Trash2 size={13} /></button>
                                 </div>
                             </div>
-                            <div style={{ marginTop: 8, width: '100%', height: 4, background: 'var(--bg-input)', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{ width: `${d.total_count > 0 ? (d.used_count / d.total_count * 100) : 0}%`, height: '100%', background: 'var(--gradient-primary)', borderRadius: 2 }} />
-                            </div>
+                            {(() => {
+                                const pct = d.total_count > 0 ? Math.round(d.used_count / d.total_count * 100) : 0;
+                                const barColor = pct >= 100 ? '#22c55e' : pct > 50 ? 'var(--gradient-primary)' : 'var(--gradient-primary)';
+                                return (
+                                    <div style={{ marginTop: 8, position: 'relative' }}>
+                                        <div style={{ width: '100%', height: 6, background: 'var(--bg-input)', borderRadius: 3, overflow: 'hidden' }}>
+                                            <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
+                                        </div>
+                                        {pct > 0 && (
+                                            <div style={{ fontSize: '0.6em', color: 'var(--text-muted)', textAlign: 'right', marginTop: 2 }}>
+                                                {pct}% прослано
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     ))}
                 </div>

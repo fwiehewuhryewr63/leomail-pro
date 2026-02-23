@@ -134,7 +134,7 @@ export default function Proxies() {
 
     const startEdit = (proxy) => {
         setEditingId(proxy.id);
-        setEditData({ host: proxy.host, port: proxy.port, username: '', password: '' });
+        setEditData({ host: proxy.host, port: proxy.port, username: proxy.username || '', password: '' });
     };
 
     const cancelEdit = () => { setEditingId(null); setEditData({}); };
@@ -324,20 +324,25 @@ export default function Proxies() {
                                             ) : p.port}
                                         </td>
 
-                                        <td><span className="badge" style={{
+                                        <td>{isEditing ? (
+                                            <input className="form-input" placeholder="login" style={{ fontSize: '0.8em', padding: '2px 6px', width: 90 }}
+                                                value={editData.username} onChange={e => setEditData({ ...editData, username: e.target.value })} />
+                                        ) : <span className="badge" style={{
                                             background: (p.proxy_type || 'http') === 'socks5' ? 'rgba(139,92,246,0.2)' : (p.proxy_type || 'http') === 'mobile' ? 'rgba(251,191,36,0.2)' : 'rgba(59,130,246,0.2)',
                                             color: (p.proxy_type || 'http') === 'socks5' ? '#a78bfa' : (p.proxy_type || 'http') === 'mobile' ? '#fbbf24' : '#60a5fa',
-                                        }}>{(p.proxy_type || 'http').toUpperCase()}</span></td>
-                                        <td>
-                                            {p.status === 'active' ? (
-                                                <span className="badge badge-success"><CheckCircle size={10} /> ALIVE</span>
-                                            ) : p.status === 'free' ? (
-                                                <span className="badge badge-warning"><Globe2 size={10} /> FREE</span>
-                                            ) : p.status === 'dead' ? (
-                                                <span className="badge badge-danger"><XCircle size={10} /> DEAD</span>
-                                            ) : (
-                                                <span className="badge badge-danger"><Clock size={10} /> {p.status || '—'}</span>
-                                            )}
+                                        }}>{(p.proxy_type || 'http').toUpperCase()}</span>}</td>
+                                        <td>{isEditing ? (
+                                            <input className="form-input" placeholder="password" type="password" style={{ fontSize: '0.8em', padding: '2px 6px', width: 90 }}
+                                                value={editData.password} onChange={e => setEditData({ ...editData, password: e.target.value })} />
+                                        ) : p.status === 'active' ? (
+                                            <span className="badge badge-success"><CheckCircle size={10} /> ALIVE</span>
+                                        ) : p.status === 'free' ? (
+                                            <span className="badge badge-warning"><Globe2 size={10} /> FREE</span>
+                                        ) : p.status === 'dead' ? (
+                                            <span className="badge badge-danger"><XCircle size={10} /> DEAD</span>
+                                        ) : (
+                                            <span className="badge badge-danger"><Clock size={10} /> {p.status || '—'}</span>
+                                        )}
                                         </td>
                                         <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: 'var(--text-muted)' }}>
                                             {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
