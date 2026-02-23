@@ -52,7 +52,7 @@
   --info: #74b9ff;
 
   /* ── Dimensions — COMPACT ── */
-  --sidebar-width: 210px;
+  --sidebar-width: 220px;
   --radius-xs: 5px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -70,7 +70,7 @@
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14.5px;
+  font-size: 15px;
   color-scheme: dark;
 }
 
@@ -328,7 +328,7 @@ body::before {
 }
 
 .page {
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
   animation: pageIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
