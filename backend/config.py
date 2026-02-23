@@ -13,7 +13,8 @@ DEFAULT_CONFIG = {
         "grizzly": {"api_key": "", "enabled": False}
     },
     "captcha": {
-        "capguru": {"api_key": "", "enabled": True}
+        "capguru": {"api_key": "", "enabled": True},
+        "twocaptcha": {"api_key": "", "enabled": True}
     },
 
     "proxies": [],
