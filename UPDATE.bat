@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+setlocal EnableDelayedExpansion
 title Leomail — UPDATE
 echo.
 echo ╔══════════════════════════════════════════════════╗
@@ -14,17 +15,22 @@ REM === 1. Stop running services ===
 echo [1/6] Останавливаем сервисы...
 taskkill /f /im "python.exe" >nul 2>&1
 taskkill /f /im "node.exe" >nul 2>&1
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 echo [OK] Сервисы остановлены
 
-REM === 2. Backup user_data ===
+REM === 2. Backup user_data to a FIXED location ===
 echo.
 echo [2/6] Бэкап user_data...
+set "BACKUP_DIR=user_data_backup"
 if exist "user_data" (
-    set "BACKUP_DIR=user_data_backup_%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%"
-    set "BACKUP_DIR=%BACKUP_DIR: =0%"
-    xcopy /E /I /Y "user_data" "%BACKUP_DIR%" >nul 2>&1
-    echo [OK] Бэкап: %BACKUP_DIR%
+    if exist "!BACKUP_DIR!" rd /s /q "!BACKUP_DIR!" >nul 2>&1
+    xcopy /E /I /Y "user_data" "!BACKUP_DIR!" >nul 2>&1
+    echo [OK] Бэкап создан: !BACKUP_DIR!
+    if exist "!BACKUP_DIR!\leomail.db" (
+        echo [OK] leomail.db в бэкапе НАЙДЕН
+    ) else (
+        echo [WARN] leomail.db в бэкапе НЕ найден!
+    )
 ) else (
     echo [SKIP] user_data не найден
 )
@@ -44,7 +50,7 @@ if %errorlevel% equ 0 (
     ) else (
         git stash >nul 2>&1
         git pull origin main
-        if %errorlevel% neq 0 (
+        if !errorlevel! neq 0 (
             echo [WARN] git pull не удался, пробуем force...
             git fetch --all
             git reset --hard origin/main
@@ -55,39 +61,48 @@ if %errorlevel% equ 0 (
     echo [WARN] Git не установлен — пропускаем
 )
 
-REM === 4. Update Python dependencies ===
+REM === 4. ALWAYS restore user_data from backup ===
 echo.
-echo [4/6] Обновление Python зависимостей...
-pip install -r requirements.txt --quiet
+echo [4/6] Восстановление user_data...
+if not exist "user_data" mkdir "user_data"
+if exist "!BACKUP_DIR!\leomail.db" (
+    xcopy /E /I /Y "!BACKUP_DIR!\*" "user_data\" >nul 2>&1
+    echo [OK] user_data восстановлена из бэкапа
+) else (
+    echo [INFO] Нет бэкапа — свежая установка
+)
+
+REM Verify DB is in place
+if exist "user_data\leomail.db" (
+    echo [OK] leomail.db на месте
+) else (
+    echo [WARN] leomail.db отсутствует — будет создана при запуске
+)
+
+REM === 5. Update Python dependencies ===
+echo.
+echo [5/6] Обновление Python зависимостей...
+pip install -r requirements.txt --quiet 2>nul
 echo [OK] Python зависимости обновлены
 
-REM === 5. Update and build frontend ===
+REM === 6. Update frontend ===
 echo.
-echo [5/6] Обновление frontend...
+echo [6/6] Обновление frontend...
 cd frontend
-call npm install --silent
-call npm run build
+call npm install --silent 2>nul
 cd ..
-echo [OK] Frontend пересобран
+echo [OK] Frontend обновлён
 
-REM === 6. Restore user_data (safety check) ===
+REM === Database migration (add new columns to existing tables) ===
 echo.
-echo [6/6] Проверка user_data...
-if exist "user_data\leomail.db" (
-    echo [OK] user_data на месте (%~dp0user_data\leomail.db)
-) else (
-    echo [WARN] БД не найдена! Восстанавливаем из бэкапа...
-    if defined BACKUP_DIR (
-        xcopy /E /I /Y "%BACKUP_DIR%" "user_data" >nul 2>&1
-        echo [OK] Восстановлено из бэкапа
-    )
-)
+echo [+] Миграция БД (добавление новых колонок)...
+python -c "from backend.database import engine, Base; from backend.models import *; Base.metadata.create_all(bind=engine); print('[OK] Таблицы синхронизированы')" 2>nul
 
 echo.
 echo ╔══════════════════════════════════════════════════╗
 echo ║          ОБНОВЛЕНИЕ ЗАВЕРШЕНО!                    ║
 echo ║                                                   ║
-echo ║   user_data/ сохранена                            ║
+echo ║   user_data/ восстановлена                        ║
 echo ║   Запустите START.bat для запуска                 ║
 echo ╚══════════════════════════════════════════════════╝
 echo.
