@@ -659,16 +659,46 @@ async def register_single_yahoo(
             _log("Ожидание SMS кода Yahoo...")
             _log(f"Страница: {page.url}")
 
-            # Yahoo uses 6 individual digit inputs: #verify-code-0 to #verify-code-5
+            # Check if Yahoo redirected to challenge/fail BEFORE waiting for code
+            sms_url = page.url
+            if 'challenge/fail' in sms_url or '/error' in sms_url:
+                _err(f"Yahoo перенаправил на challenge/fail после телефона: {sms_url}")
+                await _debug_screenshot(page, "yahoo_challenge_after_phone", _log)
+                # Try solving captcha on this page
+                captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+                if not captcha_solved:
+                    try:
+                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                    except Exception:
+                        pass
+                    return None
+                await _human_delay(3, 5)
+
+            # Yahoo uses various code input formats:
+            # - 6 individual digit inputs: #verify-code-0 to #verify-code-5
+            # - Single code input: input[name="code"]
+            # - Other variations
             first_digit = await _wait_for_any(page, [
                 'input#verify-code-0', 'input[aria-label="Code 1"]',
                 'input[name="code"]', 'input[name="verificationCode"]',
-            ], timeout=15000)
+                'input[name="verify_code"]', 'input[type="tel"][maxlength="1"]',
+                'input[data-type="code"]', 'input.phone-code',
+                'input[autocomplete="one-time-code"]',
+            ], timeout=30000)
 
             if first_digit:
                 _log(f"✅ Поле SMS кода найдено: {first_digit}")
             else:
                 _log("⚠️ Поле SMS кода НЕ НАЙДЕНО — Yahoo не показал форму верификации!")
+                _log(f"Текущий URL: {page.url}")
+                await _debug_screenshot(page, "yahoo_no_sms_field", _log)
+                # Log page text for debugging
+                try:
+                    body_text = await page.locator('body').inner_text()
+                    # Take first 300 chars to see what Yahoo shows
+                    _log(f"Текст страницы: {body_text[:300]}")
+                except Exception:
+                    pass
 
             sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
             sms_code = None
