@@ -230,7 +230,8 @@ class GrizzlySMS(SMSProvider):
 
             for country in order:
                 country_code = GRIZZLY_COUNTRY_CODES.get(country, country)
-                result = self._request("getNumber", service=service_code, country=country_code)
+                # Use getNumberV2 with maxPrice for premium real numbers
+                result = self._request("getNumberV2", service=service_code, country=country_code, maxPrice=150)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
                     if len(parts) >= 3:
@@ -259,28 +260,18 @@ class GrizzlySMS(SMSProvider):
         service_code = GRIZZLY_SERVICE_CODES.get(service, "go")
 
         if country == "auto":
-            # Let Grizzly auto-select (pass "any" or empty)
-            result = self._request("getNumber", service=service_code, country="any")
+            # Use getNumberV2 with maxPrice for premium real numbers (not virtual)
+            result = self._request("getNumberV2", service=service_code, country="any", maxPrice=150)
             if result.startswith("ACCESS_NUMBER:"):
                 parts = result.split(":")
                 if len(parts) >= 3:
-                    logger.info(f"GrizzlySMS: got number (auto)")
+                    logger.info(f"GrizzlySMS: got PREMIUM number (auto, maxPrice=150)")
                     self._last_country = "auto"
                     return {"id": parts[1], "number": parts[2], "country": "auto", "service": service}
 
-            # Fallback — try cheap countries manually
-            fallback = ["6", "4", "8", "19", "0", "1", "2", "10", "54"]
-            for cc in fallback:
-                result = self._request("getNumber", service=service_code, country=cc)
-                if result.startswith("ACCESS_NUMBER:"):
-                    parts = result.split(":")
-                    if len(parts) >= 3:
-                        logger.info(f"GrizzlySMS: got number from country {cc} (fallback)")
-                        return {"id": parts[1], "number": parts[2], "service": service}
-
-            # Map error
+            # Map error (no cheap fallback — we want quality numbers only)
             error_map = {
-                "NO_NUMBERS": "Нет свободных номеров",
+                "NO_NUMBERS": "Нет свободных номеров (premium)",
                 "NO_BALANCE": "Недостаточно средств",
                 "BAD_KEY": "Неверный API ключ",
                 "BAD_SERVICE": "Неверный сервис",
@@ -288,9 +279,9 @@ class GrizzlySMS(SMSProvider):
             }
             return {"error": error_map.get(result, f"GrizzlySMS: {result}")}
 
-        # Specific country
+        # Specific country — use getNumberV2 with maxPrice for premium
         country_code = GRIZZLY_COUNTRY_CODES.get(country, country)
-        result = self._request("getNumber", service=service_code, country=country_code)
+        result = self._request("getNumberV2", service=service_code, country=country_code, maxPrice=150)
         if result.startswith("ACCESS_NUMBER:"):
             parts = result.split(":")
             if len(parts) >= 3:

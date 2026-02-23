@@ -303,8 +303,10 @@ class ProxyManager:
 
         return None
 
-    async def get_verified_unbound_proxy_async(self, proxy_type: str = None, protocol: str = None) -> Proxy | None:
-        """Async version of get_verified_unbound_proxy."""
+    async def get_verified_unbound_proxy_async(self, proxy_type: str = None, protocol: str = None, exclude_ids: set = None) -> Proxy | None:
+        """Async version of get_verified_unbound_proxy.
+        exclude_ids: set of proxy IDs to skip (blacklisted/burned).
+        """
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
@@ -313,6 +315,8 @@ class ProxyManager:
             query = query.filter(Proxy.proxy_type == proxy_type)
         if protocol:
             query = query.filter(Proxy.protocol == protocol)
+        if exclude_ids:
+            query = query.filter(~Proxy.id.in_(exclude_ids))
 
         candidates = query.all()
         if not candidates:

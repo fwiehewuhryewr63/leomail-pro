@@ -2418,8 +2418,10 @@ async def run_birth_task(request: BirthRequest):
 
                     thread_log = None
                     try:
-                        # Get a verified proxy
-                        proxy = await proxy_manager.get_verified_unbound_proxy_async()
+                        # Get a verified proxy (excluding blacklisted/burned ones)
+                        proxy = await proxy_manager.get_verified_unbound_proxy_async(
+                            exclude_ids=proxy_blacklist
+                        )
                         if not proxy and proxy_pool:
                             logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting...")
                             await asyncio.sleep(5)
@@ -2446,12 +2448,6 @@ async def run_birth_task(request: BirthRequest):
                             name_pair = name_pool[idx]
                             name_index[0] += 1
                         worker_name_pool = [name_pair]
-
-                        # Skip proxies that got E500/banned for this provider
-                        if proxy and proxy.id in proxy_blacklist:
-                            logger.debug(f"[Birth] Worker {worker_id}: skipping banned proxy {proxy.host}")
-                            await asyncio.sleep(1)
-                            continue
 
                         # Inject SMS country: proxy GEO takes priority
                         if sms:
