@@ -207,6 +207,18 @@ export default function Birth() {
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>{packsOpen ? '▲' : '▼'}</span>
                         </div>
                     </div>
+                    {/* Show selected pack names when closed */}
+                    {!packsOpen && selectedNamePacks.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                            {namePacks.filter(np => selectedNamePacks.includes(np.id)).map(np => (
+                                <span key={np.id} style={{
+                                    fontSize: '0.75em', padding: '2px 8px', borderRadius: 4,
+                                    background: 'rgba(var(--accent-rgb, 0,255,157), 0.12)',
+                                    color: 'var(--accent)', fontWeight: 600
+                                }}>{np.name} ({np.total_count})</span>
+                            ))}
+                        </div>
+                    )}
                     {packsOpen && (
                         <div style={{ marginTop: 10, maxHeight: 200, overflowY: 'auto' }}>
                             {namePacks.length === 0 ? (
