@@ -225,7 +225,7 @@ export default function Proxies() {
                     if (!confirm(`Удалить ${dead} мёртвых прокси?`)) return;
                     const res = await fetch(`${API}/proxies/dead`, { method: 'DELETE' });
                     const d = await res.json();
-                    alert(`Удалено ${d.deleted} мёртвых прокси` + (d.unbound_accounts ? `, отвязано ${d.unbound_accounts} акк.` : ''));
+                    alert(`Удалено ${d.deleted} мёртвых прокси` + (d.unbound_accounts ? `, отвязано ${d.unbound_accounts} аккаунтов` : ''));
                     loadProxies();
                 }}>
                     <Trash2 size={15} /> Очистить мёртвые {dead > 0 && `(${dead})`}

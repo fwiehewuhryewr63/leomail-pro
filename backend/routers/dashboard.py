@@ -21,6 +21,7 @@ async def stop_all_tasks(db: Session = Depends(get_db)):
     for t in running_tasks:
         t.status = TaskStatus.FAILED
         t.details = "Остановлено пользователем"
+        t.stop_reason = "Остановлено пользователем (глобальная остановка)"
         stopped_tasks += 1
 
         # If birth task, add to BIRTH_CANCEL set for in-flight workers

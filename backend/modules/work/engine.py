@@ -531,8 +531,11 @@ async def run_work_task(
     from ...models import Template, LinkDatabase
 
     db = SessionLocal()
+    task = None
     try:
-        # Load farms + accounts
+        # ─── PRE-FLIGHT: Load & validate all resources ───
+
+        # 1. Accounts
         farms = db.query(Farm).filter(Farm.id.in_(farm_ids)).all()
         all_accounts = []
         for farm in farms:
@@ -541,9 +544,12 @@ async def run_work_task(
 
         if not accounts:
             logger.error("Work: no eligible accounts")
+            task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — нет доступных аккаунтов в выбранных фермах")
+            db.add(task); db.commit()
             return
 
-        # Load recipients from all databases
+        # 2. Recipients
         all_recipients = []
         for db_id in database_ids:
             db_record = db.query(RecipientDatabase).get(db_id)
@@ -552,12 +558,15 @@ async def run_work_task(
 
         if not all_recipients:
             logger.error("Work: no recipients loaded")
+            task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — нет получателей в выбранных базах (базы пусты или не найдены)")
+            db.add(task); db.commit()
             return
 
         # Shuffle recipients to avoid patterns
         random.shuffle(all_recipients)
 
-        # Load links from link databases (text files, one URL per line)
+        # 3. Links
         all_link_urls = []
         for ldb_id in link_database_ids:
             ldb = db.query(LinkDatabase).get(ldb_id)
@@ -571,14 +580,25 @@ async def run_work_task(
                         lines = [l.strip() for l in f if l.strip().startswith("http")]
                         all_link_urls.extend(lines)
 
+        # If link packs were selected but no links loaded — stop
+        if link_database_ids and not all_link_urls:
+            logger.error("Work: link packs selected but no links loaded")
+            task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — выбраны паки ссылок, но ссылки не загружены (файлы пусты или не найдены)")
+            db.add(task); db.commit()
+            return
+
         link_rotator = LinkRotator(all_link_urls, max_uses=max_link_uses)
 
-        # Load templates
+        # 4. Templates
         templates = db.query(Template).filter(Template.id.in_(template_ids)).all()
         template_triples = [(t.name, t.subject, t.body) for t in templates]
 
         if not template_triples:
             logger.error("Work: no templates")
+            task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — нет шаблонов для рассылки")
+            db.add(task); db.commit()
             return
 
         logger.info(
@@ -586,16 +606,20 @@ async def run_work_task(
             f"{len(all_link_urls)} links, {len(template_triples)} templates, {threads} threads"
         )
 
-        # Create task
+        # ─── CREATE TASK ───
         task = Task(
             type="work",
             status=TaskStatus.RUNNING,
             total_items=len(all_recipients),
             thread_count=threads,
-            details=f"Sending to {len(all_recipients)} recipients via {len(accounts)} accounts",
+            details=f"Отправка {len(all_recipients)} получателям через {len(accounts)} аккаунтов",
         )
         db.add(task)
         db.commit()
+
+        # Shared flag: set when a critical resource is exhausted mid-process
+        links_exhausted = [False]
+        exhaustion_reason = [None]
 
         # Distribute recipients across accounts evenly
         per_account = max(1, len(all_recipients) // len(accounts))
@@ -607,6 +631,13 @@ async def run_work_task(
             if batch:
                 account_batches.append((account, batch))
 
+        if not account_batches:
+            task.status = TaskStatus.STOPPED
+            task.stop_reason = "Процесс завершился потому что — нет данных для распределения по аккаунтам"
+            task.completed_at = datetime.utcnow()
+            db.commit()
+            return
+
         # Start browser engine
         browser_manager = BrowserManager(headless=False)
         await browser_manager.start()
@@ -616,6 +647,10 @@ async def run_work_task(
 
             async def process_account(account, recipients_batch):
                 async with semaphore:
+                    # Check if another thread already detected resource exhaustion
+                    if links_exhausted[0]:
+                        return
+
                     thread_log = ThreadLog(
                         task_id=task.id,
                         thread_type="work",
@@ -648,16 +683,32 @@ async def run_work_task(
                     task.failed_items = (task.failed_items or 0) + result["errors"]
                     db.commit()
 
+                    # Check if links exhausted after this session
+                    if link_database_ids and link_rotator.next() is None and max_link_uses > 0:
+                        links_exhausted[0] = True
+                        exhaustion_reason[0] = "Поток завершился потому что — ссылки для писем закончились (все использованы до лимита)"
+                        logger.warning(f"Work [{account.email}]: links exhausted — signaling stop")
+
             # Launch all account workers with staggered start
             async_tasks = []
             for account, batch in account_batches:
+                if links_exhausted[0]:
+                    break
                 jitter = random.uniform(0, 30)
                 await asyncio.sleep(jitter)
                 async_tasks.append(asyncio.create_task(process_account(account, batch)))
 
             await asyncio.gather(*async_tasks, return_exceptions=True)
 
-            task.status = TaskStatus.COMPLETED
+            # Determine final status
+            if exhaustion_reason[0]:
+                task.status = TaskStatus.STOPPED
+                task.stop_reason = exhaustion_reason[0]
+                logger.warning(f"Work task stopped: {exhaustion_reason[0]}")
+            else:
+                task.status = TaskStatus.COMPLETED
+                task.stop_reason = None
+
             task.completed_at = datetime.utcnow()
             db.commit()
 
@@ -666,5 +717,13 @@ async def run_work_task(
 
     except Exception as e:
         logger.error(f"Work task failed: {e}")
+        if task and task.id:
+            try:
+                task.status = TaskStatus.FAILED
+                task.stop_reason = f"Процесс завершился потому что — критическая ошибка: {str(e)[:200]}"
+                task.completed_at = datetime.utcnow()
+                db.commit()
+            except Exception:
+                pass
     finally:
         db.close()

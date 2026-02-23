@@ -101,7 +101,7 @@ export default function Work() {
                             onClick={() => toggle(selectedFarms, setSelectedFarms, f.id)}
                             style={{ textAlign: 'left', padding: '10px 14px', gap: 4, flexDirection: 'column', alignItems: 'flex-start' }}>
                             <span style={{ fontWeight: 700, fontSize: '0.95em' }}>{f.name}</span>
-                            <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} акк.</span>
+                            <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} аккаунтов</span>
                         </button>
                     ))}
                 </div>
@@ -221,7 +221,7 @@ export default function Work() {
                 <div style={{ display: 'flex', gap: 20, fontSize: '0.82em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
                     <span>👥 Аккаунтов: <strong style={{ color: 'var(--accent)' }}>{totalAccounts}</strong></span>
                     <span>📬 Получателей: <strong style={{ color: 'var(--accent)' }}>{totalRecipients}</strong></span>
-                    <span>📧 Писем/акк: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
+                    <span>📧 Писем/аккаунт: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
                     <span>📝 Шаблонов: <strong style={{ color: 'var(--accent)' }}>{selectedTemplates.length}</strong></span>
                     <span>🔗 Паков ссылок: <strong style={{ color: 'var(--accent)' }}>{selectedLinkPacks.length}</strong></span>
                     <span>🧵 Потоков: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>

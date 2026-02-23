@@ -81,6 +81,7 @@ async def warmup_status(db: Session = Depends(get_db)):
             "completed": running.completed_items or 0,
             "failed": running.failed_items or 0,
             "status": "running",
+            "stop_reason": running.stop_reason,
         }
 
     last = db.query(Task).filter(Task.type == "warmup").order_by(Task.created_at.desc()).first()
@@ -92,6 +93,7 @@ async def warmup_status(db: Session = Depends(get_db)):
             "completed": last.completed_items or 0,
             "failed": last.failed_items or 0,
             "status": last.status,
+            "stop_reason": last.stop_reason,
         }
     return {"running": False, "task_id": None}
 
@@ -150,8 +152,10 @@ async def stop_warmup(mode: str = "instant", db: Session = Depends(get_db)):
         if mode == "instant":
             t.status = TaskStatus.FAILED
             t.details = "Остановлено пользователем (мгновенно)"
+            t.stop_reason = "Остановлено пользователем"
         else:
             t.details = "Остановка: ждём завершения потоков..."
+            t.stop_reason = "Остановлено пользователем (ожидание потоков)"
         stopped += 1
 
     # Stop running thread logs

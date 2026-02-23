@@ -697,7 +697,10 @@ async def run_warmup_task(
     3. Receiver accounts reply to received emails
     """
     db = SessionLocal()
+    task = None
     try:
+        # ─── PRE-FLIGHT CHECKS ───
+
         # Get sender accounts
         sender_farms = db.query(Farm).filter(Farm.id.in_(sender_farm_ids)).all()
         sender_accounts = []
@@ -714,9 +717,15 @@ async def run_warmup_task(
 
         if not sender_accounts:
             logger.error("Warmup: no sender accounts in selected farms")
+            task = Task(type="warmup", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — нет доступных аккаунтов-отправителей в выбранных фермах")
+            db.add(task); db.commit()
             return
         if not receiver_accounts:
             logger.error("Warmup: no receiver accounts in selected farms")
+            task = Task(type="warmup", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — нет доступных аккаунтов-получателей в выбранных фермах")
+            db.add(task); db.commit()
             return
 
         # Load templates
@@ -724,6 +733,9 @@ async def run_warmup_task(
         template_pairs = [(t.subject, t.body) for t in templates]
         if not template_pairs:
             logger.error("Warmup: no templates found")
+            task = Task(type="warmup", status=TaskStatus.STOPPED, total_items=0,
+                        stop_reason="Процесс завершился потому что — нет шаблонов для прогрева")
+            db.add(task); db.commit()
             return
 
         logger.info(
@@ -739,8 +751,8 @@ async def run_warmup_task(
             total_items=len(sender_accounts) + len(receiver_accounts),
             thread_count=threads,
             details=(
-                f"Cross-farm warmup: {len(sender_accounts)} senders → {len(receiver_accounts)} receivers, "
-                f"phase {'auto' if phase_override == 0 else phase_override}"
+                f"Прогрев: {len(sender_accounts)} отправителей → {len(receiver_accounts)} получателей, "
+                f"фаза {'авто' if phase_override == 0 else phase_override}"
             ),
         )
         db.add(task)
@@ -859,10 +871,10 @@ async def run_warmup_task(
             ).count()
 
             task.details = (
-                f"Done: {total_emails} sent, "
+                f"Готово: {total_emails} отправлено, "
                 f"{inbox_count} inbox ({inbox_count/total_emails*100:.0f}%), "
-                f"{spam_count} spam, {replied_count} replies"
-            ) if total_emails > 0 else "Completed"
+                f"{spam_count} spam, {replied_count} ответов"
+            ) if total_emails > 0 else "Завершено"
 
             db.commit()
             logger.info(f"[Warmup] ✅ Complete: {total_emails} sent, {inbox_count} inbox, {spam_count} spam, {replied_count} replied")
@@ -872,5 +884,13 @@ async def run_warmup_task(
 
     except Exception as e:
         logger.error(f"Warmup task failed: {e}")
+        if task and task.id:
+            try:
+                task.status = TaskStatus.FAILED
+                task.stop_reason = f"Процесс завершился потому что — критическая ошибка: {str(e)[:200]}"
+                task.completed_at = datetime.utcnow()
+                db.commit()
+            except Exception:
+                pass
     finally:
         db.close()

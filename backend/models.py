@@ -38,6 +38,7 @@ class TaskStatus(str, enum.Enum):
     RUNNING = "running"
     PAUSED = "paused"
     COMPLETED = "completed"
+    STOPPED = "stopped"    # Resource exhaustion / graceful stop with reason
     FAILED = "failed"
 
 class ThreadType(str, enum.Enum):
@@ -278,6 +279,7 @@ class Task(Base):
     type = Column(String, index=True)  # birth, warmup, work
     status = Column(String, default=TaskStatus.PENDING)
     details = Column(String, nullable=True)
+    stop_reason = Column(String, nullable=True)  # Why the task stopped/terminated
 
     # Progress
     total_items = Column(Integer, default=0)

@@ -116,7 +116,7 @@ export default function Farms() {
                                     <div>
                                         <div style={{ fontWeight: 600, fontSize: '0.95em', display: 'flex', alignItems: 'center', gap: 8 }}>
                                             {farm.name}
-                                            <span className="neon-tag neon-tag-cyan">{farm.accounts_count} акк</span>
+                                            <span className="neon-tag neon-tag-cyan">{farm.accounts_count} аккаунтов</span>
                                         </div>
                                         {farm.description && <div style={{ fontSize: '0.72em', color: '#006611', marginTop: 2 }}>{farm.description}</div>}
                                     </div>

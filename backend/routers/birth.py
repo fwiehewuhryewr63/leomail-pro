@@ -2141,7 +2141,10 @@ async def run_birth_task(request: BirthRequest):
 
         if not proxy_pool:
             device_label = "MOBILE" if request.device_type.startswith("phone") else "SOCKS5/HTTP"
-            return {"status": "error", "message": f"Нет подходящих прокси ({device_label}) для {request.provider}. Загрузите прокси нужного типа или сбросьте счётчики."}
+            task = Task(type="birth", status=TaskStatus.STOPPED, total_items=request.quantity,
+                        stop_reason=f"Процесс завершился потому что — нет подходящих прокси ({device_label}) для {request.provider}. Загрузите прокси нужного типа или сбросьте счётчики.")
+            db.add(task); db.commit()
+            return {"status": "error", "message": task.stop_reason}
 
         # Load name pool from selected packs — COMBINATORIAL approach
         # Instead of using fixed (first,last) pairs, we collect ALL first names
@@ -2218,8 +2221,8 @@ async def run_birth_task(request: BirthRequest):
         # CRITICAL: Abort if no names loaded
         if not name_pool or not first_names_list:
             logger.error(f"[Birth] ❌ Пакет имён пуст или не выбран! Регистрация невозможна.")
-            task.status = TaskStatus.FAILED
-            task.error_message = "Нет имён! Выберите пакет имён с данными."
+            task.status = TaskStatus.STOPPED
+            task.stop_reason = "Процесс завершился потому что — пакет имён пуст или не выбран"
             db.commit()
             return
 
@@ -2230,8 +2233,8 @@ async def run_birth_task(request: BirthRequest):
         # REQUIRE proxies — registration without proxy is forbidden
         if not proxy_pool:
             logger.error("[Birth] ❌ No proxies available! Registration requires at least 1 proxy.")
-            task.status = TaskStatus.FAILED
-            task.error_message = "Нет прокси! Добавьте прокси перед регистрацией."
+            task.status = TaskStatus.STOPPED
+            task.stop_reason = "Процесс завершился потому что — нет прокси для регистрации"
             db.commit()
             return
 
@@ -2253,6 +2256,8 @@ async def run_birth_task(request: BirthRequest):
                         if success_counter[0] >= request.quantity:
                             return
                         if attempt_counter[0] >= max_attempts:
+                            # Set exhaustion reason for max attempts
+                            task.stop_reason = f"Процесс завершился потому что — достигнут лимит попыток ({max_attempts}). Зарегистрировано {success_counter[0]} из {request.quantity}"
                             return
                         attempt_counter[0] += 1
                         current_attempt = attempt_counter[0]
@@ -2423,7 +2428,14 @@ async def run_birth_task(request: BirthRequest):
             worker_tasks = [asyncio.create_task(worker(i)) for i in range(num_workers)]
             await asyncio.gather(*worker_tasks, return_exceptions=True)
 
-            task.status = TaskStatus.COMPLETED
+            # Determine final status
+            if task.stop_reason:
+                task.status = TaskStatus.STOPPED
+            elif success_counter[0] >= request.quantity:
+                task.status = TaskStatus.COMPLETED
+            else:
+                task.status = TaskStatus.STOPPED
+                task.stop_reason = f"Процесс завершился потому что — зарегистрировано {success_counter[0]} из {request.quantity} (остальные — ошибки)"
             task.completed_at = datetime.utcnow()
             db.commit()
 
@@ -2434,6 +2446,14 @@ async def run_birth_task(request: BirthRequest):
 
     except Exception as e:
         logger.error(f"Birth task failed: {e}")
+        if task and task.id:
+            try:
+                task.status = TaskStatus.FAILED
+                task.stop_reason = f"Процесс завершился потому что — критическая ошибка: {str(e)[:200]}"
+                task.completed_at = datetime.utcnow()
+                db.commit()
+            except Exception:
+                pass
     finally:
         db.close()
 
@@ -2490,6 +2510,7 @@ async def birth_status(db: Session = Depends(get_db)):
             "completed": running_task.completed_items or 0,
             "failed": running_task.failed_items or 0,
             "status": "running",
+            "stop_reason": running_task.stop_reason,
         }
 
     # Check last finished task
@@ -2505,6 +2526,7 @@ async def birth_status(db: Session = Depends(get_db)):
             "completed": last_task.completed_items or 0,
             "failed": last_task.failed_items or 0,
             "status": last_task.status,
+            "stop_reason": last_task.stop_reason,
             "error": last_task.details if last_task.status == "failed" else None,
         }
 
@@ -2528,8 +2550,10 @@ async def stop_registration(mode: str = "instant", db: Session = Depends(get_db)
         if mode == "instant":
             t.status = TaskStatus.FAILED
             t.details = "Остановлено пользователем (мгновенно)"
+            t.stop_reason = "Остановлено пользователем"
         else:
             t.details = "Остановка: ждём завершения потоков..."
+            t.stop_reason = "Остановлено пользователем (ожидание потоков)"
         stopped += 1
 
     # Signal all blocking SMS waits to abort
