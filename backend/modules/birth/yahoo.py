@@ -506,6 +506,30 @@ async def register_single_yahoo(
                     await _human_click(page, get_code_btn)
                     await _human_delay(4, 7)
 
+                    # ── CRITICAL: Yahoo often shows reCAPTCHA AFTER clicking 'Get code' ──
+                    # We must detect and solve it BEFORE checking for challenge/fail!
+                    for captcha_attempt in range(2):
+                        captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+                        if captcha_solved:
+                            _log(f"CAPTCHA решена после 'Get code' (попытка {captcha_attempt + 1})")
+                            await _human_delay(3, 6)  # Wait for Yahoo to process
+                            # Re-click submit if still on same page
+                            try:
+                                resubmit = await _wait_for_any(page, [
+                                    'button[type="submit"]',
+                                    'button:has-text("Get code")',
+                                    'button:has-text("Send code")',
+                                    'button:has-text("Continue")',
+                                    'button:has-text("Verify")',
+                                ], timeout=3000)
+                                if resubmit:
+                                    await _human_click(page, resubmit)
+                                    await _human_delay(4, 7)
+                            except Exception:
+                                pass
+                        else:
+                            break
+
                     # Check for phone rejection error on page
                     try:
                         page_text = await page.locator('body').inner_text()
@@ -528,6 +552,16 @@ async def register_single_yahoo(
                         curr = page.url
                         _log(f"После 'Get code': {curr}")
                         if 'challenge/fail' in curr or '/error' in curr:
+                            # One more attempt: maybe there's a captcha on this page too
+                            captcha_on_fail = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+                            if captcha_on_fail:
+                                _log("CAPTCHA решена на странице challenge/fail, пытаемся снова...")
+                                await _human_delay(3, 5)
+                                # Check if we moved away from the fail page
+                                curr2 = page.url
+                                if 'challenge/fail' not in curr2 and '/error' not in curr2:
+                                    phone_accepted = True
+                                    break
                             _err("Yahoo заблокировал: challenge/fail")
                             await _debug_screenshot(page, "yahoo_blocked", _log)
                             try:
