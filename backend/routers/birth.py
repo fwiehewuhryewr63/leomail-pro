@@ -193,7 +193,7 @@ async def run_birth_task(request: BirthRequest):
             return
 
         # Start browser
-        browser_manager = BrowserManager(headless=True)
+        browser_manager = BrowserManager(headless=False)
         await browser_manager.start()
 
         # REQUIRE proxies — registration without proxy is forbidden
