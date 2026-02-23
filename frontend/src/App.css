@@ -370,8 +370,8 @@ body::before {
   border-radius: var(--radius-md);
   padding: 18px;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   box-shadow: var(--shadow-card);
   position: relative;
   overflow: hidden;
@@ -899,8 +899,8 @@ textarea.form-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   animation: modalBgIn 0.2s ease;
 }
 
@@ -940,8 +940,8 @@ textarea.form-input {
 /* Glass effect for special cards */
 .glass {
   background: var(--bg-glass) !important;
-  backdrop-filter: blur(24px) saturate(1.2) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.2) !important;
+  backdrop-filter: blur(24px) saturate(1.2) !important;
 }
 
 /* Gold glow outline */
