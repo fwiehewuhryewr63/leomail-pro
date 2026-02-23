@@ -234,10 +234,15 @@ export default function Databases() {
                                         </div>
                                         <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>
                                             {d.total_count?.toLocaleString()} {t('total')}
-                                            {d.used_count > 0 && (
-                                                <span style={{ color: 'var(--success)', fontWeight: 600 }}> · Отправлено {Math.round(d.used_count / d.total_count * 100)}%</span>
+                                            {d.sent_count > 0 && (
+                                                <span style={{ color: 'var(--success)', fontWeight: 600 }}> · ✉ {d.sent_count} отпр.</span>
                                             )}
-                                            {' · '}{t('remaining')}: <span style={{ fontWeight: 600, color: (d.total_count - d.used_count) === 0 ? 'var(--success)' : 'var(--accent)' }}>{(d.total_count - d.used_count)?.toLocaleString()}</span>
+                                            {d.error_count > 0 && (
+                                                <span style={{ color: 'var(--danger)', fontWeight: 600 }}
+                                                    title={d.error_details ? Object.entries(d.error_details).map(([k, v]) => `${k}: ${v}`).join(', ') : ''}
+                                                > · ⚠ {d.error_count} ошиб.</span>
+                                            )}
+                                            {' · '}{t('remaining')}: <span style={{ fontWeight: 600, color: d.remaining === 0 ? 'var(--success)' : 'var(--accent)' }}>{d.remaining?.toLocaleString()}</span>
                                             {d.invalid_count > 0 && <span style={{ color: 'var(--danger)' }}> · {d.invalid_count} {t('invalid')}</span>}
                                         </div>
                                     </div>
@@ -259,7 +264,7 @@ export default function Databases() {
                                 </div>
                             </div>
                             {(() => {
-                                const pct = d.total_count > 0 ? Math.round(d.used_count / d.total_count * 100) : 0;
+                                const pct = d.total_count > 0 ? Math.round((d.sent_count || 0) / d.total_count * 100) : 0;
                                 const barColor = pct >= 100 ? '#22c55e' : pct > 50 ? 'var(--gradient-primary)' : 'var(--gradient-primary)';
                                 return (
                                     <div style={{ marginTop: 8, position: 'relative' }}>
@@ -268,7 +273,7 @@ export default function Databases() {
                                         </div>
                                         {pct > 0 && (
                                             <div style={{ fontSize: '0.6em', color: 'var(--text-muted)', textAlign: 'right', marginTop: 2 }}>
-                                                {pct}% прослано
+                                                {pct}% отправлено
                                             </div>
                                         )}
                                     </div>

@@ -2261,8 +2261,21 @@ async def run_birth_task(request: BirthRequest):
         db.add(task)
         db.commit()
 
-        # Create farm
-        farm_name = request.farm_name or f"Birth_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Create farm — auto-generate descriptive name: Date - Provider - GEO - Lvl0
+        if request.farm_name:
+            farm_name = request.farm_name
+        else:
+            date_str = datetime.now().strftime('%Y.%m.%d')
+            provider_label = request.provider.capitalize()
+            # Get GEO from first proxy in pool
+            geo_label = "MIX"
+            if proxy_pool:
+                geos = set(getattr(p, 'geo', '') or '' for p in proxy_pool if getattr(p, 'geo', ''))
+                if len(geos) == 1:
+                    geo_label = geos.pop().upper()
+                elif geos:
+                    geo_label = "/".join(sorted(geos))[:12].upper()
+            farm_name = f"{date_str} - {provider_label} - {geo_label} - Lvl0"
         farm = Farm(name=farm_name, description=f"{request.quantity}x {request.provider}")
         db.add(farm)
         db.commit()

@@ -19,27 +19,76 @@ def _validate_email(email: str) -> bool:
 
 @router.get("/")
 async def list_databases(db: Session = Depends(get_db)):
+    from ..models import MailingStats
+
     dbs = db.query(RecipientDatabase).order_by(RecipientDatabase.created_at.desc()).all()
+
+    # Pre-load all MailingStats counts grouped by status for efficiency
+    from sqlalchemy import func
+    stats_rows = db.query(
+        MailingStats.recipient_email,
+        MailingStats.status,
+        func.count(MailingStats.id)
+    ).group_by(MailingStats.recipient_email, MailingStats.status).all()
+
+    # Build lookup: email → {sent: N, error: N, bounce: N, ...}
+    email_stats = {}
+    for email, status, cnt in stats_rows:
+        email_lower = (email or "").strip().lower()
+        if email_lower not in email_stats:
+            email_stats[email_lower] = {}
+        email_stats[email_lower][status] = email_stats[email_lower].get(status, 0) + cnt
+
     result = []
     for d in dbs:
         # Detect format from file
         has_names = False
+        db_emails = set()
         try:
             fp = Path(d.file_path)
             if fp.exists() and fp.suffix == '.json':
-                sample = json.loads(fp.read_text(encoding='utf-8'))
-                if sample and isinstance(sample, list) and sample[0].get('first_name'):
-                    has_names = True
+                entries = json.loads(fp.read_text(encoding='utf-8'))
+                if entries and isinstance(entries, list):
+                    if entries[0].get('first_name'):
+                        has_names = True
+                    for entry in entries:
+                        email = (entry.get('email', '') or '').strip().lower()
+                        if email:
+                            db_emails.add(email)
+            elif fp.exists():
+                with open(fp, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        email = line.strip().split(',')[0].strip().lower()
+                        if '@' in email:
+                            db_emails.add(email)
         except Exception:
             pass
+
+        # Calculate real sent/error/remaining from MailingStats
+        sent_count = 0
+        error_count = 0
+        error_details = {}  # e.g. {"bounce": 3, "limit": 2}
+        for email in db_emails:
+            st = email_stats.get(email, {})
+            if "sent" in st:
+                sent_count += 1
+            for status, cnt in st.items():
+                if status != "sent":
+                    error_count += cnt
+                    error_details[status] = error_details.get(status, 0) + cnt
+
+        remaining = len(db_emails) - sent_count if db_emails else max(0, d.total_count - (d.used_count or 0))
 
         result.append({
             "id": d.id,
             "name": d.name,
             "total_count": d.total_count,
-            "used_count": d.used_count,
+            "used_count": sent_count,  # Real sent count from MailingStats
+            "sent_count": sent_count,
+            "error_count": error_count,
+            "error_details": error_details,
             "invalid_count": d.invalid_count,
-            "remaining": d.total_count - d.used_count,
+            "remaining": remaining,
             "with_name": has_names,
             "file_path": d.file_path,
             "created_at": d.created_at.isoformat() if d.created_at else None
