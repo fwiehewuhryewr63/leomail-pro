@@ -20,6 +20,7 @@ from ..browser_manager import BrowserManager
 from ...services.template_engine import render_template
 from ...services.error_handler import error_handler
 from ...config import load_config
+from ..screenshot import debug_screenshot, register_page, unregister_page
 
 
 # ─────────────────────────────────────────────────────────
@@ -224,8 +225,10 @@ class WorkSession:
             geo=self.account.geo,
         )
 
+        thread_id = self.thread_log.id if self.thread_log else 0
         try:
             page = await context.new_page()
+            register_page(thread_id, page, context, engine="work")
 
             # Navigate to mail provider
             mail_urls = {
@@ -238,6 +241,7 @@ class WorkSession:
             mail_url = mail_urls.get(provider, "https://mail.yahoo.com/")
             await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(random.uniform(3, 6))
+            await debug_screenshot(page, "mail_opened", self.account.email, "work")
 
             # Close any welcome modals (Yahoo/AOL)
             if provider in ("yahoo", "aol"):
@@ -246,6 +250,7 @@ class WorkSession:
             # Check session validity
             if "signin" in page.url or "login" in page.url:
                 logger.warning(f"Work [{self.account.email}]: session expired")
+                await debug_screenshot(page, "session_expired", self.account.email, "work")
                 self._record_stat(db, "", "error", "Session expired")
                 return {"sent": 0, "errors": 1, "bounces": 0}
 
@@ -257,6 +262,7 @@ class WorkSession:
                         f"Work [{self.account.email}]: {MAX_CONSECUTIVE_ERRORS} "
                         f"consecutive errors — pausing account"
                     )
+                    await debug_screenshot(page, "consecutive_errors_pause", self.account.email, "work")
                     self.account.status = "paused"
                     db.commit()
                     break
@@ -314,6 +320,7 @@ class WorkSession:
                         db, recipient["email"], "error",
                         error_msg=error_msg, template_name=tmpl_name,
                     )
+                    await debug_screenshot(page, "send_error", self.account.email, "work")
 
                     # Error handling
                     action = error_handler.handle_send_error(
@@ -349,7 +356,12 @@ class WorkSession:
         except Exception as e:
             logger.error(f"Work [{self.account.email}] fatal: {e}")
             self.error_count += 1
+            try:
+                await debug_screenshot(page, "fatal_error", self.account.email, "work")
+            except Exception:
+                pass
         finally:
+            unregister_page(thread_id)
             await self.browser_manager.close_context(context)
 
         return {

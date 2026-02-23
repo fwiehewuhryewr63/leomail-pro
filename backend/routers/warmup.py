@@ -170,3 +170,14 @@ async def stop_warmup(mode: str = "instant", db: Session = Depends(get_db)):
     db.commit()
     logger.info(f"[Warmup] Stopped {stopped} task(s), mode={mode}")
     return {"stopped": stopped, "mode": mode}
+
+
+@router.get("/screenshot/{thread_id}")
+async def warmup_thread_screenshot(thread_id: int):
+    """Take a live screenshot of an active warmup browser thread."""
+    from fastapi.responses import Response
+    from ..modules.screenshot import live_screenshot
+    png = await live_screenshot(thread_id)
+    if png:
+        return Response(content=png, media_type="image/png")
+    return {"error": "Thread not active or no page available"}

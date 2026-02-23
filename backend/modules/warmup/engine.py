@@ -15,6 +15,7 @@ from ...models import (
 )
 from ..browser.manager import BrowserManager
 from ..template_engine import render_template
+from ..screenshot import debug_screenshot, register_page, unregister_page
 
 # Phase definitions: phase_num -> (day_from, day_to, emails_min, emails_max, status)
 PHASES = {
@@ -124,9 +125,11 @@ class WarmupSession:
             geo=self.account.geo,
         )
 
+        thread_id = self.thread_log.id if self.thread_log else 0
         try:
             page = await context.new_page()
             provider = self.account.provider or "gmail"
+            register_page(thread_id, page, context, engine="warmup")
 
             # Navigate to mail
             mail_urls = {
@@ -141,10 +144,12 @@ class WarmupSession:
 
             # Check if logged in
             await asyncio.sleep(random.uniform(2, 5))
+            await debug_screenshot(page, "mail_opened", self.account.email, "warmup")
             current_url = page.url
 
             if "signin" in current_url or "login" in current_url or "accounts.google.com" in current_url:
                 logger.info(f"Warmup [{self.account.email}]: session expired, re-login needed")
+                await debug_screenshot(page, "session_expired", self.account.email, "warmup")
                 await self._relogin(page, provider)
 
             # Send emails to receiver farm accounts
@@ -193,6 +198,7 @@ class WarmupSession:
                 except Exception as e:
                     self.error_count += 1
                     logger.error(f"Warmup [{self.account.email}] send error: {e}")
+                    await debug_screenshot(page, "send_error", self.account.email, "warmup")
 
                 # Random delay
                 delay = random.uniform(self.delay_min, self.delay_max)
@@ -233,7 +239,12 @@ class WarmupSession:
         except Exception as e:
             logger.error(f"Warmup [{self.account.email}] fatal: {e}")
             self.error_count += 1
+            try:
+                await debug_screenshot(page, "fatal_error", self.account.email, "warmup")
+            except Exception:
+                pass
         finally:
+            unregister_page(thread_id)
             await self.browser_manager.close_context(context)
 
         return {"sent": self.sent_count, "errors": self.error_count}
@@ -370,9 +381,11 @@ class ReceiverSession:
             geo=self.account.geo,
         )
 
+        thread_id = self.thread_log.id if self.thread_log else 0
         try:
             page = await context.new_page()
             provider = self.account.provider or "gmail"
+            register_page(thread_id, page, context, engine="warmup_rx")
 
             mail_urls = {
                 "gmail": "https://mail.google.com",
@@ -385,11 +398,13 @@ class ReceiverSession:
             await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
 
             await asyncio.sleep(random.uniform(3, 6))
+            await debug_screenshot(page, "receiver_inbox", self.account.email, "warmup")
 
             # Check if logged in
             current_url = page.url
             if "signin" in current_url or "login" in current_url:
                 logger.warning(f"Receiver [{self.account.email}]: session expired")
+                await debug_screenshot(page, "receiver_session_expired", self.account.email, "warmup")
                 await self.browser_manager.save_session(context, self.account.id)
                 return {"checked": 0, "inbox": 0, "spam": 0, "replied": 0}
 
@@ -418,6 +433,7 @@ class ReceiverSession:
                     warmup_email.delivery_status = "inbox"
                     self.inbox_count += 1
                     logger.debug(f"Receiver [{self.account.email}]: {sender.email} → INBOX ✓")
+                    await debug_screenshot(page, "delivery_inbox", self.account.email, "warmup")
 
                     # Reply to the email
                     try:
@@ -434,6 +450,7 @@ class ReceiverSession:
                     warmup_email.delivery_status = "spam"
                     self.spam_count += 1
                     logger.warning(f"Receiver [{self.account.email}]: {sender.email} → SPAM ⚠")
+                    await debug_screenshot(page, "delivery_spam", self.account.email, "warmup")
 
                     # Move from spam to inbox (helps reputation)
                     try:
@@ -465,7 +482,12 @@ class ReceiverSession:
 
         except Exception as e:
             logger.error(f"Receiver [{self.account.email}] fatal: {e}")
+            try:
+                await debug_screenshot(page, "receiver_fatal", self.account.email, "warmup")
+            except Exception:
+                pass
         finally:
+            unregister_page(thread_id)
             await self.browser_manager.close_context(context)
 
         return {
