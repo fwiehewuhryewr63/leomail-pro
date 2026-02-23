@@ -73,12 +73,12 @@ export default function Birth() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 provider,
-                quantity,
+                quantity: parseInt(quantity) || 1,
                 device_type: deviceType,
                 name_pack_ids: selectedNamePacks,
                 sms_provider: smsProvider,
                 sms_countries: smsCountries,
-                threads,
+                threads: parseInt(threads) || 1,
                 farm_name: farmName,
             })
         }).then(r => r.json()).then(d => {
@@ -271,17 +271,33 @@ export default function Birth() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
                     <div className="form-group">
                         <label className="form-label">КОЛИЧЕСТВО</label>
-                        <input className="form-input" type="number" value={quantity} min={1}
+                        <input className="form-input" type="text" inputMode="numeric"
+                            value={quantity}
                             style={{ fontSize: '1em' }}
                             onFocus={e => e.target.select()}
-                            onChange={e => setQuantity(parseInt(e.target.value) || 1)} />
+                            onChange={e => {
+                                const v = e.target.value.replace(/\D/g, '');
+                                setQuantity(v === '' ? '' : v);
+                            }}
+                            onBlur={e => {
+                                const v = parseInt(e.target.value) || 1;
+                                setQuantity(Math.max(1, v));
+                            }} />
                     </div>
                     <div className="form-group">
                         <label className="form-label"><Zap size={12} /> ПОТОКОВ (макс. 50)</label>
-                        <input className="form-input" type="number" value={threads} min={1} max={50}
+                        <input className="form-input" type="text" inputMode="numeric"
+                            value={threads}
                             style={{ fontSize: '1em' }}
                             onFocus={e => e.target.select()}
-                            onChange={e => setThreads(Math.min(50, parseInt(e.target.value) || 1))} />
+                            onChange={e => {
+                                const v = e.target.value.replace(/\D/g, '');
+                                setThreads(v === '' ? '' : v);
+                            }}
+                            onBlur={e => {
+                                const v = parseInt(e.target.value) || 1;
+                                setThreads(Math.min(50, Math.max(1, v)));
+                            }} />
                         <div style={{ fontSize: '0.8em', color: 'var(--text-muted)', marginTop: 3 }}>
                             ~300MB RAM / поток
                         </div>
