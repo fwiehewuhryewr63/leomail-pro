@@ -293,25 +293,7 @@ async def register_single_yahoo(
                 _err("Yahoo требует SMS, но SMS провайдер не настроен")
                 return None
 
-            # ── Order SMS number NOW (on page 2) ──
-            _log("Заказ номера для Yahoo SMS...")
-            _countries = getattr(sms_provider, '_sms_countries', None)
-            _blacklist = getattr(sms_provider, '_country_blacklist', None)
-            if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
-            else:
-                order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
-            if "error" in order:
-                _err(f"SMS ошибка: {order['error']}")
-                return None
-
-            phone_number = order["number"]
-            order_id = order["id"]
-            sms_country = order.get("country", "")
-            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
-            _log(f"Номер: {display_phone} (страна: {sms_country})")
-
-            # ── Strip phone prefix to get local number ──
+            # ── PHONE_COUNTRY_MAP and reverse map ──
             PHONE_COUNTRY_MAP = {
                 "ru": "7", "ua": "380", "kz": "7", "cn": "86", "ph": "63", "id": "62",
                 "my": "60", "ke": "254", "tz": "255", "br": "55", "us": "1", "us_v": "1",
@@ -326,7 +308,6 @@ async def register_single_yahoo(
                 "am": "374", "az": "994", "by": "375", "md": "373", "al": "355", "rs": "381",
                 "hr": "385", "si": "386", "lv": "371", "lt": "370", "uy": "598", "bo": "591",
             }
-            # SMS country code → ISO alpha-2 for Yahoo's country dropdown
             COUNTRY_TO_ISO2 = {
                 "ru": "RU", "ua": "UA", "kz": "KZ", "cn": "CN", "ph": "PH", "id": "ID",
                 "my": "MY", "ke": "KE", "tz": "TZ", "br": "BR", "us": "US", "us_v": "US",
@@ -341,7 +322,98 @@ async def register_single_yahoo(
                 "am": "AM", "az": "AZ", "by": "BY", "md": "MD", "al": "AL", "rs": "RS",
                 "hr": "HR", "si": "SI", "lv": "LV", "lt": "LT", "uy": "UY", "bo": "BO",
             }
+            # Reverse: phone prefix → SMS provider country code (e.g. "55" → "br")
+            PREFIX_TO_SMS_COUNTRY = {}
+            for sms_cc, prefix in PHONE_COUNTRY_MAP.items():
+                if sms_cc not in PREFIX_TO_SMS_COUNTRY or len(prefix) > len(PREFIX_TO_SMS_COUNTRY.get(sms_cc, "")):
+                    PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
 
+            # ── STEP 1: Detect Yahoo's displayed country code from the page ──
+            yahoo_page_prefix = None
+            try:
+                # Strategy A: Find input/element showing "+XX"
+                detected = await page.evaluate("""() => {
+                    // Check all inputs for a value like "+55"
+                    const inputs = document.querySelectorAll('input');
+                    for (const inp of inputs) {
+                        const val = inp.value.trim();
+                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                            return val.replace('+', '');
+                        }
+                    }
+                    // Check spans/divs that show country code text
+                    const els = document.querySelectorAll('span, div, button, label');
+                    for (const el of els) {
+                        const text = el.textContent.trim();
+                        // Match patterns like "+55" or "+381"
+                        const match = text.match(/^\\+?(\\d{1,4})$/);
+                        if (match && el.getBoundingClientRect().width < 100) {
+                            return match[1];
+                        }
+                    }
+                    // Check select elements for selected country code
+                    const selects = document.querySelectorAll('select');
+                    for (const sel of selects) {
+                        const opt = sel.options[sel.selectedIndex];
+                        if (opt) {
+                            const m = opt.text.match(/\\+(\\d{1,4})/);
+                            if (m) return m[1];
+                        }
+                    }
+                    return null;
+                }""")
+                if detected:
+                    yahoo_page_prefix = str(detected).strip()
+                    _log(f"Yahoo показывает код страны: +{yahoo_page_prefix}")
+            except Exception as e:
+                _log(f"Не удалось определить код страны Yahoo: {e}")
+
+            # ── STEP 2: Order SMS number from Yahoo's country (or fallback to configured) ──
+            _log("Заказ номера для Yahoo SMS...")
+
+            # Determine which country to order from
+            yahoo_sms_country = None
+            if yahoo_page_prefix:
+                yahoo_sms_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
+                if yahoo_sms_country:
+                    _log(f"Yahoo требует страну +{yahoo_page_prefix} → SMS код: {yahoo_sms_country}")
+                else:
+                    _log(f"Код +{yahoo_page_prefix} не найден в маппинге, берём по конфигу")
+
+            # Order from Yahoo's detected country FIRST, fallback to configured countries
+            order = None
+            if yahoo_sms_country:
+                # Try ordering from Yahoo's exact country
+                try:
+                    _log(f"Заказываем номер из страны {yahoo_sms_country} (по коду Yahoo)...")
+                    order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
+                    if "error" in order:
+                        _log(f"Нет номеров в {yahoo_sms_country}: {order.get('error', '')}, пробуем другие страны...")
+                        order = None
+                except Exception as e:
+                    _log(f"Ошибка заказа из {yahoo_sms_country}: {e}")
+                    order = None
+
+            if not order:
+                # Fallback: use configured countries
+                _countries = getattr(sms_provider, '_sms_countries', None)
+                _blacklist = getattr(sms_provider, '_country_blacklist', None)
+                if _countries and hasattr(sms_provider, 'order_number_from_countries'):
+                    order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
+                else:
+                    order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
+
+            if not order or "error" in order:
+                _err(f"SMS ошибка: {order.get('error', 'no order') if order else 'Failed to order'}")
+                return None
+
+            phone_number = order["number"]
+            order_id = order["id"]
+            sms_country = order.get("country", "")
+            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+            _log(f"Номер: {display_phone} (страна: {sms_country})")
+
+            # ── STEP 3: Strip phone prefix to get local number ──
             phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
             local_number = phone_number.lstrip("+")
             if phone_prefix and local_number.startswith(phone_prefix):
@@ -350,136 +422,40 @@ async def register_single_yahoo(
             else:
                 _log(f"Вводим как есть: {local_number}")
 
-            # ── CRITICAL: Change Yahoo's country code dropdown to match SMS number ──
-            # Yahoo has a SEPARATE small input showing "+XX" to the left of the phone field
+            # ── STEP 4: Change Yahoo's country code IF it doesn't match ──
             target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
-            country_changed = False
+            sms_prefix = phone_prefix or ""
+            country_needs_change = yahoo_page_prefix and sms_prefix and yahoo_page_prefix != sms_prefix
+            country_changed = not country_needs_change  # Already correct = no change needed
 
-            if target_iso and phone_prefix:
-                _log(f"Меняем код страны в Yahoo: → {target_iso} (+{phone_prefix})")
+            if country_needs_change:
+                _log(f"Yahoo показывает +{yahoo_page_prefix}, SMS номер +{sms_prefix} — нужна смена")
                 try:
-                    # === Strategy 0: Yahoo has a SEPARATE country code input (<input> showing +XX) ===
-                    # This is what's visible on screenshots — small box with "+44" or "+1"
-                    cc_input = page.locator(
-                        'input[name="phone-country-code"], '
-                        'input[id*="country-code"], '
-                        'input[aria-label*="ountry"], '
-                        'input[placeholder*="+"]'
-                    )
-                    if await cc_input.count() > 0:
-                        _log("Найден input кода страны — заполняем")
-                        await cc_input.first.click()
-                        await _human_delay(0.3, 0.5)
-                        await page.keyboard.press("Control+a")
-                        await page.keyboard.press("Backspace")
-                        await cc_input.first.fill(f"+{phone_prefix}")
+                    # Try JS to change the country code input value
+                    changed = await page.evaluate(f"""() => {{
+                        const inputs = document.querySelectorAll('input');
+                        for (const inp of inputs) {{
+                            const val = inp.value.trim();
+                            if (val.startsWith('+') && val.length <= 5) {{
+                                const setter = Object.getOwnPropertyDescriptor(
+                                    window.HTMLInputElement.prototype, 'value').set;
+                                setter.call(inp, '+{sms_prefix}');
+                                inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                return true;
+                            }}
+                        }}
+                        return false;
+                    }}""")
+                    if changed:
                         country_changed = True
-                        _log(f"✅ Код страны введён в input: +{phone_prefix}")
+                        _log(f"Код страны сменён через JS: +{sms_prefix}")
+                except Exception:
+                    pass
 
-                    # === Strategy 1: Maybe it's a <select> ===
-                    if not country_changed:
-                        select_el = page.locator('select')
-                        if await select_el.count() > 0:
-                            try:
-                                await select_el.first.select_option(value=target_iso)
-                                country_changed = True
-                                _log(f"✅ Код страны через <select>: {target_iso}")
-                            except Exception:
-                                try:
-                                    await select_el.first.select_option(value=target_iso.lower())
-                                    country_changed = True
-                                except Exception:
-                                    pass
-
-                    # === Strategy 2: Yahoo custom picker — click the code element to open popup ===
-                    if not country_changed:
-                        # The country code element is clickable, shows "+XX" text
-                        # Try to find it by its text content or nearby position
-                        cc_btn_selectors = [
-                            'button[id*="country"]',
-                            '[role="button"][aria-label*="ountry"]',
-                            'button:has-text("+")',
-                            '#phone-country-code',
-                            '.phone-country-code',
-                            '[data-country-code]',
-                        ]
-                        for sel in cc_btn_selectors:
-                            try:
-                                el = page.locator(sel)
-                                if await el.count() > 0:
-                                    await el.first.click()
-                                    await _human_delay(1.0, 2.0)
-                                    _log(f"Открыли пикер: {sel}")
-
-                                    # Search in popup
-                                    search_input = page.locator(
-                                        'input[type="search"], input[placeholder*="earch"], '
-                                        'input[placeholder*="ountr"]'
-                                    )
-                                    if await search_input.count() > 0:
-                                        await search_input.first.fill(f"+{phone_prefix}")
-                                        await _human_delay(1.0, 1.5)
-
-                                    # Click matching option
-                                    option = page.locator(
-                                        f'li:has-text("+{phone_prefix}"), '
-                                        f'div[role="option"]:has-text("+{phone_prefix}"), '
-                                        f'[data-value="{target_iso}"]'
-                                    )
-                                    if await option.count() > 0:
-                                        await option.first.click()
-                                        country_changed = True
-                                        _log(f"✅ Код через пикер: +{phone_prefix}")
-                                        break
-                                    else:
-                                        await page.keyboard.press("Escape")
-                            except Exception:
-                                continue
-
-                    # === Strategy 3: JS fallback ===
-                    if not country_changed:
-                        try:
-                            changed = await page.evaluate(f"""() => {{
-                                // Find all inputs near phone
-                                const inputs = document.querySelectorAll('input');
-                                for (const inp of inputs) {{
-                                    const val = inp.value.trim();
-                                    if (val.startsWith('+') && val.length <= 5) {{
-                                        // This is likely the country code input
-                                        const setter = Object.getOwnPropertyDescriptor(
-                                            window.HTMLInputElement.prototype, 'value').set;
-                                        setter.call(inp, '+{phone_prefix}');
-                                        inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                        inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                        return true;
-                                    }}
-                                }}
-                                // Try selects
-                                const selects = document.querySelectorAll('select');
-                                for (const sel of selects) {{
-                                    for (const opt of sel.options) {{
-                                        if (opt.value === '{target_iso}' || opt.text.includes('+{phone_prefix}')) {{
-                                            sel.value = opt.value;
-                                            sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                            return true;
-                                        }}
-                                    }}
-                                }}
-                                return false;
-                            }}""")
-                            if changed:
-                                country_changed = True
-                                _log(f"✅ Код страны через JS: +{phone_prefix}")
-                        except Exception:
-                            pass
-
-                except Exception as e:
-                    _log(f"⚠️ Ошибка смены кода страны: {e}")
-
-            # ── If country code change failed, enter FULL international number ──
-            if not country_changed and phone_prefix:
-                _log(f"⚠️ Не удалось сменить код страны — вводим полный номер +{phone_prefix}{local_number}")
-                local_number = f"{phone_prefix}{local_number}"
+                if not country_changed:
+                    _log(f"Не удалось сменить код — вводим полный номер +{sms_prefix}{local_number}")
+                    local_number = f"{sms_prefix}{local_number}"
 
             # Human-like: read the page text first (real person would read instructions)
             await random_mouse_move(page, steps=3)
