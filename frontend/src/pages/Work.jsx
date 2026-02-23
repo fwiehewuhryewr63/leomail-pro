@@ -20,6 +20,11 @@ export default function Work() {
     const [selectedLinkPacks, setSelectedLinkPacks] = useState([]);
     const [selectedTemplates, setSelectedTemplates] = useState([]);
 
+    // Farm dropdown
+    const [farmDropdownOpen, setFarmDropdownOpen] = useState(false);
+    const [farmSearch, setFarmSearch] = useState('');
+    const farmDropdownRef = React.useRef(null);
+
     // Settings
     const [emailsMin, setEmailsMin] = useState(25);
     const [emailsMax, setEmailsMax] = useState(75);
@@ -43,6 +48,17 @@ export default function Work() {
                 setResult({ status: 'running', message: '⏳ Рассылка запущена...' });
             }
         }).catch(() => { });
+    }, []);
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handleClick = (e) => {
+            if (farmDropdownRef.current && !farmDropdownRef.current.contains(e.target)) {
+                setFarmDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
     }, []);
 
     const toggle = (list, setList, id) => {
@@ -85,6 +101,8 @@ export default function Work() {
         { key: 'not_found', label: 'Не найден', icon: CheckCircle, color: 'var(--text-muted)', desc: 'НЕ штрафуется', critical: false },
     ];
 
+    const filteredFarms = farms.filter(f => f.name.toLowerCase().includes(farmSearch.toLowerCase()));
+
     return (
         <div className="page">
             <h2 className="page-title">
@@ -92,18 +110,111 @@ export default function Work() {
                 {running && <span className="badge badge-success" style={{ marginLeft: 12 }}><Zap size={10} /> ACTIVE</span>}
             </h2>
 
-            {/* Farms */}
+            {/* Farms — Searchable Dropdown */}
             <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title"><Users size={13} style={{ marginRight: 6 }} /> ФЕРМЫ (АККАУНТЫ)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
-                    {farms.map(f => (
-                        <button key={f.id} className={`btn ${selectedFarms.includes(f.id) ? 'btn-primary' : ''}`}
-                            onClick={() => toggle(selectedFarms, setSelectedFarms, f.id)}
-                            style={{ textAlign: 'left', padding: '10px 14px', gap: 4, flexDirection: 'column', alignItems: 'flex-start' }}>
-                            <span style={{ fontWeight: 700, fontSize: '0.95em' }}>{f.name}</span>
-                            <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} аккаунтов</span>
-                        </button>
-                    ))}
+
+                {/* Selected farms chips */}
+                {selectedFarms.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                        {selectedFarms.map(id => {
+                            const farm = farms.find(f => f.id === id);
+                            if (!farm) return null;
+                            return (
+                                <span key={id} style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                                    padding: '5px 12px', borderRadius: 20,
+                                    background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.25)',
+                                    fontSize: '0.82em', fontWeight: 600, color: 'var(--accent)',
+                                }}>
+                                    {farm.name}
+                                    <span style={{ opacity: 0.6, fontSize: '0.85em' }}>({farm.account_count || 0})</span>
+                                    <span onClick={() => toggle(selectedFarms, setSelectedFarms, id)}
+                                        style={{ cursor: 'pointer', marginLeft: 2, opacity: 0.7, fontWeight: 800 }}>✕</span>
+                                </span>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* Dropdown trigger */}
+                <div ref={farmDropdownRef} style={{ position: 'relative' }}>
+                    <div onClick={() => setFarmDropdownOpen(!farmDropdownOpen)} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-subtle)', cursor: 'pointer',
+                        background: farmDropdownOpen ? 'var(--bg-secondary)' : 'transparent',
+                        transition: 'all 0.2s',
+                    }}>
+                        <span style={{ fontSize: '0.88em', color: selectedFarms.length > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                            {selectedFarms.length > 0
+                                ? `Выбрано ${selectedFarms.length} ферм (${totalAccounts} аккаунтов)`
+                                : 'Выберите фермы для рассылки...'}
+                        </span>
+                        <span style={{ fontSize: '0.7em', color: 'var(--text-muted)', transform: farmDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                    </div>
+
+                    {/* Dropdown panel */}
+                    {farmDropdownOpen && (
+                        <div style={{
+                            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                            marginTop: 4, borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border-subtle)',
+                            background: 'var(--bg-card)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                            maxHeight: 280, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                        }}>
+                            {/* Search input */}
+                            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                <input
+                                    className="form-input"
+                                    placeholder="🔍 Поиск ферм..."
+                                    value={farmSearch}
+                                    onChange={e => setFarmSearch(e.target.value)}
+                                    autoFocus
+                                    style={{ fontSize: '0.85em', padding: '6px 10px', width: '100%' }}
+                                />
+                            </div>
+
+                            {/* Farm list */}
+                            <div style={{ overflowY: 'auto', maxHeight: 220 }}>
+                                {filteredFarms.length === 0 ? (
+                                    <div style={{ padding: '12px 14px', fontSize: '0.82em', color: 'var(--text-muted)' }}>
+                                        Нет ферм{farmSearch ? ` для «${farmSearch}»` : ''}
+                                    </div>
+                                ) : filteredFarms.map(f => {
+                                    const isSelected = selectedFarms.includes(f.id);
+                                    return (
+                                        <div key={f.id}
+                                            onClick={() => toggle(selectedFarms, setSelectedFarms, f.id)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                padding: '9px 14px', cursor: 'pointer',
+                                                background: isSelected ? 'rgba(0,255,65,0.06)' : 'transparent',
+                                                borderLeft: isSelected ? '3px solid var(--accent)' : '3px solid transparent',
+                                                transition: 'all 0.15s',
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.background = isSelected ? 'rgba(0,255,65,0.1)' : 'rgba(255,255,255,0.03)'}
+                                            onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'rgba(0,255,65,0.06)' : 'transparent'}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <span style={{
+                                                    width: 16, height: 16, borderRadius: 4,
+                                                    border: isSelected ? '2px solid var(--accent)' : '2px solid var(--border-subtle)',
+                                                    background: isSelected ? 'var(--accent)' : 'transparent',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontSize: '0.7em', color: '#000', fontWeight: 800,
+                                                }}>{isSelected ? '✓' : ''}</span>
+                                                <span style={{ fontWeight: 600, fontSize: '0.88em' }}>{f.name}</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>
+                                                {f.account_count || 0} аккаунтов
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
