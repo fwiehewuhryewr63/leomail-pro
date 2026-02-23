@@ -580,12 +580,23 @@ async def register_single_yahoo(
                     except Exception:
                         pass
 
-                    # Order new number
-                    if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                        new_order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
-                    else:
-                        new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
-                    if "error" in new_order:
+                    # Order new number — prefer Yahoo's detected country, fallback to configured
+                    _countries = getattr(sms_provider, '_sms_countries', None)
+                    _blacklist = getattr(sms_provider, '_country_blacklist', None)
+                    new_order = None
+                    if yahoo_sms_country:
+                        try:
+                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
+                            if "error" in new_order:
+                                new_order = None
+                        except Exception:
+                            new_order = None
+                    if not new_order:
+                        if _countries and hasattr(sms_provider, 'order_number_from_countries'):
+                            new_order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
+                        else:
+                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
+                    if not new_order or "error" in new_order:
                         _err(f"SMS ошибка при получении нового номера: {new_order['error']}")
                         return None
 
