@@ -104,19 +104,19 @@ export default function Warmup() {
 
     // Group templates by pack
     const packs = {};
-    templates.forEach(t => {
-        const pack = t.pack_name || 'Без пачки';
+    templates.forEach(tmpl => {
+        const pack = tmpl.pack_name || 'Default';
         if (!packs[pack]) packs[pack] = [];
-        packs[pack].push(t);
+        packs[pack].push(tmpl);
     });
 
     const phaseLabels = {
-        0: '🔄 Авто (по дню аккаунта)',
-        1: '1️⃣ Фаза 1 (дни 1-3, 1-3 писем)',
-        2: '2️⃣ Фаза 2 (дни 4-7, 5-10 писем)',
-        3: '3️⃣ Фаза 3 (дни 8-14, 10-20 писем)',
-        4: '4️⃣ Фаза 4 (дни 15-21, 20-50 писем)',
-        5: '5️⃣ Фаза 5 (дни 22-30, 50-100 писем)',
+        0: `🔄 ${t('phaseAuto')}`,
+        1: `1️⃣ ${t('phase1Label')}`,
+        2: `2️⃣ ${t('phase2Label')}`,
+        3: `3️⃣ ${t('phase3Label')}`,
+        4: `4️⃣ ${t('phase4Label')}`,
+        5: `5️⃣ ${t('phase5Label')}`,
     };
 
     const canStart = senderFarms.length > 0 && receiverFarms.length > 0 && selectedTemplates.length > 0;
@@ -125,37 +125,37 @@ export default function Warmup() {
         <div className="page">
             <h2 className="page-title">
                 <Flame size={24} /> {t('warmupTitle')}
-                {running && <span className="badge badge-success" style={{ marginLeft: 12 }}><Zap size={10} /> АКТИВЕН</span>}
+                {running && <span className="badge badge-success" style={{ marginLeft: 12 }}><Zap size={10} /> {t('warmupActive')}</span>}
             </h2>
 
             {/* Stats Panel */}
             {stats && stats.total_sent > 0 && (
                 <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-title"><BarChart3 size={14} style={{ marginRight: 6 }} /> СТАТИСТИКА ПРОГРЕВА</div>
+                    <div className="card-title"><BarChart3 size={14} style={{ marginRight: 6 }} /> {t('warmupStats')}</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
                         <div style={{ textAlign: 'center', padding: 10, borderRadius: 8, background: 'rgba(0,255,65,0.04)', border: '1px solid rgba(0,255,65,0.1)' }}>
                             <div style={{ fontSize: '1.4em', fontWeight: 800, color: 'var(--accent)' }}>{stats.total_sent}</div>
-                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>ОТПРАВЛЕНО</div>
+                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>{t('statSent')}</div>
                         </div>
                         <div style={{ textAlign: 'center', padding: 10, borderRadius: 8, background: 'rgba(0,255,65,0.04)', border: '1px solid rgba(0,255,65,0.1)' }}>
                             <div style={{ fontSize: '1.4em', fontWeight: 800, color: 'var(--accent)' }}>{stats.total_checked}</div>
-                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>ПРОВЕРЕНО</div>
+                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>{t('statChecked')}</div>
                         </div>
                         <div style={{ textAlign: 'center', padding: 10, borderRadius: 8, background: 'rgba(46,204,113,0.06)', border: '1px solid rgba(46,204,113,0.15)' }}>
                             <div style={{ fontSize: '1.4em', fontWeight: 800, color: '#2ecc71' }}>{stats.inbox_rate}%</div>
-                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>INBOX RATE</div>
+                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>{t('statInboxRate')}</div>
                         </div>
                         <div style={{ textAlign: 'center', padding: 10, borderRadius: 8, background: 'rgba(231,76,60,0.06)', border: '1px solid rgba(231,76,60,0.15)' }}>
                             <div style={{ fontSize: '1.4em', fontWeight: 800, color: '#e74c3c' }}>{stats.spam_rate}%</div>
-                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>SPAM RATE</div>
+                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>{t('statSpamRate')}</div>
                         </div>
                         <div style={{ textAlign: 'center', padding: 10, borderRadius: 8, background: 'rgba(52,152,219,0.06)', border: '1px solid rgba(52,152,219,0.15)' }}>
                             <div style={{ fontSize: '1.4em', fontWeight: 800, color: '#3498db' }}>{stats.reply_rate}%</div>
-                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>REPLY RATE</div>
+                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>{t('statReplyRate')}</div>
                         </div>
                         <div style={{ textAlign: 'center', padding: 10, borderRadius: 8, background: 'rgba(255,165,0,0.06)', border: '1px solid rgba(255,165,0,0.12)' }}>
                             <div style={{ fontSize: '1.4em', fontWeight: 800, color: '#ffa500' }}>{stats.not_found_count || 0}</div>
-                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>NOT FOUND</div>
+                            <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', letterSpacing: 1 }}>{t('statNotFound')}</div>
                         </div>
                     </div>
                 </div>
@@ -166,13 +166,13 @@ export default function Warmup() {
                 {/* Sender Farms */}
                 <div className="card">
                     <div className="card-title" style={{ color: '#e74c3c' }}>
-                        <Mail size={14} style={{ marginRight: 6 }} /> 🔴 ФЕРМЫ-ОТПРАВИТЕЛИ
+                        <Mail size={14} style={{ marginRight: 6 }} /> 🔴 {t('senderFarms')}
                     </div>
                     <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Аккаунты этих ферм будут ОТПРАВЛЯТЬ письма
+                        {t('senderFarmsDesc')}
                     </div>
                     {farms.length === 0 ? (
-                        <div style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>Нет ферм</div>
+                        <div style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>{t('noFarms')}</div>
                     ) : (
                         <div style={{ display: 'grid', gap: 6 }}>
                             {farms.map(f => {
@@ -187,7 +187,7 @@ export default function Warmup() {
                                             opacity: isReceiver ? 0.3 : 1,
                                         }}>
                                         <span style={{ fontWeight: 600 }}>{f.name}</span>
-                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} акк</span>
+                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} {t('accounts')}</span>
                                     </button>
                                 );
                             })}
@@ -195,7 +195,7 @@ export default function Warmup() {
                     )}
                     {senderFarms.length > 0 && (
                         <div style={{ marginTop: 8, fontSize: '0.85em', color: '#e74c3c', fontWeight: 700 }}>
-                            Отправители: {totalSenders} акк
+                            {t('sendersCount')}: {totalSenders} {t('accounts')}
                         </div>
                     )}
                 </div>
@@ -208,13 +208,13 @@ export default function Warmup() {
                 {/* Receiver Farms */}
                 <div className="card">
                     <div className="card-title" style={{ color: '#2ecc71' }}>
-                        <Shield size={14} style={{ marginRight: 6 }} /> 🟢 ФЕРМЫ-ПОЛУЧАТЕЛИ
+                        <Shield size={14} style={{ marginRight: 6 }} /> 🟢 {t('receiverFarms')}
                     </div>
                     <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Аккаунты этих ферм ПОЛУЧАЮТ письма, проверяют inbox/spam и ОТВЕЧАЮТ
+                        {t('receiverFarmsDesc')}
                     </div>
                     {farms.length === 0 ? (
-                        <div style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>Нет ферм</div>
+                        <div style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>{t('noFarms')}</div>
                     ) : (
                         <div style={{ display: 'grid', gap: 6 }}>
                             {farms.map(f => {
@@ -230,7 +230,7 @@ export default function Warmup() {
                                             ...(receiverFarms.includes(f.id) ? { background: '#2ecc71', borderColor: '#2ecc71' } : {}),
                                         }}>
                                         <span style={{ fontWeight: 600 }}>{f.name}</span>
-                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} акк</span>
+                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} {t('accounts')}</span>
                                     </button>
                                 );
                             })}
@@ -238,7 +238,7 @@ export default function Warmup() {
                     )}
                     {receiverFarms.length > 0 && (
                         <div style={{ marginTop: 8, fontSize: '0.85em', color: '#2ecc71', fontWeight: 700 }}>
-                            Получатели: {totalReceivers} акк
+                            {t('receiversCount')}: {totalReceivers} {t('accounts')}
                         </div>
                     )}
                 </div>
@@ -247,11 +247,11 @@ export default function Warmup() {
             {/* Phase Override */}
             <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title">
-                    <Zap size={14} style={{ marginRight: 6 }} /> ФАЗА ПРОГРЕВА
+                    <Zap size={14} style={{ marginRight: 6 }} /> {t('warmupPhaseTitle')}
                 </div>
                 <div style={{ fontSize: '0.85em', color: 'var(--text-muted)', marginBottom: 10 }}>
-                    «Авто» — каждый аккаунт использует свой текущий день прогрева.<br />
-                    Принудительная фаза — все аккаунты работают с лимитами выбранной фазы.
+                    {t('warmupPhaseAutoDesc')}<br />
+                    {t('warmupPhaseForceDesc')}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                     {Object.entries(phaseLabels).map(([key, label]) => (
@@ -268,13 +268,13 @@ export default function Warmup() {
             {/* Template Selection */}
             <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title">
-                    <FileText size={14} style={{ marginRight: 6 }} /> ШАБЛОНЫ ПИСЕМ
+                    <FileText size={14} style={{ marginRight: 6 }} /> {t('emailTemplates')}
                 </div>
                 <div style={{ fontSize: '0.85em', color: 'var(--text-muted)', marginBottom: 10 }}>
-                    Выберите шаблоны из загруженных паков. Софт будет ротировать между ними.
+                    {t('templateSelectDesc')}
                 </div>
                 {templates.length === 0 ? (
-                    <div style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>Нет шаблонов. Загрузите ZIP в «Шаблоны».</div>
+                    <div style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>{t('noTemplatesWarmup')}</div>
                 ) : (
                     <div style={{ maxHeight: 240, overflowY: 'auto' }}>
                         {Object.entries(packs).map(([packName, tmpls]) => (
@@ -298,7 +298,7 @@ export default function Warmup() {
                 )}
                 {selectedTemplates.length > 0 && (
                     <div style={{ marginTop: 8, fontSize: '0.85em', color: 'var(--accent)', fontWeight: 700 }}>
-                        Выбрано: {selectedTemplates.length} шаблонов
+                        {t('templatesSelected')}: {selectedTemplates.length} {t('templateUnit')}
                     </div>
                 )}
             </div>
@@ -307,25 +307,25 @@ export default function Warmup() {
             <div className="card" style={{ marginBottom: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
                     <div className="form-group">
-                        <label className="form-label"><Mail size={12} /> ПИСЕМ МИН.</label>
+                        <label className="form-label"><Mail size={12} /> {t('emailsMin')}</label>
                         <input className="form-input" type="number" value={emailsMin} min={1}
                             style={{ fontSize: '1em' }}
                             onChange={e => setEmailsMin(parseInt(e.target.value) || 1)} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label"><Mail size={12} /> ПИСЕМ МАКС.</label>
+                        <label className="form-label"><Mail size={12} /> {t('emailsMax')}</label>
                         <input className="form-input" type="number" value={emailsMax} min={1}
                             style={{ fontSize: '1em' }}
                             onChange={e => setEmailsMax(parseInt(e.target.value) || 5)} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label"><Timer size={12} /> ЗАДЕРЖКА МИН. (СЕК)</label>
+                        <label className="form-label"><Timer size={12} /> {t('delayMin')}</label>
                         <input className="form-input" type="number" value={delayMin} min={10}
                             style={{ fontSize: '1em' }}
                             onChange={e => setDelayMin(parseInt(e.target.value) || 60)} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label"><Timer size={12} /> ЗАДЕРЖКА МАКС. (СЕК)</label>
+                        <label className="form-label"><Timer size={12} /> {t('delayMax')}</label>
                         <input className="form-input" type="number" value={delayMax} min={30}
                             style={{ fontSize: '1em' }}
                             onChange={e => setDelayMax(parseInt(e.target.value) || 300)} />
@@ -334,19 +334,19 @@ export default function Warmup() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
                     <div className="form-group">
-                        <label className="form-label"><Zap size={12} /> ПОТОКОВ (макс. 50)</label>
+                        <label className="form-label"><Zap size={12} /> {t('threadCount')}</label>
                         <input className="form-input" type="number" value={threads} min={1} max={50}
                             style={{ fontSize: '1em' }}
                             onChange={e => setThreads(Math.min(50, parseInt(e.target.value) || 5))} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">ТИП ПРОВАЙДЕРА</label>
+                        <label className="form-label">{t('providerType')}</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                             <div className={`toggle-track ${sameProvider ? 'active' : ''}`} onClick={() => setSameProvider(!sameProvider)}>
                                 <div className="toggle-knob" />
                             </div>
                             <span style={{ fontSize: '0.9em', color: sameProvider ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 600 }}>
-                                {sameProvider ? 'Один провайдер (Gmail→Gmail)' : 'Кросс-провайдер (Gmail→Outlook→Yahoo)'}
+                                {sameProvider ? t('sameProviderLabel') : t('crossProviderLabel')}
                             </span>
                         </div>
                     </div>
@@ -356,12 +356,12 @@ export default function Warmup() {
             {/* Summary */}
             <div className="card" style={{ marginBottom: 16, padding: '14px 20px', background: 'var(--bg-secondary)' }}>
                 <div style={{ display: 'flex', gap: 16, fontSize: '0.9em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                    <span>🔴 Отправителей: <strong style={{ color: '#e74c3c' }}>{totalSenders}</strong></span>
-                    <span>🟢 Получателей: <strong style={{ color: '#2ecc71' }}>{totalReceivers}</strong></span>
-                    <span>📝 Шаблонов: <strong style={{ color: 'var(--accent)' }}>{selectedTemplates.length}</strong></span>
-                    <span>⚡ Фаза: <strong style={{ color: 'var(--accent)' }}>{phaseOverride === 0 ? 'Авто' : phaseOverride}</strong></span>
-                    <span>📧 Писем: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
-                    <span>🧵 Потоков: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
+                    <span>🔴 {t('sendersCount')}: <strong style={{ color: '#e74c3c' }}>{totalSenders}</strong></span>
+                    <span>🟢 {t('receiversCount')}: <strong style={{ color: '#2ecc71' }}>{totalReceivers}</strong></span>
+                    <span>📝 {t('templateUnit')}: <strong style={{ color: 'var(--accent)' }}>{selectedTemplates.length}</strong></span>
+                    <span>⚡ {t('summaryPhase')}: <strong style={{ color: 'var(--accent)' }}>{phaseOverride === 0 ? t('summaryAuto') : phaseOverride}</strong></span>
+                    <span>📧 {t('summaryEmails')}: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
+                    <span>🧵 {t('summaryThreads')}: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
                     <span>🔀 {sameProvider ? 'Same' : 'Cross'}</span>
                 </div>
             </div>
@@ -387,17 +387,17 @@ export default function Warmup() {
                     <button className="btn btn-primary" onClick={startWarmup}
                         style={{ padding: '16px 36px', fontSize: '1.05em' }}
                         disabled={!canStart}>
-                        <Play size={18} /> Запустить прогрев
+                        <Play size={18} /> {t('startWarmup')}
                         {!canStart && (
                             <span style={{ fontSize: '0.7em', marginLeft: 6 }}>
-                                (выберите отправителей + получателей + шаблоны)
+                                {t('startWarmupHint')}
                             </span>
                         )}
                     </button>
                 ) : (
                     <button className="btn btn-danger" onClick={stopWarmup}
                         style={{ padding: '16px 36px', fontSize: '1.05em' }}>
-                        <Square size={18} /> Остановить прогрев
+                        <Square size={18} /> {t('stopWarmup')}
                     </button>
                 )}
             </div>
