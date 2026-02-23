@@ -30,8 +30,10 @@ class ProxyStatus(str, enum.Enum):
 
 class ProxyType(str, enum.Enum):
     SOCKS5 = "socks5"
-    HTTP = "http"
+    HTTP = "http"          # datacenter HTTP
+    HTTPS = "https"        # residential HTTPS
     MOBILE = "mobile"
+    RESIDENTIAL = "residential"  # residential socks5/https
 
 class TaskStatus(str, enum.Enum):
     PENDING = "pending"
@@ -103,7 +105,7 @@ class Proxy(Base):
         pt = (self.proxy_type or "http").lower()
         if pt == "socks5":
             return "socks5"
-        return "http"   # both 'http' and 'mobile' use HTTP protocol
+        return "http"   # http, https, mobile, residential all use HTTP protocol for Playwright
 
     def to_string(self):
         proto = self.effective_protocol

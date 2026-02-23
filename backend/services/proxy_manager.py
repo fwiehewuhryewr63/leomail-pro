@@ -187,13 +187,21 @@ class ProxyManager:
 
         proxies = query.all()
 
-        # For strict providers (Yahoo, Gmail): sort mobile proxies first
+        # For strict providers (Yahoo, Gmail): prioritize mobile > residential/socks5 > http(DC)
         strict_providers = ('yahoo', 'gmail')
         if provider and provider.lower() in strict_providers:
-            proxies.sort(key=lambda p: 0 if (p.proxy_type or '').lower() == 'mobile' else 1)
-            mobile_count = sum(1 for p in proxies if (p.proxy_type or '').lower() == 'mobile')
-            if mobile_count > 0:
-                logger.info(f"[ProxyPool] {provider}: {mobile_count} mobile proxies prioritized out of {len(proxies)} total")
+            def proxy_priority(p):
+                pt = (p.proxy_type or '').lower()
+                if pt == 'mobile':
+                    return 0  # Best: mobile
+                elif pt in ('residential', 'socks5', 'https'):
+                    return 1  # Good: residential socks5/https
+                else:
+                    return 2  # Worst: datacenter http
+            proxies.sort(key=proxy_priority)
+            premium_count = sum(1 for p in proxies if proxy_priority(p) < 2)
+            if premium_count > 0:
+                logger.info(f"[ProxyPool] {provider}: {premium_count} premium (mobile/residential) proxies prioritized out of {len(proxies)} total")
 
         if len(proxies) <= count:
             return proxies
