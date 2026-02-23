@@ -250,10 +250,19 @@ async def run_birth_task(request: BirthRequest):
                         proxy = await proxy_manager.get_verified_unbound_proxy_async(
                             exclude_ids=proxy_blacklist
                         )
-                        if not proxy and proxy_pool:
-                            logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting...")
-                            await asyncio.sleep(5)
-                            continue
+                        if not proxy:
+                            if proxy_blacklist:
+                                # All proxies were blacklisted — stop task
+                                async with job_lock:
+                                    task.stop_reason = f"Процесс завершился потому что — все прокси заблокированы ({len(proxy_blacklist)} шт). Загрузите новые прокси или сбросьте счётчики."
+                                logger.warning(f"[Birth] Worker {worker_id}: all proxies blacklisted, stopping")
+                                return
+                            elif proxy_pool:
+                                logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting...")
+                                await asyncio.sleep(5)
+                                continue
+                            else:
+                                return
 
                         # Increment per-provider usage counter
                         if proxy:

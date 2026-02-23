@@ -319,13 +319,18 @@ class ProxyManager:
             query = query.filter(~Proxy.id.in_(exclude_ids))
 
         candidates = query.all()
-        if not candidates:
+
+        # If no non-blacklisted proxies, try ANY unbound active proxy
+        # but ONLY if there's no blacklist (first run) — never ignore blacklist
+        if not candidates and not exclude_ids:
             candidates = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
             ).all()
 
         if not candidates:
+            if exclude_ids:
+                logger.warning(f"[ProxyManager] All proxies blacklisted ({len(exclude_ids)} blocked), none left")
             return None
 
         random.shuffle(candidates)
