@@ -68,6 +68,7 @@ class WarmupSession:
         phase_override: int = 0,
         same_provider: bool = False,
         thread_log: ThreadLog = None,
+        semaphore: asyncio.Semaphore = None,
     ):
         self.account = account
         self.targets = targets
@@ -81,6 +82,7 @@ class WarmupSession:
         self.phase_override = phase_override
         self.same_provider = same_provider
         self.thread_log = thread_log
+        self.semaphore = semaphore
         self.sent_count = 0
         self.error_count = 0
         self.sent_emails = []  # List of (sender_id, receiver_id, subject) for tracking
@@ -199,11 +201,18 @@ class WarmupSession:
                     logger.error(f"Warmup [{self.account.email}] send error: {e}")
                     await debug_screenshot(page, "send_error", self.account.email, "warmup")
 
-                # Random delay
+                # Random delay — RELEASE semaphore so other accounts can use this slot
                 delay = random.uniform(self.delay_min, self.delay_max)
                 delay += random.uniform(-5, 5)
                 delay = max(5, delay)
-                await asyncio.sleep(delay)
+                if self.semaphore and i < emails_today - 1:  # Don't yield on last email
+                    self.semaphore.release()
+                    logger.debug(f"Warmup [{self.account.email}]: slot released for {delay:.0f}s delay")
+                    await asyncio.sleep(delay)
+                    await self.semaphore.acquire()
+                    logger.debug(f"Warmup [{self.account.email}]: slot re-acquired")
+                else:
+                    await asyncio.sleep(delay)
 
             # Read some inbox emails (human behavior)
             try:
@@ -989,37 +998,41 @@ async def run_warmup_task(
             semaphore = asyncio.Semaphore(threads)
 
             async def process_sender(account):
-                async with semaphore:
-                    thread_log = ThreadLog(
-                        task_id=task.id, thread_type="warmup", status="running",
-                        account_email=account.email,
-                    )
-                    db.add(thread_log)
-                    db.commit()
+                await semaphore.acquire()
+                thread_log = ThreadLog(
+                    task_id=task.id, thread_type="warmup", status="running",
+                    account_email=account.email,
+                )
+                db.add(thread_log)
+                db.commit()
 
-                    subj, body = random.choice(template_pairs)
+                subj, body = random.choice(template_pairs)
 
-                    session = WarmupSession(
-                        account=account,
-                        targets=receiver_accounts,
-                        browser_manager=browser_manager,
-                        template_subject=subj,
-                        template_body=body,
-                        delay_min=delay_min,
-                        delay_max=delay_max,
-                        emails_per_day_min=emails_per_day_min,
-                        emails_per_day_max=emails_per_day_max,
-                        phase_override=phase_override,
-                        same_provider=same_provider,
-                        thread_log=thread_log,
-                    )
+                session = WarmupSession(
+                    account=account,
+                    targets=receiver_accounts,
+                    browser_manager=browser_manager,
+                    template_subject=subj,
+                    template_body=body,
+                    delay_min=delay_min,
+                    delay_max=delay_max,
+                    emails_per_day_min=emails_per_day_min,
+                    emails_per_day_max=emails_per_day_max,
+                    phase_override=phase_override,
+                    same_provider=same_provider,
+                    thread_log=thread_log,
+                    semaphore=semaphore,  # Pass semaphore for yield during delays
+                )
 
+                try:
                     result = await session.run(db, task_id=task.id)
 
                     thread_log.status = "done"
                     thread_log.current_action = f"Sent {result['sent']}, errors {result['errors']}"
                     task.completed_items = (task.completed_items or 0) + 1
                     db.commit()
+                finally:
+                    semaphore.release()
 
             # Send with jitter
             sender_tasks = []
