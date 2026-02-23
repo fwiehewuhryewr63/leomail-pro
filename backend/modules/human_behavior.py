@@ -171,54 +171,144 @@ async def human_type(page, selector: str, text: str, clear: bool = True):
 
 async def warmup_browsing(page, duration_seconds: int = None):
     """
-    Browse Google/YouTube for a bit before registration.
+    Browse popular sites before registration.
     Warms up the browser fingerprint and makes it look like a real session.
+    Visits 3-5 sites from a diverse pool, performs Google searches, reads content.
     """
     if duration_seconds is None:
-        duration_seconds = random.randint(15, 40)
+        duration_seconds = random.randint(35, 70)
 
     logger.debug(f"Warmup browsing for ~{duration_seconds}s")
 
+    # Diverse pool of popular, safe sites
     sites = [
         ("https://www.google.com", "Google"),
         ("https://www.wikipedia.org", "Wikipedia"),
+        ("https://www.youtube.com", "YouTube"),
+        ("https://www.reddit.com", "Reddit"),
+        ("https://www.amazon.com", "Amazon"),
+        ("https://news.ycombinator.com", "HackerNews"),
+        ("https://www.bbc.com", "BBC"),
+        ("https://www.cnn.com", "CNN"),
+        ("https://www.weather.com", "Weather"),
+        ("https://www.imdb.com", "IMDb"),
+        ("https://www.ebay.com", "eBay"),
+        ("https://stackoverflow.com", "StackOverflow"),
+        ("https://www.nytimes.com", "NYTimes"),
+        ("https://www.reuters.com", "Reuters"),
+        ("https://www.medium.com", "Medium"),
+    ]
+
+    # Random Google search queries (things a real person would search)
+    search_queries = [
+        "best restaurants near me", "weather today", "latest news",
+        "how to cook pasta", "movie recommendations 2026",
+        "travel deals europe", "python tutorial", "healthy recipes",
+        "best laptops 2026", "football scores today",
+        "new music releases", "diy home projects",
+        "book recommendations", "coffee shops nearby",
+        "workout routines at home",
     ]
 
     start = asyncio.get_event_loop().time()
+    visited = 0
+    max_visits = random.randint(3, 5)
 
-    for url, name in random.sample(sites, min(2, len(sites))):
-        if asyncio.get_event_loop().time() - start > duration_seconds:
+    # Always start with Google (most natural)
+    try:
+        await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=20000)
+        await human_delay(1, 3)
+        await random_mouse_move(page, steps=random.randint(2, 4))
+
+        # Do a Google search
+        query = random.choice(search_queries)
+        search_input = page.locator('textarea[name="q"], input[name="q"]')
+        if await search_input.count() > 0:
+            await search_input.first.click()
+            await human_delay(0.3, 0.8)
+            await search_input.first.type(query, delay=random.randint(50, 120))
+            await human_delay(0.5, 1.5)
+            await page.keyboard.press("Enter")
+            await human_delay(2, 4)
+
+            # Scroll through search results
+            await random_scroll(page, "down")
+            await human_delay(1, 2)
+            await random_mouse_move(page, steps=random.randint(2, 5))
+            await random_scroll(page, "down")
+            await human_delay(0.5, 1.5)
+
+            # Maybe click a result
+            if random.random() < 0.3:
+                try:
+                    links = page.locator('h3')
+                    count = await links.count()
+                    if count > 0:
+                        idx = random.randint(0, min(4, count - 1))
+                        await links.nth(idx).click()
+                        await human_delay(2, 4)
+                        await random_scroll(page, "down")
+                        await human_delay(1, 2)
+                except Exception:
+                    pass
+
+        visited += 1
+    except Exception as e:
+        logger.debug(f"Warmup Google error: {e}")
+
+    # Visit a few more random sites
+    random.shuffle(sites)
+    for url, name in sites:
+        elapsed = asyncio.get_event_loop().time() - start
+        if elapsed > duration_seconds or visited >= max_visits:
             break
 
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
             await human_delay(1, 3)
 
-            # Random mouse movements on the page
+            # Read the page (mouse movements + scrolling)
             await random_mouse_move(page, steps=random.randint(3, 7))
+            await random_scroll(page, "down")
+            await human_delay(1, 3)
 
-            # Scroll around
-            await random_scroll(page, "down")
-            await human_delay(1, 2)
-            await random_scroll(page, "down")
-            await human_delay(0.5, 1.5)
+            # More scrolling — humans read content
+            scroll_count = random.randint(1, 3)
+            for _ in range(scroll_count):
+                await random_scroll(page, "down")
+                await human_delay(0.5, 2)
 
             # Maybe scroll back up
             if random.random() < 0.4:
                 await random_scroll(page, "up")
                 await human_delay(0.5, 1)
 
-            # Random mouse movements
-            await random_mouse_move(page, steps=random.randint(2, 4))
+            # Random mouse movements (reading with eyes, moving mouse)
+            await random_mouse_move(page, steps=random.randint(2, 5))
+            await human_delay(0.5, 2)
 
-            await human_delay(1, 3)
+            # Maybe click something on the page
+            if random.random() < 0.2:
+                try:
+                    links = page.locator('a')
+                    count = await links.count()
+                    if count > 5:
+                        idx = random.randint(0, min(10, count - 1))
+                        await links.nth(idx).click()
+                        await human_delay(1, 3)
+                        await random_scroll(page, "down")
+                        await human_delay(0.5, 1.5)
+                except Exception:
+                    pass
+
+            visited += 1
 
         except Exception as e:
             logger.debug(f"Warmup site {name} error: {e}")
             continue
 
     elapsed = asyncio.get_event_loop().time() - start
-    logger.debug(f"Warmup complete: {elapsed:.1f}s")
+    logger.debug(f"Warmup complete: {elapsed:.1f}s, {visited} sites visited")
 
 
 async def between_steps(page):
