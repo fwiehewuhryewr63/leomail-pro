@@ -91,14 +91,12 @@ class WarmupSession:
         """Execute warmup for this account: sends to receiver farm accounts."""
         # Compute phase limits
         if self.phase_override > 0:
-            # Force specific phase
             phase = self.phase_override
             if phase in PHASES:
                 _, _, phase_min, phase_max, _ = PHASES[phase]
             else:
                 phase_min, phase_max = 1, 5
         else:
-            # Auto: use account's warmup day
             current_day = (self.account.warmup_day or 0) + 1
             phase = get_phase_for_day(current_day)
             phase_min, phase_max = get_phase_limits(current_day)
@@ -109,7 +107,6 @@ class WarmupSession:
         logger.info(f"Warmup [{self.account.email}]: day {current_day}, phase {phase}, "
                      f"sending {emails_today} emails (range {phase_min}-{phase_max})")
 
-        # Filter targets by provider rule
         available_targets = list(self.targets)
         if self.same_provider:
             my_provider = self.account.provider
@@ -119,44 +116,46 @@ class WarmupSession:
             logger.warning(f"Warmup [{self.account.email}]: no targets available")
             return {"sent": 0, "errors": 0}
 
-        # Load browser session
-        context, session_path = await self.browser_manager.load_session_context(
-            account_id=self.account.id,
-            proxy=self.account.proxy,
-            device_type="desktop",
-            geo=self.account.geo,
-        )
-
         thread_id = self.thread_log.id if self.thread_log else 0
-        try:
-            page = await context.new_page()
-            provider = self.account.provider or "gmail"
-            register_page(thread_id, page, context, engine="warmup")
+        provider = self.account.provider or "gmail"
+        mail_urls = {
+            "gmail": "https://mail.google.com",
+            "outlook": "https://outlook.live.com/mail",
+            "hotmail": "https://outlook.live.com/mail",
+            "yahoo": "https://mail.yahoo.com",
+            "aol": "https://mail.aol.com",
+        }
+        mail_url = mail_urls.get(provider, "https://mail.google.com")
 
-            # Navigate to mail
-            mail_urls = {
-                "gmail": "https://mail.google.com",
-                "outlook": "https://outlook.live.com/mail",
-                "hotmail": "https://outlook.live.com/mail",
-                "yahoo": "https://mail.yahoo.com",
-                "aol": "https://mail.aol.com",
-            }
-            mail_url = mail_urls.get(provider, "https://mail.google.com")
-            await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
+        # ─── SEND EMAILS with context lifecycle management ───
+        # For memory efficiency: open context → send email → save+close → yield → reopen
+        for i in range(emails_today):
+            context = None
+            page = None
+            try:
+                # Open browser context (loads saved session)
+                context, session_path = await self.browser_manager.load_session_context(
+                    account_id=self.account.id,
+                    proxy=self.account.proxy,
+                    device_type="desktop",
+                    geo=self.account.geo,
+                )
+                page = await context.new_page()
+                register_page(thread_id, page, context, engine="warmup")
 
-            # Check if logged in
-            await asyncio.sleep(random.uniform(2, 5))
-            current_url = page.url
+                # Navigate to mail
+                await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(2, 4))
 
-            if "signin" in current_url or "login" in current_url or "accounts.google.com" in current_url:
-                logger.info(f"Warmup [{self.account.email}]: session expired, re-login needed")
-                await debug_screenshot(page, "session_expired", self.account.email, "warmup")
-                await self._relogin(page, provider)
+                # Check if logged in (only log on first email or after re-login)
+                current_url = page.url
+                if "signin" in current_url or "login" in current_url or "accounts.google.com" in current_url:
+                    logger.info(f"Warmup [{self.account.email}]: session expired, re-login needed")
+                    await debug_screenshot(page, "session_expired", self.account.email, "warmup")
+                    await self._relogin(page, provider)
 
-            # Send emails to receiver farm accounts
-            for i in range(emails_today):
+                # Send one email
                 target = random.choice(available_targets)
-
                 recipient = {
                     "email": target.email,
                     "first_name": target.first_name or "",
@@ -183,7 +182,6 @@ class WarmupSession:
                     self.sent_count += 1
                     self.sent_emails.append((self.account.id, target.id, subject))
 
-                    # Track in WarmupEmail table
                     warmup_email = WarmupEmail(
                         task_id=task_id,
                         sender_account_id=self.account.id,
@@ -194,66 +192,70 @@ class WarmupSession:
                     db.add(warmup_email)
                     db.commit()
 
-                    logger.debug(f"Warmup [{self.account.email}] → {target.email} ✓")
+                    logger.debug(f"Warmup [{self.account.email}] → {target.email} ✓ ({i+1}/{emails_today})")
 
                 except Exception as e:
                     self.error_count += 1
                     logger.error(f"Warmup [{self.account.email}] send error: {e}")
                     await debug_screenshot(page, "send_error", self.account.email, "warmup")
 
-                # Random delay — RELEASE semaphore so other accounts can use this slot
+                # On last email: read inbox + save session (keep context open a bit longer)
+                if i == emails_today - 1:
+                    try:
+                        await self._read_inbox(page, provider)
+                    except Exception:
+                        pass
+
+                # Save session before closing context
+                await self.browser_manager.save_session(context, self.account.id)
+
+            except Exception as e:
+                logger.error(f"Warmup [{self.account.email}] email {i+1} fatal: {e}")
+                self.error_count += 1
+                try:
+                    if page:
+                        await debug_screenshot(page, "fatal_error", self.account.email, "warmup")
+                except Exception:
+                    pass
+            finally:
+                # ALWAYS close context to free RAM
+                unregister_page(thread_id)
+                if context:
+                    await self.browser_manager.close_context(context)
+
+            # Delay between emails — yield semaphore so other accounts work
+            if i < emails_today - 1:
                 delay = random.uniform(self.delay_min, self.delay_max)
                 delay += random.uniform(-5, 5)
                 delay = max(5, delay)
-                if self.semaphore and i < emails_today - 1:  # Don't yield on last email
+                if self.semaphore:
                     self.semaphore.release()
-                    logger.debug(f"Warmup [{self.account.email}]: slot released for {delay:.0f}s delay")
+                    logger.debug(f"Warmup [{self.account.email}]: context closed, slot released for {delay:.0f}s")
                     await asyncio.sleep(delay)
                     await self.semaphore.acquire()
-                    logger.debug(f"Warmup [{self.account.email}]: slot re-acquired")
+                    logger.debug(f"Warmup [{self.account.email}]: slot re-acquired, reopening context")
                 else:
                     await asyncio.sleep(delay)
 
-            # Read some inbox emails (human behavior)
-            try:
-                await self._read_inbox(page, provider)
-            except Exception:
-                pass
+        # Update account stats
+        self.account.emails_sent_today = self.sent_count
+        self.account.total_emails_sent = (self.account.total_emails_sent or 0) + self.sent_count
+        self.account.last_email_sent_at = datetime.utcnow()
+        self.account.warmup_day = current_day
+        self.account.last_active = datetime.utcnow()
 
-            # Save session
-            await self.browser_manager.save_session(context, self.account.id)
+        # Advance warmup phase status
+        if self.phase_override > 0:
+            _, _, _, _, forced_status = PHASES.get(self.phase_override, (0, 0, 0, 0, AccountStatus.PHASE_1))
+            self.account.status = forced_status
+        else:
+            new_status = get_phase_status(current_day)
+            old_status = self.account.status
+            if old_status != new_status:
+                logger.info(f"Warmup [{self.account.email}]: {old_status} → {new_status}")
+                self.account.status = new_status
 
-            # Update account stats
-            self.account.emails_sent_today = self.sent_count
-            self.account.total_emails_sent = (self.account.total_emails_sent or 0) + self.sent_count
-            self.account.last_email_sent_at = datetime.utcnow()
-            self.account.warmup_day = current_day
-            self.account.last_active = datetime.utcnow()
-
-            # Advance warmup phase status
-            if self.phase_override > 0:
-                # Force phase status
-                _, _, _, _, forced_status = PHASES.get(self.phase_override, (0, 0, 0, 0, AccountStatus.PHASE_1))
-                self.account.status = forced_status
-            else:
-                new_status = get_phase_status(current_day)
-                old_status = self.account.status
-                if old_status != new_status:
-                    logger.info(f"Warmup [{self.account.email}]: {old_status} → {new_status}")
-                    self.account.status = new_status
-
-            db.commit()
-
-        except Exception as e:
-            logger.error(f"Warmup [{self.account.email}] fatal: {e}")
-            self.error_count += 1
-            try:
-                await debug_screenshot(page, "fatal_error", self.account.email, "warmup")
-            except Exception:
-                pass
-        finally:
-            unregister_page(thread_id)
-            await self.browser_manager.close_context(context)
+        db.commit()
 
         return {"sent": self.sent_count, "errors": self.error_count}
 
