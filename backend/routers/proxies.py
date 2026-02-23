@@ -133,16 +133,18 @@ def parse_proxy_line(line: str) -> dict | None:
         return None
 
     # Auto-detect type: socks5, http, or mobile
-    proxy_type = "http"  # default
+    proxy_type = "http"  # default (covers residential too)
     user_lower = (username or "").lower()
 
     if detected_protocol and 'socks' in detected_protocol:
         proxy_type = "socks5"
-    elif any(kw in user_lower for kw in ['session', 'hold', 'corp', 'country', 'mobile', 'rotating']):
+    elif 'mobile' in user_lower:
+        # Only explicit 'mobile' keyword = mobile proxy
+        # Keywords like 'session', 'hold', 'country', 'rotating' are used by
+        # residential providers (Bright Data, Smartproxy, etc.) — NOT mobile
         proxy_type = "mobile"
     elif port == 1080 or port == 1081:
         proxy_type = "socks5"
-    # Everything else is HTTP (no more "port > 10000 = socks5" heuristic)
 
     # Protocol derived from type
     protocol = "socks5" if proxy_type == "socks5" else "http"
