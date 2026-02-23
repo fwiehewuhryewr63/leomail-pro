@@ -2248,6 +2248,7 @@ async def run_birth_task(request: BirthRequest):
             # Smart retry: shared blacklists across workers
             country_blacklist = set()  # countries that failed SMS
             proxy_blacklist = set()    # proxy IDs that got E500/banned
+            consecutive_failures = [0]  # stop task after 10 in a row
 
             async def worker(worker_id: int):
                 """Worker keeps registering until target reached."""
@@ -2256,8 +2257,10 @@ async def run_birth_task(request: BirthRequest):
                         if success_counter[0] >= request.quantity:
                             return
                         if attempt_counter[0] >= max_attempts:
-                            # Set exhaustion reason for max attempts
                             task.stop_reason = f"Процесс завершился потому что — достигнут лимит попыток ({max_attempts}). Зарегистрировано {success_counter[0]} из {request.quantity}"
+                            return
+                        if consecutive_failures[0] >= 10:
+                            task.stop_reason = f"Процесс завершился потому что — 10 ошибок подряд. Зарегистрировано {success_counter[0]} из {request.quantity}. Проверьте прокси."
                             return
                         attempt_counter[0] += 1
                         current_attempt = attempt_counter[0]
@@ -2312,9 +2315,12 @@ async def run_birth_task(request: BirthRequest):
                             await asyncio.sleep(1)
                             continue
 
-                        # Inject country rotation config into SMS provider
-                        if sms and request.sms_countries:
-                            sms._sms_countries = request.sms_countries
+                        # Inject SMS country: proxy GEO takes priority
+                        if sms:
+                            if proxy and getattr(proxy, 'geo', None):
+                                sms._sms_countries = [proxy.geo.lower()]
+                            elif request.sms_countries:
+                                sms._sms_countries = request.sms_countries
                             sms._country_blacklist = country_blacklist
 
                         account = None
@@ -2379,6 +2385,7 @@ async def run_birth_task(request: BirthRequest):
                             async with job_lock:
                                 registered_accounts.append(account)
                                 success_counter[0] += 1
+                                consecutive_failures[0] = 0  # reset on success
                                 task.completed_items = success_counter[0]
 
                             db.commit()
@@ -2386,6 +2393,8 @@ async def run_birth_task(request: BirthRequest):
                                         f"({success_counter[0]}/{request.quantity})")
                         else:
                             task.failed_items = (task.failed_items or 0) + 1
+                            async with job_lock:
+                                consecutive_failures[0] += 1
                             thread_log.status = "error"
                             if not thread_log.error_message:
                                 thread_log.error_message = "Регистрация не завершена"
@@ -2415,6 +2424,8 @@ async def run_birth_task(request: BirthRequest):
                         logger.error(f"[Birth] Worker {worker_id} crashed: {e}", exc_info=True)
                         try:
                             task.failed_items = (task.failed_items or 0) + 1
+                            async with job_lock:
+                                consecutive_failures[0] += 1
                             if thread_log:
                                 thread_log.status = "error"
                                 thread_log.error_message = str(e)[:500]
