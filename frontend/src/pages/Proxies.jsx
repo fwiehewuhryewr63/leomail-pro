@@ -134,7 +134,12 @@ export default function Proxies() {
 
     const startEdit = (proxy) => {
         setEditingId(proxy.id);
-        setEditData({ host: proxy.host, port: proxy.port, username: proxy.username || '', password: '' });
+        setEditData({
+            host: proxy.host || '',
+            port: proxy.port || '',
+            username: proxy.username || '',
+            password: '',
+        });
     };
 
     const cancelEdit = () => { setEditingId(null); setEditData({}); };
@@ -319,41 +324,33 @@ export default function Proxies() {
                                     <tr key={p.id || i}>
                                         <td style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>{i + 1}</td>
 
-                                        {/* Host - editable */}
+                                        {/* Host */}
                                         <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>
-                                            {isEditing ? (
-                                                <input className="form-input" style={{ fontSize: '0.85em', padding: '2px 6px', width: 120 }}
-                                                    value={editData.host} onChange={e => setEditData({ ...editData, host: e.target.value })} />
-                                            ) : p.host}
+                                            {p.host}
                                         </td>
 
-                                        {/* Port - editable */}
+                                        {/* Port */}
                                         <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>
-                                            {isEditing ? (
-                                                <input className="form-input" type="number" style={{ fontSize: '0.85em', padding: '2px 6px', width: 60 }}
-                                                    value={editData.port} onChange={e => setEditData({ ...editData, port: e.target.value })} />
-                                            ) : p.port}
+                                            {p.port}
                                         </td>
 
-                                        <td>{isEditing ? (
-                                            <input className="form-input" placeholder="login" style={{ fontSize: '0.8em', padding: '2px 6px', width: 90 }}
-                                                value={editData.username} onChange={e => setEditData({ ...editData, username: e.target.value })} />
-                                        ) : <span className="badge" style={{
+                                        {/* Type */}
+                                        <td><span className="badge" style={{
                                             background: (p.proxy_type || 'http') === 'socks5' ? 'rgba(139,92,246,0.2)' : (p.proxy_type || 'http') === 'mobile' ? 'rgba(251,191,36,0.2)' : 'rgba(59,130,246,0.2)',
                                             color: (p.proxy_type || 'http') === 'socks5' ? '#a78bfa' : (p.proxy_type || 'http') === 'mobile' ? '#fbbf24' : '#60a5fa',
-                                        }}>{(p.proxy_type || 'http').toUpperCase()}</span>}</td>
-                                        <td>{isEditing ? (
-                                            <input className="form-input" placeholder="password" type="password" style={{ fontSize: '0.8em', padding: '2px 6px', width: 90 }}
-                                                value={editData.password} onChange={e => setEditData({ ...editData, password: e.target.value })} />
-                                        ) : p.status === 'active' ? (
-                                            <span className="badge badge-success"><CheckCircle size={10} /> ALIVE</span>
-                                        ) : p.status === 'free' ? (
-                                            <span className="badge badge-warning"><Globe2 size={10} /> FREE</span>
-                                        ) : p.status === 'dead' ? (
-                                            <span className="badge badge-danger"><XCircle size={10} /> DEAD</span>
-                                        ) : (
-                                            <span className="badge badge-danger"><Clock size={10} /> {p.status || '—'}</span>
-                                        )}
+                                        }}>{(p.proxy_type || 'http').toUpperCase()}</span></td>
+
+                                        {/* Status */}
+                                        <td>
+                                            {p.status === 'active' ? (
+                                                <span className="badge badge-success"><CheckCircle size={10} /> ALIVE</span>
+                                            ) : p.status === 'free' ? (
+                                                <span className="badge badge-warning"><Globe2 size={10} /> FREE</span>
+                                            ) : p.status === 'dead' ? (
+                                                <span className="badge badge-danger"><XCircle size={10} /> DEAD</span>
+                                            ) : (
+                                                <span className="badge badge-danger"><Clock size={10} /> {p.status || '—'}</span>
+                                            )}
                                         </td>
                                         <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: 'var(--text-muted)' }}>
                                             {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
@@ -399,10 +396,7 @@ export default function Proxies() {
                                             <div style={{ display: 'flex', gap: 3 }}>
                                                 {isEditing ? (
                                                     <>
-                                                        <button className="btn btn-sm btn-success" onClick={() => saveEdit(p.id)} title="Save">
-                                                            <Save size={12} />
-                                                        </button>
-                                                        <button className="btn btn-sm" onClick={cancelEdit} title="Cancel">
+                                                        <button className="btn btn-sm" onClick={cancelEdit} title="Отмена">
                                                             <X size={12} />
                                                         </button>
                                                     </>
@@ -444,27 +438,60 @@ export default function Proxies() {
                 </div>
             )}
 
-            {/* Edit panel for credentials */}
+            {/* Edit Proxy Modal */}
             {editingId && (
-                <div className="card" style={{ marginTop: 12, borderLeft: '3px solid var(--accent)' }}>
-                    <div className="card-title"><Edit3 size={13} style={{ marginRight: 6 }} /> Edit Proxy Credentials (ID: {editingId})</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div className="form-group">
-                            <label className="form-label">Username</label>
-                            <input className="form-input" value={editData.username} placeholder="leave empty to keep"
-                                onChange={e => setEditData({ ...editData, username: e.target.value })} />
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 1000,
+                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }} onClick={cancelEdit}>
+                    <div className="card" style={{
+                        width: 420, padding: '24px 28px',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+                        animation: 'modal-scale-in 0.2s ease-out',
+                    }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Edit3 size={16} style={{ color: 'var(--accent)' }} />
+                                <span style={{ fontWeight: 800, fontSize: '1.05em' }}>Редактирование прокси</span>
+                            </div>
+                            <button className="btn btn-sm" onClick={cancelEdit} style={{ padding: '4px 6px' }}>
+                                <X size={14} />
+                            </button>
                         </div>
-                        <div className="form-group">
-                            <label className="form-label">Password</label>
-                            <input className="form-input" value={editData.password} placeholder="leave empty to keep"
-                                onChange={e => setEditData({ ...editData, password: e.target.value })} />
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 12 }}>
+                            <div className="form-group">
+                                <label className="form-label">Host</label>
+                                <input className="form-input" value={editData.host} placeholder="host / ip"
+                                    onChange={e => setEditData({ ...editData, host: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Port</label>
+                                <input className="form-input" type="number" value={editData.port} placeholder="port"
+                                    onChange={e => setEditData({ ...editData, port: e.target.value })} />
+                            </div>
                         </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                        <button className="btn btn-primary" onClick={() => saveEdit(editingId)}>
-                            <Save size={14} /> Save Changes
-                        </button>
-                        <button className="btn" onClick={cancelEdit}>Cancel</button>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                            <div className="form-group">
+                                <label className="form-label">Username</label>
+                                <input className="form-input" value={editData.username} placeholder="пусто = без логина"
+                                    onChange={e => setEditData({ ...editData, username: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Password</label>
+                                <input className="form-input" value={editData.password} placeholder="пусто = не менять" type="password"
+                                    onChange={e => setEditData({ ...editData, password: e.target.value })} />
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => saveEdit(editingId)}>
+                                <Save size={14} /> Сохранить
+                            </button>
+                            <button className="btn" onClick={cancelEdit}>Отмена</button>
+                        </div>
                     </div>
                 </div>
             )}
