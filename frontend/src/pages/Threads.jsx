@@ -12,9 +12,9 @@ const statusMap = {
 };
 
 const GROUPS = [
-    { key: 'birth', label: '🍼 Авторегистрация', color: '#6C5CE7', stopUrl: '/birth/stop', statusUrl: '/birth/status' },
-    { key: 'warmup', label: '🔥 Прогрев', color: '#E17055', stopUrl: '/warmup/stop', statusUrl: '/warmup/status' },
-    { key: 'work', label: '📨 Рассылка', color: '#00B894', stopUrl: '/work/stop', statusUrl: '/work/status' },
+    { key: 'birth', label: 'Авторегистрация', color: '#6C5CE7', stopUrl: '/birth/stop', statusUrl: '/birth/status' },
+    { key: 'warmup', label: 'Прогрев', color: '#E17055', stopUrl: '/warmup/stop', statusUrl: '/warmup/status' },
+    { key: 'work', label: 'Рассылка', color: '#00B894', stopUrl: '/work/stop', statusUrl: '/work/status' },
 ];
 
 const formatTime = (iso) => {
@@ -159,14 +159,14 @@ export default function Threads() {
                                     padding: '14px 20px', background: 'var(--danger)', color: '#fff',
                                     fontWeight: 700, fontSize: '0.95em', border: 'none', borderRadius: 8,
                                 }}>
-                                ⚡ Мгновенно — убить все потоки сейчас
+                                Мгновенно — убить все потоки сейчас
                             </button>
                             <button className="btn" onClick={() => handleStop(stopConfirm, 'graceful')}
                                 style={{
                                     padding: '14px 20px', background: 'var(--warning)', color: '#000',
                                     fontWeight: 700, fontSize: '0.95em', border: 'none', borderRadius: 8,
                                 }}>
-                                ⏳ Дождаться завершения текущих потоков
+                                Дождаться завершения текущих потоков
                             </button>
                         </div>
                         <button className="btn" onClick={() => setStopConfirm(null)}
@@ -348,7 +348,7 @@ export default function Threads() {
                                                     {t.action || 'Работает...'}
                                                 </div>
                                                 {t.proxy && (
-                                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 1 }}>🔗 {t.proxy}</div>
+                                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 1 }}>{t.proxy}</div>
                                                 )}
                                             </div>
                                             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>

@@ -218,7 +218,7 @@ export default function Proxies() {
                             color: type === 'socks5' ? '#a78bfa' : type === 'mobile' ? '#fbbf24' : '#60a5fa',
                             fontSize: '0.78em', padding: '2px 8px'
                         }}>
-                            {type === 'socks5' ? '🔒' : type === 'mobile' ? '📱' : '🌐'} {type.toUpperCase()}: {cnt}
+                            {type.toUpperCase()}: {cnt}
                         </span>
                     ))}
                 </div>

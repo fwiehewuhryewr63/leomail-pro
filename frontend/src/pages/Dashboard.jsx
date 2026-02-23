@@ -165,7 +165,7 @@ export default function Dashboard() {
                     borderLeft: '3px solid var(--success)',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                    <span style={{ fontWeight: 700, color: 'var(--success)' }}>⚡ {s.active_tasks} активных задач</span>
+                    <span style={{ fontWeight: 700, color: 'var(--success)' }}>{s.active_tasks} активных задач</span>
                     <button className="btn" onClick={() => {
                         fetch(`${API}/tasks/stop-all`, { method: 'POST' })
                             .then(r => r.json())
@@ -234,9 +234,9 @@ export default function Dashboard() {
                                     <div style={{ fontSize: '0.85em', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
                                     <div style={{ display: 'flex', gap: 6, marginTop: 4, fontSize: '0.72em' }}>
                                         <span style={{ color: 'var(--success)' }}>✅{f.active}</span>
-                                        <span style={{ color: 'var(--accent)' }}>🔥{f.warmed}</span>
-                                        <span style={{ color: 'var(--info)' }}>📨{f.sending}</span>
-                                        {f.banned > 0 && <span style={{ color: 'var(--danger)' }}>💀{f.banned}</span>}
+                                        <span style={{ color: 'var(--accent)' }}>{f.warmed}</span>
+                                        <span style={{ color: 'var(--info)' }}>{f.sending}</span>
+                                        {f.banned > 0 && <span style={{ color: 'var(--danger)' }}>{f.banned}</span>}
                                     </div>
                                 </div>
                                 <div style={{ width: 60, textAlign: 'right' }}>

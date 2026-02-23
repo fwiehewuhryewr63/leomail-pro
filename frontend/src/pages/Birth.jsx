@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Baby, Play, Smartphone, Monitor, Shield, Wifi, Zap, UserCircle, StopCircle
+    Baby, Play, Smartphone, Monitor, Shield, Wifi, Zap, UserCircle, StopCircle,
+    Globe, Mail
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
@@ -51,7 +52,7 @@ export default function Birth() {
             setNamePacks(Array.isArray(d.name_packs) ? d.name_packs : []);
             if (d.task_status?.birth) {
                 setRunning(true);
-                setResult({ status: 'running', message: '⏳ Регистрация запущена...' });
+                setResult({ status: 'running', message: 'Регистрация запущена...' });
             }
         }).catch(() => { });
 
@@ -113,7 +114,7 @@ export default function Birth() {
                     status: 'stopped',
                     message: mode === 'instant'
                         ? `⛔ Мгновенно остановлено: ${d.stopped} задач`
-                        : `⏳ Остановка: ждём завершения потоков (${d.stopped} задач)`
+                        : `Остановка: ждём завершения потоков (${d.stopped} задач)`
                 });
             })
             .catch(() => {
@@ -133,7 +134,7 @@ export default function Birth() {
                         // Still running — show live progress
                         setResult({
                             status: 'running',
-                            message: `⏳ Идёт регистрация: ${d.completed}/${d.total} готово, ошибок: ${d.failed}`
+                            message: `Идёт регистрация: ${d.completed}/${d.total} готово, ошибок: ${d.failed}`
                         });
                     } else {
                         // Task finished
@@ -209,12 +210,13 @@ export default function Birth() {
                     </div>
                     {/* Show selected pack names when closed */}
                     {!packsOpen && selectedNamePacks.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                             {namePacks.filter(np => selectedNamePacks.includes(np.id)).map(np => (
                                 <span key={np.id} style={{
-                                    fontSize: '0.75em', padding: '2px 8px', borderRadius: 4,
-                                    background: 'rgba(var(--accent-rgb, 0,255,157), 0.12)',
-                                    color: 'var(--accent)', fontWeight: 600
+                                    fontSize: '0.82em', padding: '4px 10px', borderRadius: 6,
+                                    background: 'rgba(212, 168, 38, 0.12)',
+                                    border: '1px solid rgba(212, 168, 38, 0.25)',
+                                    color: 'var(--text-accent)', fontWeight: 600
                                 }}>{np.name} ({np.total_count})</span>
                             ))}
                         </div>
@@ -223,7 +225,7 @@ export default function Birth() {
                         <div style={{ marginTop: 10, maxHeight: 200, overflowY: 'auto' }}>
                             {namePacks.length === 0 ? (
                                 <div style={{ fontSize: '0.85em', color: 'var(--warning)', fontWeight: 600 }}>
-                                    ⚠️ Нет паков — загрузите в «Имена»
+                                    Нет паков — загрузите в «Имена»
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -344,7 +346,7 @@ export default function Birth() {
                 <div style={{ marginTop: 10 }}>
                     <button className="btn" onClick={() => setCountryModal(true)}
                         style={{ width: '100%', padding: '8px', fontSize: '0.9em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                        🌍 Выбор стран SMS ({smsCountries.length}/{allCountries.length})
+                        <Globe size={14} style={{ marginRight: 4 }} /> Выбор стран SMS ({smsCountries.length}/{allCountries.length})
                     </button>
                 </div>
 
@@ -359,10 +361,10 @@ export default function Birth() {
             {/* Summary */}
             <div className="card" style={{ marginBottom: 16, padding: '14px 20px', background: 'var(--bg-secondary)' }}>
                 <div style={{ display: 'flex', gap: 20, fontSize: '0.95em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                    <span>📧 {quantity}× <strong style={{ color: 'var(--accent)' }}>{provider.toUpperCase()}</strong></span>
-                    <span>👤 <strong style={{ color: 'var(--accent)' }}>{totalNames || 0}</strong> имён</span>
-                    <span>🧵 <strong style={{ color: 'var(--accent)' }}>{threads}</strong> потоков</span>
-                    <span>📱 SMS: <strong style={{ color: 'var(--accent)' }}>{smsProvider === 'grizzly' ? 'Grizzly' : 'SimSMS'}</strong></span>
+                    <span><Mail size={12} style={{ marginRight: 3 }} /> {quantity}× <strong style={{ color: 'var(--accent)' }}>{provider.toUpperCase()}</strong></span>
+                    <span><UserCircle size={12} style={{ marginRight: 3 }} /> <strong style={{ color: 'var(--accent)' }}>{totalNames || 0}</strong> имён</span>
+                    <span><Zap size={12} style={{ marginRight: 3 }} /> <strong style={{ color: 'var(--accent)' }}>{threads}</strong> потоков</span>
+                    <span><Smartphone size={12} style={{ marginRight: 3 }} /> SMS: <strong style={{ color: 'var(--accent)' }}>{smsProvider === 'grizzly' ? 'Grizzly' : 'SimSMS'}</strong></span>
                 </div>
             </div>
 
@@ -421,14 +423,14 @@ export default function Birth() {
                                     padding: '14px 20px', background: 'var(--danger)', color: '#fff',
                                     fontWeight: 700, fontSize: '0.95em', border: 'none', borderRadius: 8,
                                 }}>
-                                ⚡ Мгновенно — убить все потоки сейчас
+                                Мгновенно — убить все потоки сейчас
                             </button>
                             <button className="btn" onClick={() => stopBirth('graceful')}
                                 style={{
                                     padding: '14px 20px', background: 'var(--warning)', color: '#000',
                                     fontWeight: 700, fontSize: '0.95em', border: 'none', borderRadius: 8,
                                 }}>
-                                ⏳ Дождаться завершения текущих потоков
+                                Дождаться завершения текущих потоков
                             </button>
                         </div>
                         <button className="btn" onClick={() => setStopModal(false)}
@@ -451,7 +453,7 @@ export default function Birth() {
                         overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                            <h3 style={{ margin: 0, color: 'var(--accent)', fontSize: '1.05em' }}>🌍 Страны для SMS номеров</h3>
+                            <h3 style={{ margin: 0, color: 'var(--accent)', fontSize: '1.05em', display: 'flex', alignItems: 'center', gap: 6 }}><Globe size={16} /> Страны для SMS номеров</h3>
                             <div style={{ display: 'flex', gap: 6 }}>
                                 <button className="btn btn-primary" style={{ fontSize: '0.75em', padding: '4px 10px' }}
                                     onClick={() => setSmsCountries(allCountries.map(c => c.code))}>Все</button>
@@ -476,7 +478,7 @@ export default function Birth() {
                         </div>
                         <button className="btn btn-primary" onClick={() => setCountryModal(false)}
                             style={{ width: '100%', marginTop: 14, padding: '10px', fontSize: '0.95em' }}>
-                            ✅ Готово ({smsCountries.length} стран)
+                            Готово ({smsCountries.length} стран)
                         </button>
                     </div>
                 </div>
