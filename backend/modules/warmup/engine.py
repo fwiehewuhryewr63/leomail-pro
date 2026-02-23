@@ -144,7 +144,6 @@ class WarmupSession:
 
             # Check if logged in
             await asyncio.sleep(random.uniform(2, 5))
-            await debug_screenshot(page, "mail_opened", self.account.email, "warmup")
             current_url = page.url
 
             if "signin" in current_url or "login" in current_url or "accounts.google.com" in current_url:
@@ -398,7 +397,6 @@ class ReceiverSession:
             await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
 
             await asyncio.sleep(random.uniform(3, 6))
-            await debug_screenshot(page, "receiver_inbox", self.account.email, "warmup")
 
             # Check if logged in
             current_url = page.url
@@ -433,7 +431,6 @@ class ReceiverSession:
                     warmup_email.delivery_status = "inbox"
                     self.inbox_count += 1
                     logger.debug(f"Receiver [{self.account.email}]: {sender.email} → INBOX ✓")
-                    await debug_screenshot(page, "delivery_inbox", self.account.email, "warmup")
 
                     # Reply to the email
                     try:
@@ -450,7 +447,6 @@ class ReceiverSession:
                     warmup_email.delivery_status = "spam"
                     self.spam_count += 1
                     logger.warning(f"Receiver [{self.account.email}]: {sender.email} → SPAM ⚠")
-                    await debug_screenshot(page, "delivery_spam", self.account.email, "warmup")
 
                     # Move from spam to inbox (helps reputation)
                     try:

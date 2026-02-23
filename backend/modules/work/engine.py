@@ -280,7 +280,6 @@ class WorkSession:
             mail_url = mail_urls.get(provider, "https://mail.yahoo.com/")
             await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(random.uniform(3, 6))
-            await debug_screenshot(page, "mail_opened", self.account.email, "work")
 
             # Close any welcome modals (Yahoo/AOL)
             if provider in ("yahoo", "aol"):
