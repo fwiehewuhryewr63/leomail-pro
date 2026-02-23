@@ -111,6 +111,7 @@ async def dashboard(db: Session = Depends(get_db)):
 async def dashboard_stats(db: Session = Depends(get_db)):
     """Flat stats for the frontend Dashboard.jsx."""
     from sqlalchemy import func
+    from ..models import MailingStats
 
     total_accounts = db.query(Account).count()
     total_farms = db.query(Farm).count()
@@ -144,7 +145,57 @@ async def dashboard_stats(db: Session = Depends(get_db)):
         if prov not in by_provider_status:
             by_provider_status[prov] = {}
         by_provider_status[prov][status or "new"] = cnt
-    
+
+    # ─── MAILING STATS ───
+    total_sent = db.query(MailingStats).filter(MailingStats.status == "sent").count()
+    total_errors = db.query(MailingStats).filter(MailingStats.status == "error").count()
+    total_bounced = db.query(MailingStats).filter(MailingStats.status == "bounce").count()
+    total_limited = db.query(MailingStats).filter(MailingStats.status == "limit").count()
+    total_mailed = total_sent + total_errors + total_bounced + total_limited
+    inbox_rate = round((total_sent / total_mailed * 100), 1) if total_mailed > 0 else 0
+
+    # ─── FARM HEALTH ───
+    farm_health = []
+    all_farms = db.query(Farm).all()
+    for farm in all_farms:
+        accs = farm.accounts
+        if not accs:
+            continue
+        total = len(accs)
+        active = sum(1 for a in accs if a.status not in ("dead", "banned", "paused"))
+        banned = sum(1 for a in accs if a.status in ("dead", "banned"))
+        warmed = sum(1 for a in accs if a.status == "warmed")
+        sending = sum(1 for a in accs if a.status == "sending")
+        farm_health.append({
+            "id": farm.id, "name": farm.name,
+            "total": total, "active": active, "banned": banned,
+            "warmed": warmed, "sending": sending,
+            "health_pct": round(active / total * 100) if total > 0 else 0,
+        })
+
+    # ─── DATABASE PROGRESS ───
+    database_progress = []
+    all_dbs = db.query(RecipientDatabase).all()
+    for rdb in all_dbs:
+        sent_count = db.query(MailingStats).filter(
+            MailingStats.status == "sent",
+        ).count()  # Global sent — ideally per-DB, but we track globally
+        database_progress.append({
+            "id": rdb.id, "name": rdb.name,
+            "total": rdb.total_count or 0,
+            "used": rdb.used_count or 0,
+            "remaining": max(0, (rdb.total_count or 0) - (rdb.used_count or 0)),
+        })
+
+    # ─── THREAD STATS ───
+    completed_ok = db.query(ThreadLog).filter(ThreadLog.status == "done").count()
+    completed_err = db.query(ThreadLog).filter(ThreadLog.status.in_(["error", "stopped"])).count()
+    running_threads = db.query(ThreadLog).filter(ThreadLog.status == "running").count()
+
+    # ─── COMPLETED TASKS ───
+    completed_tasks = db.query(Task).filter(Task.status.in_(["done", "completed"])).count()
+    failed_tasks = db.query(Task).filter(Task.status == "failed").count()
+
     return {
         "total_accounts": total_accounts,
         "total_farms": total_farms,
@@ -162,4 +213,24 @@ async def dashboard_stats(db: Session = Depends(get_db)):
         "active_tasks": running_tasks,
         "by_provider": by_provider,
         "by_provider_status": by_provider_status,
+        # New stats
+        "mailing_stats": {
+            "total_sent": total_sent,
+            "total_errors": total_errors,
+            "total_bounced": total_bounced,
+            "total_limited": total_limited,
+            "inbox_rate": inbox_rate,
+        },
+        "farm_health": farm_health,
+        "database_progress": database_progress,
+        "thread_stats": {
+            "completed_ok": completed_ok,
+            "completed_err": completed_err,
+            "running": running_threads,
+        },
+        "task_stats": {
+            "completed": completed_tasks,
+            "failed": failed_tasks,
+            "running": running_tasks,
+        },
     }

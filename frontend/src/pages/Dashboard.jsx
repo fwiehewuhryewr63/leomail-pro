@@ -186,7 +186,7 @@ export default function Dashboard() {
             )}
 
             {/* Quick Actions */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
                 {[
                     { icon: Zap, label: t('birth'), desc: t('registerAccounts'), to: '/birth' },
                     { icon: TrendingUp, label: t('warmup'), desc: t('warmupAccounts'), to: '/warmup' },
@@ -201,6 +201,100 @@ export default function Dashboard() {
                     </div>
                 ))}
             </div>
+
+            {/* ═══ MAILING STATISTICS ═══ */}
+            {s.mailing_stats && (s.mailing_stats.total_sent > 0 || s.mailing_stats.total_errors > 0) && (
+                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Send size={14} style={{ color: 'var(--accent)' }} />
+                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Статистика рассылок</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 0 }}>
+                        <MiniStat label="Отправлено" value={s.mailing_stats.total_sent} color="var(--success)" />
+                        <MiniStat label="Ошибки" value={s.mailing_stats.total_errors} color="var(--danger)" />
+                        <MiniStat label="Bounce" value={s.mailing_stats.total_bounced} color="var(--warning)" />
+                        <MiniStat label="Лимит" value={s.mailing_stats.total_limited} color="var(--info)" />
+                        <MiniStat label="Inbox %" value={`${s.mailing_stats.inbox_rate}%`}
+                            color={s.mailing_stats.inbox_rate >= 80 ? 'var(--success)' : s.mailing_stats.inbox_rate >= 50 ? 'var(--warning)' : 'var(--danger)'} />
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ FARM HEALTH ═══ */}
+            {s.farm_health && s.farm_health.length > 0 && (
+                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Activity size={14} style={{ color: 'var(--accent)' }} />
+                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Здоровье ферм</span>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {s.farm_health.map(f => (
+                            <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: '0.85em', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
+                                    <div style={{ display: 'flex', gap: 6, marginTop: 4, fontSize: '0.72em' }}>
+                                        <span style={{ color: 'var(--success)' }}>✅{f.active}</span>
+                                        <span style={{ color: 'var(--accent)' }}>🔥{f.warmed}</span>
+                                        <span style={{ color: 'var(--info)' }}>📨{f.sending}</span>
+                                        {f.banned > 0 && <span style={{ color: 'var(--danger)' }}>💀{f.banned}</span>}
+                                    </div>
+                                </div>
+                                <div style={{ width: 60, textAlign: 'right' }}>
+                                    <div style={{ fontSize: '1.1em', fontWeight: 800, color: f.health_pct >= 80 ? 'var(--success)' : f.health_pct >= 50 ? 'var(--warning)' : 'var(--danger)' }}>
+                                        {f.health_pct}%
+                                    </div>
+                                    <div style={{ fontSize: '0.65em', color: 'var(--text-muted)' }}>{f.total} всего</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ DATABASE PROGRESS ═══ */}
+            {s.database_progress && s.database_progress.length > 0 && (
+                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Database size={14} style={{ color: 'var(--accent)' }} />
+                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Базы получателей</span>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {s.database_progress.map(d => {
+                            const pct = d.total > 0 ? Math.round(d.used / d.total * 100) : 0;
+                            return (
+                                <div key={d.id} style={{ padding: '6px 0' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                        <span style={{ fontSize: '0.82em', fontWeight: 600 }}>{d.name}</span>
+                                        <span style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>{d.used}/{d.total} ({pct}%)</span>
+                                    </div>
+                                    <div className="progress-bar">
+                                        <div className="progress-fill" style={{ width: `${pct}%` }} />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ THREAD & TASK STATS ═══ */}
+            {s.thread_stats && (
+                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <Zap size={14} style={{ color: 'var(--accent)' }} />
+                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Потоки и задачи</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 0 }}>
+                        <MiniStat label="Потоки ✅" value={s.thread_stats.completed_ok} color="var(--success)" />
+                        <MiniStat label="Потоки ❌" value={s.thread_stats.completed_err} color="var(--danger)" />
+                        <MiniStat label="Активные" value={s.thread_stats.running} color="var(--info)" />
+                        {s.task_stats && <>
+                            <MiniStat label="Задач ✅" value={s.task_stats.completed} color="var(--success)" />
+                            <MiniStat label="Задач ❌" value={s.task_stats.failed} color="var(--danger)" />
+                        </>}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

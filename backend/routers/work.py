@@ -24,7 +24,8 @@ class WorkRequest(BaseModel):
     emails_per_day_max: int = 75
     delay_min: int = 30        # seconds
     delay_max: int = 180       # seconds
-    max_link_uses: int = 0     # 0 = unlimited
+    max_link_uses: int = 0     # 0 = unlimited per-link
+    max_link_cycles: int = 0   # 0 = unlimited cycling, 1 = single pass
     same_provider: bool = False
     threads: int = 10
 
@@ -44,6 +45,7 @@ async def start_work(request: WorkRequest, background_tasks: BackgroundTasks):
         delay_min=request.delay_min,
         delay_max=request.delay_max,
         max_link_uses=request.max_link_uses,
+        max_link_cycles=request.max_link_cycles,
         threads=request.threads,
     )
     return {
@@ -131,3 +133,100 @@ async def work_thread_screenshot(thread_id: int):
     if png:
         return Response(content=png, media_type="image/png")
     return {"error": "Thread not active or no page available"}
+
+
+@router.post("/estimate")
+async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
+    """
+    Pre-task resource calculator.
+    Returns estimated time, capacity, and warnings without starting the task.
+    """
+    from ..models import Farm, Account, RecipientDatabase, LinkDatabase, Template, MailingStats
+    from pathlib import Path
+    import json
+
+    warnings = []
+
+    # 1. Accounts
+    farms = db.query(Farm).filter(Farm.id.in_(request.farm_ids)).all()
+    all_accounts = []
+    for farm in farms:
+        all_accounts.extend(farm.accounts)
+    accounts = [a for a in all_accounts if a.status not in ("dead", "banned")]
+    account_count = len(accounts)
+    if account_count == 0:
+        warnings.append("❌ Нет живых аккаунтов в выбранных фермах")
+
+    # 2. Recipients
+    total_recipients = 0
+    for db_id in request.database_ids:
+        db_record = db.query(RecipientDatabase).get(db_id)
+        if db_record:
+            total_recipients += db_record.total_count or 0
+
+    # Subtract already sent
+    already_sent = db.query(MailingStats).filter(MailingStats.status == "sent").count()
+    remaining = max(0, total_recipients - already_sent)
+    if remaining == 0:
+        warnings.append("❌ Все получатели уже обработаны")
+
+    # 3. Templates
+    template_count = db.query(Template).filter(Template.id.in_(request.template_ids)).count()
+    if template_count == 0:
+        warnings.append("❌ Нет шаблонов")
+    elif template_count < 3:
+        warnings.append(f"⚠️ Мало шаблонов ({template_count}) — будут частые повторы")
+
+    # 4. Links
+    total_links = 0
+    for ldb_id in request.link_database_ids:
+        ldb = db.query(LinkDatabase).get(ldb_id)
+        if ldb:
+            total_links += ldb.total_count or 0
+
+    # Effective links (with cycling)
+    if total_links > 0:
+        if request.max_link_cycles == 0 and request.max_link_uses == 0:
+            effective_links = 999999  # unlimited
+        elif request.max_link_cycles > 0 and request.max_link_uses == 0:
+            effective_links = total_links * request.max_link_cycles
+        elif request.max_link_cycles == 0 and request.max_link_uses > 0:
+            effective_links = total_links * request.max_link_uses
+        else:
+            effective_links = total_links * min(request.max_link_cycles, request.max_link_uses)
+    else:
+        effective_links = 0
+
+    if request.link_database_ids and effective_links > 0 and effective_links < remaining:
+        warnings.append(f"⚠️ Ссылок ({effective_links}) меньше получателей ({remaining}) — часть писем будет без ссылок")
+
+    # 5. Capacity calculation
+    avg_emails = (request.emails_per_day_min + request.emails_per_day_max) / 2
+    total_capacity = int(account_count * avg_emails)
+    if total_capacity > 0 and total_capacity < remaining:
+        warnings.append(f"⚠️ Ёмкость ({total_capacity} писем) меньше получателей ({remaining}) — потребуется несколько дней")
+
+    # 6. ETA
+    avg_delay = (request.delay_min + request.delay_max) / 2
+    if account_count > 0 and avg_delay > 0:
+        emails_per_hour = min(request.threads, account_count) * (3600 / avg_delay)
+        estimated_hours = remaining / emails_per_hour if emails_per_hour > 0 else 0
+    else:
+        estimated_hours = 0
+
+    has_critical = any(w.startswith("❌") for w in warnings)
+
+    return {
+        "accounts": account_count,
+        "recipients": remaining,
+        "recipients_total": total_recipients,
+        "already_sent": already_sent,
+        "templates": template_count,
+        "links_total": total_links,
+        "links_effective": effective_links if total_links > 0 else None,
+        "emails_per_account_avg": int(avg_emails),
+        "total_capacity": total_capacity,
+        "estimated_hours": round(estimated_hours, 1),
+        "warnings": warnings,
+        "sufficient": not has_critical,
+    }

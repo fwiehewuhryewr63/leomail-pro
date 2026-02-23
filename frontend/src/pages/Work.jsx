@@ -31,11 +31,13 @@ export default function Work() {
     const [delayMin, setDelayMin] = useState(30);
     const [delayMax, setDelayMax] = useState(180);
     const [maxLinkUses, setMaxLinkUses] = useState(0);
+    const [maxLinkCycles, setMaxLinkCycles] = useState(0);
     const [threads, setThreads] = useState(10);
     const [sameProvider, setSameProvider] = useState(false);
 
     const [running, setRunning] = useState(false);
     const [result, setResult] = useState(null);
+    const [estimate, setEstimate] = useState(null);
 
     useEffect(() => {
         fetch(`${API}/resources/batch`).then(r => r.json()).then(d => {
@@ -81,6 +83,7 @@ export default function Work() {
                 delay_min: delayMin,
                 delay_max: delayMax,
                 max_link_uses: maxLinkUses,
+                max_link_cycles: maxLinkCycles,
                 same_provider: sameProvider,
                 threads: threads,
             })
@@ -88,6 +91,35 @@ export default function Work() {
             setResult({ status: 'error', message: 'Failed to start' });
         });
     };
+
+    // Auto-estimate on resource change (debounced)
+    useEffect(() => {
+        if (selectedFarms.length === 0 || selectedTemplates.length === 0 || selectedDBs.length === 0) {
+            setEstimate(null);
+            return;
+        }
+        const timer = setTimeout(() => {
+            fetch(`${API}/work/estimate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    farm_ids: selectedFarms,
+                    database_ids: selectedDBs,
+                    link_database_ids: selectedLinkPacks,
+                    template_ids: selectedTemplates,
+                    emails_per_day_min: emailsMin,
+                    emails_per_day_max: emailsMax,
+                    delay_min: delayMin,
+                    delay_max: delayMax,
+                    max_link_uses: maxLinkUses,
+                    max_link_cycles: maxLinkCycles,
+                    threads: threads,
+                })
+            }).then(r => r.json()).then(setEstimate).catch(() => { });
+        }, 600);
+        return () => clearTimeout(timer);
+    }, [selectedFarms, selectedDBs, selectedLinkPacks, selectedTemplates,
+        emailsMin, emailsMax, delayMin, delayMax, maxLinkUses, maxLinkCycles, threads]);
 
     const totalRecipients = databases.filter(d => selectedDBs.includes(d.id)).reduce((sum, d) => sum + (d.total_count - d.used_count), 0);
     const totalAccounts = farms.filter(f => selectedFarms.includes(f.id)).reduce((sum, f) => sum + (f.account_count || 0), 0);
@@ -306,11 +338,36 @@ export default function Work() {
                             onChange={e => setThreads(Math.min(50, parseInt(e.target.value) || 10))} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label"><LinkIcon size={12} /> МАКС. ССЫЛКА</label>
-                        <input className="form-input" type="number" value={maxLinkUses} min={0}
-                            onChange={e => setMaxLinkUses(parseInt(e.target.value) || 0)} />
-                        <div style={{ fontSize: '0.8em', color: 'var(--text-muted)', marginTop: 2 }}>
+                        <label className="form-label"><LinkIcon size={12} /> ЦИКЛОВ ССЫЛОК</label>
+                        <input className="form-input" type="text" inputMode="numeric"
+                            value={maxLinkCycles}
+                            onFocus={e => e.target.select()}
+                            onChange={e => { const v = e.target.value.replace(/\D/g, ''); setMaxLinkCycles(v === '' ? '' : v); }}
+                            onBlur={e => setMaxLinkCycles(parseInt(e.target.value) || 0)} />
+                        <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 2 }}>
+                            0 = ∞ кругов
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label"><LinkIcon size={12} /> МАКС. РАЗ/ССЫЛКУ</label>
+                        <input className="form-input" type="text" inputMode="numeric"
+                            value={maxLinkUses}
+                            onFocus={e => e.target.select()}
+                            onChange={e => { const v = e.target.value.replace(/\D/g, ''); setMaxLinkUses(v === '' ? '' : v); }}
+                            onBlur={e => setMaxLinkUses(parseInt(e.target.value) || 0)} />
+                        <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 2 }}>
                             0 = без лимита
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">ПРЕСЕТЫ ССЫЛОК</label>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+                            <button className={`btn btn-sm ${maxLinkCycles === 0 && maxLinkUses === 0 ? 'btn-primary' : ''}`}
+                                onClick={() => { setMaxLinkCycles(0); setMaxLinkUses(0); }}>🔁 Безлимит</button>
+                            <button className={`btn btn-sm ${maxLinkCycles === 1 && maxLinkUses === 1 ? 'btn-primary' : ''}`}
+                                onClick={() => { setMaxLinkCycles(1); setMaxLinkUses(1); }}>1️⃣ Одноразовый</button>
+                            <button className={`btn btn-sm ${maxLinkCycles === 3 && maxLinkUses === 0 ? 'btn-primary' : ''}`}
+                                onClick={() => { setMaxLinkCycles(3); setMaxLinkUses(0); }}>🔄 3 круга</button>
                         </div>
                     </div>
                     <div className="form-group">
@@ -327,17 +384,40 @@ export default function Work() {
                 </div>
             </div>
 
-            {/* Summary */}
-            <div className="card" style={{ marginBottom: 16, padding: '12px 20px', background: 'var(--bg-secondary)' }}>
-                <div style={{ display: 'flex', gap: 20, fontSize: '0.82em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                    <span>👥 Аккаунтов: <strong style={{ color: 'var(--accent)' }}>{totalAccounts}</strong></span>
-                    <span>📬 Получателей: <strong style={{ color: 'var(--accent)' }}>{totalRecipients}</strong></span>
-                    <span>📧 Писем/аккаунт: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
-                    <span>📝 Шаблонов: <strong style={{ color: 'var(--accent)' }}>{selectedTemplates.length}</strong></span>
-                    <span>🔗 Паков ссылок: <strong style={{ color: 'var(--accent)' }}>{selectedLinkPacks.length}</strong></span>
-                    <span>🧵 Потоков: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
+            {/* Resource Calculator */}
+            {estimate && (
+                <div className="card" style={{
+                    marginBottom: 16, padding: '14px 20px',
+                    borderLeft: `3px solid ${estimate.sufficient ? 'var(--success)' : 'var(--danger)'}`,
+                    background: estimate.sufficient ? 'rgba(0,210,160,0.03)' : 'rgba(255,107,74,0.03)',
+                }}>
+                    <div style={{ display: 'flex', gap: 16, fontSize: '0.82em', color: 'var(--text-secondary)', flexWrap: 'wrap', marginBottom: estimate.warnings?.length ? 10 : 0 }}>
+                        <span>👥 Аккаунтов: <strong style={{ color: 'var(--accent)' }}>{estimate.accounts}</strong></span>
+                        <span>📬 Получателей: <strong style={{ color: 'var(--accent)' }}>{estimate.recipients}</strong></span>
+                        <span>📊 Ёмкость: <strong style={{ color: estimate.total_capacity >= estimate.recipients ? 'var(--success)' : 'var(--warning)' }}>{estimate.total_capacity}</strong></span>
+                        <span>📝 Шаблонов: <strong style={{ color: 'var(--accent)' }}>{estimate.templates}</strong></span>
+                        {estimate.links_effective != null && (
+                            <span>🔗 Ссылок: <strong style={{ color: 'var(--accent)' }}>{estimate.links_total}</strong>
+                                {estimate.links_effective < 999999 && <span style={{ color: 'var(--text-muted)' }}> (×{Math.ceil(estimate.links_effective / Math.max(estimate.links_total, 1))} = {estimate.links_effective})</span>}
+                                {estimate.links_effective >= 999999 && <span style={{ color: 'var(--text-muted)' }}> (∞)</span>}
+                            </span>
+                        )}
+                        <span>⏱ ETA: <strong style={{ color: 'var(--accent)' }}>
+                            {estimate.estimated_hours < 1 ? `${Math.round(estimate.estimated_hours * 60)} мин` : `${estimate.estimated_hours} ч`}
+                        </strong></span>
+                        <span>🧵 Потоков: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
+                    </div>
+                    {estimate.warnings?.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {estimate.warnings.map((w, i) => (
+                                <div key={i} style={{ fontSize: '0.78em', fontWeight: 600, color: w.startsWith('❌') ? 'var(--danger)' : 'var(--warning)' }}>
+                                    {w}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
-            </div>
+            )}
 
             {/* Issue Monitoring */}
             <div className="card" style={{ marginBottom: 16 }}>

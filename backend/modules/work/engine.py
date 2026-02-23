@@ -83,33 +83,72 @@ def _load_recipients(db_record: RecipientDatabase) -> list[dict]:
 
 
 class LinkRotator:
-    """Rotates links with usage tracking and max_uses limit."""
+    """
+    Sequential link rotator with cycle tracking.
 
-    def __init__(self, links: list, max_uses: int = 0):
+    Cycles through links in ORDER: 1→2→...→N→1→2→...→N
+    max_uses: per-link usage limit (0 = unlimited)
+    max_cycles: how many times to loop through the entire list (0 = unlimited)
+
+    Presets:
+      max_cycles=0, max_uses=0  → unlimited cycling
+      max_cycles=1, max_uses=1  → single-use (each link exactly once)
+      max_cycles=3, max_uses=0  → 3 full passes through the list
+    """
+
+    def __init__(self, links: list, max_uses: int = 0, max_cycles: int = 0):
         self.links = links
-        self.max_uses = max_uses  # 0 = unlimited
-        self.usage = {}  # url -> count
+        self.max_uses = max_uses      # per-link limit (0 = ∞)
+        self.max_cycles = max_cycles  # list-level limit (0 = ∞)
+        self.usage = {}               # url → count
         self.index = 0
+        self.current_cycle = 0
+        self._exhausted = False
 
     def next(self) -> str | None:
-        """Get next available link URL."""
-        if not self.links:
+        """Get next available link URL (strictly sequential)."""
+        if not self.links or self._exhausted:
             return None
 
+        # Try up to full list length to find an available link
         for _ in range(len(self.links)):
-            link_url = self.links[self.index % len(self.links)]
+            # Check if we've completed a cycle
+            if self.index >= len(self.links):
+                self.index = 0
+                self.current_cycle += 1
+                if self.max_cycles > 0 and self.current_cycle >= self.max_cycles:
+                    self._exhausted = True
+                    return None  # all cycles done
+
+            url = self.links[self.index]
             self.index += 1
 
-            if self.max_uses > 0 and self.usage.get(link_url, 0) >= self.max_uses:
+            # Check per-link usage limit
+            if self.max_uses > 0 and self.usage.get(url, 0) >= self.max_uses:
                 continue
 
-            return link_url
+            return url
 
-        return None  # all links exhausted
+        # All links exhausted (all at max_uses)
+        self._exhausted = True
+        return None
 
     def record_use(self, link_url: str):
         """Record link usage."""
         self.usage[link_url] = self.usage.get(link_url, 0) + 1
+
+    @property
+    def total_available(self) -> int:
+        """How many total link uses are available."""
+        if not self.links:
+            return 0
+        if self.max_cycles == 0 and self.max_uses == 0:
+            return 999999  # unlimited
+        if self.max_cycles > 0 and self.max_uses == 0:
+            return len(self.links) * self.max_cycles
+        if self.max_cycles == 0 and self.max_uses > 0:
+            return len(self.links) * self.max_uses
+        return len(self.links) * min(self.max_cycles, self.max_uses)
 
 
 # ─────────────────────────────────────────────────────────
@@ -537,6 +576,7 @@ async def run_work_task(
     delay_min: int = 30,
     delay_max: int = 180,
     max_link_uses: int = 0,
+    max_link_cycles: int = 0,
     threads: int = 10,
 ):
     """Run mass mailing campaign."""
@@ -620,7 +660,7 @@ async def run_work_task(
             db.add(task); db.commit()
             return
 
-        link_rotator = LinkRotator(all_link_urls, max_uses=max_link_uses)
+        link_rotator = LinkRotator(all_link_urls, max_uses=max_link_uses, max_cycles=max_link_cycles)
 
         # 4. Templates
         templates = db.query(Template).filter(Template.id.in_(template_ids)).all()
