@@ -346,8 +346,139 @@ class WarmupSession:
             pass
 
     async def _relogin(self, page, provider: str):
-        """Attempt re-login (placeholder — needs provider-specific flow)."""
-        logger.warning(f"Warmup [{self.account.email}]: re-login not implemented yet")
+        """Re-login to mail provider when session has expired."""
+        email = self.account.email
+        password = self.account.password
+        logger.info(f"Warmup [{email}]: attempting re-login for {provider}")
+
+        try:
+            if provider == "gmail":
+                await self._relogin_gmail(page, email, password)
+            elif provider in ("outlook", "hotmail"):
+                await self._relogin_outlook(page, email, password)
+            elif provider in ("yahoo", "aol"):
+                await self._relogin_yahoo_aol(page, email, password, provider)
+            else:
+                logger.warning(f"Warmup [{email}]: unknown provider '{provider}' for re-login")
+                raise Exception(f"Re-login not supported for {provider}")
+
+            # Verify we're logged in
+            await asyncio.sleep(random.uniform(3, 6))
+            final_url = page.url.lower()
+            if "signin" in final_url or "login" in final_url or "challenge" in final_url:
+                await debug_screenshot(page, "relogin_failed", email, "warmup")
+                raise Exception(f"Re-login failed, still on login page: {final_url}")
+
+            logger.info(f"Warmup [{email}]: re-login successful")
+
+        except Exception as e:
+            logger.error(f"Warmup [{email}]: re-login failed: {e}")
+            await debug_screenshot(page, "relogin_error", email, "warmup")
+            raise  # Let caller handle the failure
+
+    async def _relogin_gmail(self, page, email: str, password: str):
+        """Re-login to Gmail."""
+        await page.goto("https://accounts.google.com/signin", wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(2, 4))
+
+        # Enter email
+        email_input = page.locator('input[type="email"]')
+        await email_input.fill("")
+        await email_input.type(email, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # Click Next
+        next_btn = page.locator('button:has-text("Next"), button:has-text("Далее"), #identifierNext')
+        await next_btn.first.click()
+        await asyncio.sleep(random.uniform(3, 5))
+
+        # Enter password
+        pwd_input = page.locator('input[type="password"]')
+        await pwd_input.fill("")
+        await pwd_input.type(password, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # Click Next
+        pwd_next = page.locator('button:has-text("Next"), button:has-text("Далее"), #passwordNext')
+        await pwd_next.first.click()
+        await asyncio.sleep(random.uniform(4, 7))
+
+        # Navigate to mail
+        await page.goto("https://mail.google.com", wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(2, 4))
+
+    async def _relogin_outlook(self, page, email: str, password: str):
+        """Re-login to Outlook/Hotmail."""
+        await page.goto("https://login.live.com/", wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(2, 4))
+
+        # Enter email
+        email_input = page.locator('input[name="loginfmt"], input[type="email"]')
+        await email_input.first.fill("")
+        await email_input.first.type(email, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # Click Next
+        next_btn = page.locator('#idSIButton9, input[type="submit"]')
+        await next_btn.first.click()
+        await asyncio.sleep(random.uniform(3, 5))
+
+        # Enter password
+        pwd_input = page.locator('input[name="passwd"], input[type="password"]')
+        await pwd_input.first.fill("")
+        await pwd_input.first.type(password, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # Click Sign in
+        signin_btn = page.locator('#idSIButton9, input[type="submit"]')
+        await signin_btn.first.click()
+        await asyncio.sleep(random.uniform(3, 5))
+
+        # "Stay signed in?" prompt — click Yes
+        try:
+            stay_btn = page.locator('#idSIButton9, input[value="Yes"], button:has-text("Yes")')
+            if await stay_btn.count() > 0:
+                await stay_btn.first.click()
+                await asyncio.sleep(random.uniform(2, 4))
+        except Exception:
+            pass
+
+        # Navigate to mail
+        await page.goto("https://outlook.live.com/mail", wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(2, 4))
+
+    async def _relogin_yahoo_aol(self, page, email: str, password: str, provider: str = "yahoo"):
+        """Re-login to Yahoo or AOL (same auth system)."""
+        login_url = "https://login.yahoo.com/" if provider == "yahoo" else "https://login.aol.com/"
+        await page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(2, 4))
+
+        # Enter email/username
+        email_input = page.locator('input#login-username, input[name="username"]')
+        await email_input.first.fill("")
+        await email_input.first.type(email, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # Click Next
+        next_btn = page.locator('#login-signin, button[name="signin"], input[type="submit"]')
+        await next_btn.first.click()
+        await asyncio.sleep(random.uniform(3, 5))
+
+        # Enter password
+        pwd_input = page.locator('input#login-passwd, input[name="password"], input[type="password"]')
+        await pwd_input.first.fill("")
+        await pwd_input.first.type(password, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        # Click Sign in
+        signin_btn = page.locator('#login-signin, button[name="verifyPassword"], input[type="submit"]')
+        await signin_btn.first.click()
+        await asyncio.sleep(random.uniform(4, 7))
+
+        # Navigate to mail
+        mail_url = "https://mail.yahoo.com/" if provider == "yahoo" else "https://mail.aol.com/"
+        await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(2, 4))
 
     def _update_log(self, db, action: str):
         self.thread_log.current_action = action
@@ -401,10 +532,13 @@ class ReceiverSession:
             # Check if logged in
             current_url = page.url
             if "signin" in current_url or "login" in current_url:
-                logger.warning(f"Receiver [{self.account.email}]: session expired")
+                logger.warning(f"Receiver [{self.account.email}]: session expired, attempting re-login")
                 await debug_screenshot(page, "receiver_session_expired", self.account.email, "warmup")
-                await self.browser_manager.save_session(context, self.account.id)
-                return {"checked": 0, "inbox": 0, "spam": 0, "replied": 0}
+                try:
+                    await self._relogin(page, provider)
+                except Exception as rle:
+                    logger.error(f"Receiver [{self.account.email}]: re-login failed: {rle}")
+                    return {"checked": 0, "inbox": 0, "spam": 0, "replied": 0}
 
             # Check inbox for expected sender emails
             pending_emails = db.query(WarmupEmail).filter(
@@ -694,6 +828,76 @@ class ReceiverSession:
                 await asyncio.sleep(random.uniform(2, 5))
         except Exception:
             pass
+
+    async def _relogin(self, page, provider: str):
+        """Re-login to mail provider when session has expired (receiver side)."""
+        email = self.account.email
+        password = self.account.password
+        logger.info(f"Receiver [{email}]: attempting re-login for {provider}")
+
+        try:
+            if provider == "gmail":
+                await page.goto("https://accounts.google.com/signin", wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(2, 4))
+                await page.locator('input[type="email"]').type(email, delay=random.randint(40, 90))
+                await asyncio.sleep(random.uniform(0.5, 1))
+                await page.locator('button:has-text("Next"), button:has-text("Далее"), #identifierNext').first.click()
+                await asyncio.sleep(random.uniform(3, 5))
+                await page.locator('input[type="password"]').type(password, delay=random.randint(40, 90))
+                await asyncio.sleep(random.uniform(0.5, 1))
+                await page.locator('button:has-text("Next"), button:has-text("Далее"), #passwordNext').first.click()
+                await asyncio.sleep(random.uniform(4, 7))
+                await page.goto("https://mail.google.com", wait_until="domcontentloaded", timeout=30000)
+
+            elif provider in ("outlook", "hotmail"):
+                await page.goto("https://login.live.com/", wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(2, 4))
+                await page.locator('input[name="loginfmt"], input[type="email"]').first.type(email, delay=random.randint(40, 90))
+                await asyncio.sleep(random.uniform(0.5, 1))
+                await page.locator('#idSIButton9, input[type="submit"]').first.click()
+                await asyncio.sleep(random.uniform(3, 5))
+                await page.locator('input[name="passwd"], input[type="password"]').first.type(password, delay=random.randint(40, 90))
+                await asyncio.sleep(random.uniform(0.5, 1))
+                await page.locator('#idSIButton9, input[type="submit"]').first.click()
+                await asyncio.sleep(random.uniform(3, 5))
+                try:
+                    stay_btn = page.locator('#idSIButton9, input[value="Yes"]')
+                    if await stay_btn.count() > 0:
+                        await stay_btn.first.click()
+                        await asyncio.sleep(random.uniform(2, 4))
+                except Exception:
+                    pass
+                await page.goto("https://outlook.live.com/mail", wait_until="domcontentloaded", timeout=30000)
+
+            elif provider in ("yahoo", "aol"):
+                login_url = "https://login.yahoo.com/" if provider == "yahoo" else "https://login.aol.com/"
+                await page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(2, 4))
+                await page.locator('input#login-username, input[name="username"]').first.type(email, delay=random.randint(40, 90))
+                await asyncio.sleep(random.uniform(0.5, 1))
+                await page.locator('#login-signin, button[name="signin"], input[type="submit"]').first.click()
+                await asyncio.sleep(random.uniform(3, 5))
+                await page.locator('input#login-passwd, input[name="password"], input[type="password"]').first.type(password, delay=random.randint(40, 90))
+                await asyncio.sleep(random.uniform(0.5, 1))
+                await page.locator('#login-signin, button[name="verifyPassword"], input[type="submit"]').first.click()
+                await asyncio.sleep(random.uniform(4, 7))
+                mail_url = "https://mail.yahoo.com/" if provider == "yahoo" else "https://mail.aol.com/"
+                await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
+
+            else:
+                raise Exception(f"Re-login not supported for {provider}")
+
+            await asyncio.sleep(random.uniform(3, 6))
+            final_url = page.url.lower()
+            if "signin" in final_url or "login" in final_url or "challenge" in final_url:
+                raise Exception(f"Re-login failed, still on login page: {final_url}")
+
+            logger.info(f"Receiver [{email}]: re-login successful")
+
+        except Exception as e:
+            logger.error(f"Receiver [{email}]: re-login failed: {e}")
+            await debug_screenshot(page, "receiver_relogin_error", email, "warmup")
+            raise
 
 
 async def run_warmup_task(
