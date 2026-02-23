@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
     Send, Play, Square, AlertTriangle, CheckCircle, XCircle,
-    Clock, Shield, FileText, Link as LinkIcon, Database, Zap, Users, Timer, Mail
+    Clock, Shield, FileText, Link as LinkIcon, Database, Zap, Users, Timer, Mail,
+    Search, RefreshCw, Shuffle
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
@@ -47,7 +48,7 @@ export default function Work() {
             setFarms(Array.isArray(d.farms) ? d.farms : []);
             if (d.task_status?.work) {
                 setRunning(true);
-                setResult({ status: 'running', message: '⏳ Рассылка запущена...' });
+                setResult({ status: 'running', message: 'Рассылка запущена...' });
             }
         }).catch(() => { });
     }, []);
@@ -199,7 +200,7 @@ export default function Work() {
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
                                 <input
                                     className="form-input"
-                                    placeholder="🔍 Поиск ферм..."
+                                    placeholder="Поиск ферм..."
                                     value={farmSearch}
                                     onChange={e => setFarmSearch(e.target.value)}
                                     autoFocus
@@ -363,11 +364,11 @@ export default function Work() {
                         <label className="form-label">ПРЕСЕТЫ ССЫЛОК</label>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
                             <button className={`btn btn-sm ${maxLinkCycles === 0 && maxLinkUses === 0 ? 'btn-primary' : ''}`}
-                                onClick={() => { setMaxLinkCycles(0); setMaxLinkUses(0); }}>🔁 Безлимит</button>
+                                onClick={() => { setMaxLinkCycles(0); setMaxLinkUses(0); }}>∞ Безлимит</button>
                             <button className={`btn btn-sm ${maxLinkCycles === 1 && maxLinkUses === 1 ? 'btn-primary' : ''}`}
-                                onClick={() => { setMaxLinkCycles(1); setMaxLinkUses(1); }}>1️⃣ Одноразовый</button>
+                                onClick={() => { setMaxLinkCycles(1); setMaxLinkUses(1); }}>① Одноразовый</button>
                             <button className={`btn btn-sm ${maxLinkCycles === 3 && maxLinkUses === 0 ? 'btn-primary' : ''}`}
-                                onClick={() => { setMaxLinkCycles(3); setMaxLinkUses(0); }}>🔄 3 круга</button>
+                                onClick={() => { setMaxLinkCycles(3); setMaxLinkUses(0); }}>⟳ 3 круга</button>
                         </div>
                     </div>
                     <div className="form-group">
@@ -392,20 +393,20 @@ export default function Work() {
                     background: estimate.sufficient ? 'rgba(0,210,160,0.03)' : 'rgba(255,107,74,0.03)',
                 }}>
                     <div style={{ display: 'flex', gap: 16, fontSize: '0.82em', color: 'var(--text-secondary)', flexWrap: 'wrap', marginBottom: estimate.warnings?.length ? 10 : 0 }}>
-                        <span>👥 Аккаунтов: <strong style={{ color: 'var(--accent)' }}>{estimate.accounts}</strong></span>
-                        <span>📬 Получателей: <strong style={{ color: 'var(--accent)' }}>{estimate.recipients}</strong></span>
-                        <span>📊 Ёмкость: <strong style={{ color: estimate.total_capacity >= estimate.recipients ? 'var(--success)' : 'var(--warning)' }}>{estimate.total_capacity}</strong></span>
-                        <span>📝 Шаблонов: <strong style={{ color: 'var(--accent)' }}>{estimate.templates}</strong></span>
+                        <span><Users size={11} style={{ marginRight: 2 }} /> Аккаунтов: <strong style={{ color: 'var(--accent)' }}>{estimate.accounts}</strong></span>
+                        <span><Mail size={11} style={{ marginRight: 2 }} /> Получателей: <strong style={{ color: 'var(--accent)' }}>{estimate.recipients}</strong></span>
+                        <span><Zap size={11} style={{ marginRight: 2 }} /> Ёмкость: <strong style={{ color: estimate.total_capacity >= estimate.recipients ? 'var(--success)' : 'var(--warning)' }}>{estimate.total_capacity}</strong></span>
+                        <span><FileText size={11} style={{ marginRight: 2 }} /> Шаблонов: <strong style={{ color: 'var(--accent)' }}>{estimate.templates}</strong></span>
                         {estimate.links_effective != null && (
-                            <span>🔗 Ссылок: <strong style={{ color: 'var(--accent)' }}>{estimate.links_total}</strong>
+                            <span><LinkIcon size={11} style={{ marginRight: 2 }} /> Ссылок: <strong style={{ color: 'var(--accent)' }}>{estimate.links_total}</strong>
                                 {estimate.links_effective < 999999 && <span style={{ color: 'var(--text-muted)' }}> (×{Math.ceil(estimate.links_effective / Math.max(estimate.links_total, 1))} = {estimate.links_effective})</span>}
                                 {estimate.links_effective >= 999999 && <span style={{ color: 'var(--text-muted)' }}> (∞)</span>}
                             </span>
                         )}
-                        <span>⏱ ETA: <strong style={{ color: 'var(--accent)' }}>
+                        <span><Clock size={11} style={{ marginRight: 2 }} /> ETA: <strong style={{ color: 'var(--accent)' }}>
                             {estimate.estimated_hours < 1 ? `${Math.round(estimate.estimated_hours * 60)} мин` : `${estimate.estimated_hours} ч`}
                         </strong></span>
-                        <span>🧵 Потоков: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
+                        <span><Zap size={11} style={{ marginRight: 2 }} /> Потоков: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
                     </div>
                     {estimate.warnings?.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -450,7 +451,9 @@ export default function Work() {
                     borderLeft: `3px solid ${result.status === 'started' ? 'var(--success)' : 'var(--danger)'}`,
                 }}>
                     <div style={{ fontSize: '0.88em', fontWeight: 700, color: result.status === 'started' ? 'var(--success)' : 'var(--danger)' }}>
-                        {result.status === 'started' ? '✅ ' : '❌ '}{result.message}
+                        {result.status === 'started' && <CheckCircle size={14} style={{ marginRight: 6 }} />}
+                        {result.status !== 'started' && <XCircle size={14} style={{ marginRight: 6 }} />}
+                        {result.message}
                     </div>
                 </div>
             )}

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
     Flame, Play, Mail, Users, Timer, Zap, FileText, Link2,
-    ArrowRight, Shield, BarChart3, Square
+    ArrowRight, Shield, BarChart3, Square, Package, RefreshCw,
+    CheckCircle, XCircle, Shuffle
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
@@ -40,7 +41,7 @@ export default function Warmup() {
             setLinkPacks(Array.isArray(d.links) ? d.links : []);
             if (d.task_status?.warmup) {
                 setRunning(true);
-                setResult({ status: 'running', message: '⏳ Прогрев запущен...' });
+                setResult({ status: 'running', message: 'Прогрев запущен...' });
             }
         }).catch(() => { });
 
@@ -95,7 +96,7 @@ export default function Warmup() {
     const stopWarmup = () => {
         fetch(`${API}/warmup/stop`, { method: 'POST' }).then(r => r.json()).then(() => {
             setRunning(false);
-            setResult({ status: 'stopped', message: '⏹ Прогрев остановлен' });
+            setResult({ status: 'stopped', message: 'Прогрев остановлен' });
         }).catch(() => { });
     };
 
@@ -111,12 +112,12 @@ export default function Warmup() {
     });
 
     const phaseLabels = {
-        0: `🔄 ${t('phaseAuto')}`,
-        1: `1️⃣ ${t('phase1Label')}`,
-        2: `2️⃣ ${t('phase2Label')}`,
-        3: `3️⃣ ${t('phase3Label')}`,
-        4: `4️⃣ ${t('phase4Label')}`,
-        5: `5️⃣ ${t('phase5Label')}`,
+        0: `⟳ ${t('phaseAuto')}`,
+        1: `① ${t('phase1Label')}`,
+        2: `② ${t('phase2Label')}`,
+        3: `③ ${t('phase3Label')}`,
+        4: `④ ${t('phase4Label')}`,
+        5: `⑤ ${t('phase5Label')}`,
     };
 
     const canStart = senderFarms.length > 0 && receiverFarms.length > 0 && selectedTemplates.length > 0;
@@ -166,7 +167,7 @@ export default function Warmup() {
                 {/* Sender Farms */}
                 <div className="card">
                     <div className="card-title" style={{ color: '#e74c3c' }}>
-                        <Mail size={14} style={{ marginRight: 6 }} /> 🔴 {t('senderFarms')}
+                        <Mail size={14} style={{ marginRight: 6 }} /> <span style={{ color: '#e74c3c' }}>●</span> {t('senderFarms')}
                     </div>
                     <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginBottom: 8 }}>
                         {t('senderFarmsDesc')}
@@ -208,7 +209,7 @@ export default function Warmup() {
                 {/* Receiver Farms */}
                 <div className="card">
                     <div className="card-title" style={{ color: '#2ecc71' }}>
-                        <Shield size={14} style={{ marginRight: 6 }} /> 🟢 {t('receiverFarms')}
+                        <Shield size={14} style={{ marginRight: 6 }} /> <span style={{ color: '#2ecc71' }}>●</span> {t('receiverFarms')}
                     </div>
                     <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginBottom: 8 }}>
                         {t('receiverFarmsDesc')}
@@ -280,7 +281,7 @@ export default function Warmup() {
                         {Object.entries(packs).map(([packName, tmpls]) => (
                             <div key={packName} style={{ marginBottom: 10 }}>
                                 <div style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>
-                                    📦 {packName} ({tmpls.length})
+                                    <Package size={12} style={{ marginRight: 4 }} /> {packName} ({tmpls.length})
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6 }}>
                                     {tmpls.map(tmpl => (
@@ -356,13 +357,13 @@ export default function Warmup() {
             {/* Summary */}
             <div className="card" style={{ marginBottom: 16, padding: '14px 20px', background: 'var(--bg-secondary)' }}>
                 <div style={{ display: 'flex', gap: 16, fontSize: '0.9em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                    <span>🔴 {t('sendersCount')}: <strong style={{ color: '#e74c3c' }}>{totalSenders}</strong></span>
-                    <span>🟢 {t('receiversCount')}: <strong style={{ color: '#2ecc71' }}>{totalReceivers}</strong></span>
-                    <span>📝 {t('templateUnit')}: <strong style={{ color: 'var(--accent)' }}>{selectedTemplates.length}</strong></span>
-                    <span>⚡ {t('summaryPhase')}: <strong style={{ color: 'var(--accent)' }}>{phaseOverride === 0 ? t('summaryAuto') : phaseOverride}</strong></span>
-                    <span>📧 {t('summaryEmails')}: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
-                    <span>🧵 {t('summaryThreads')}: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
-                    <span>🔀 {sameProvider ? 'Same' : 'Cross'}</span>
+                    <span><span style={{ color: '#e74c3c' }}>●</span> {t('sendersCount')}: <strong style={{ color: '#e74c3c' }}>{totalSenders}</strong></span>
+                    <span><span style={{ color: '#2ecc71' }}>●</span> {t('receiversCount')}: <strong style={{ color: '#2ecc71' }}>{totalReceivers}</strong></span>
+                    <span><FileText size={11} style={{ marginRight: 2 }} /> {t('templateUnit')}: <strong style={{ color: 'var(--accent)' }}>{selectedTemplates.length}</strong></span>
+                    <span><Zap size={11} style={{ marginRight: 2 }} /> {t('summaryPhase')}: <strong style={{ color: 'var(--accent)' }}>{phaseOverride === 0 ? t('summaryAuto') : phaseOverride}</strong></span>
+                    <span><Mail size={11} style={{ marginRight: 2 }} /> {t('summaryEmails')}: <strong style={{ color: 'var(--accent)' }}>{emailsMin}-{emailsMax}</strong></span>
+                    <span><Zap size={11} style={{ marginRight: 2 }} /> {t('summaryThreads')}: <strong style={{ color: 'var(--accent)' }}>{threads}</strong></span>
+                    <span><Shuffle size={11} style={{ marginRight: 2 }} /> {sameProvider ? 'Same' : 'Cross'}</span>
                 </div>
             </div>
 
@@ -376,7 +377,10 @@ export default function Warmup() {
                         fontSize: '0.95em', fontWeight: 700,
                         color: result.status === 'started' ? 'var(--success)' : result.status === 'error' ? 'var(--danger)' : 'var(--warning)'
                     }}>
-                        {result.status === 'started' ? '✅ ' : result.status === 'error' ? '❌ ' : '⏹ '}{result.message}
+                        {result.status === 'started' && <CheckCircle size={14} style={{ marginRight: 6, color: 'var(--success)' }} />}
+                        {result.status === 'error' && <XCircle size={14} style={{ marginRight: 6, color: 'var(--danger)' }} />}
+                        {result.status !== 'started' && result.status !== 'error' && <Square size={14} style={{ marginRight: 6 }} />}
+                        {result.message}
                     </div>
                 </div>
             )}
