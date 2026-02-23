@@ -124,11 +124,11 @@ export default function Dashboard() {
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
                         {[
-                            { id: 'gmail', name: 'Gmail', icon: '📮', color: '#EA4335' },
-                            { id: 'yahoo', name: 'Yahoo', icon: '📭', color: '#6001D2' },
-                            { id: 'aol', name: 'AOL', icon: '📪', color: '#FF6B00' },
-                            { id: 'outlook', name: 'Outlook', icon: '📧', color: '#0078D4' },
-                            { id: 'hotmail', name: 'Hotmail', icon: '📬', color: '#0078D4' },
+                            { id: 'gmail', name: 'Gmail', abbr: 'GM', color: '#EA4335' },
+                            { id: 'yahoo', name: 'Yahoo', abbr: 'YH', color: '#6001D2' },
+                            { id: 'aol', name: 'AOL', abbr: 'AO', color: '#FF6B00' },
+                            { id: 'outlook', name: 'Outlook', abbr: 'OL', color: '#0078D4' },
+                            { id: 'hotmail', name: 'Hotmail', abbr: 'HM', color: '#0078D4' },
                         ].map(p => {
                             const total = (s.by_provider || {})[p.id] || 0;
                             const statuses = (s.by_provider_status || {})[p.id] || {};
@@ -138,7 +138,7 @@ export default function Dashboard() {
                                     borderLeft: `3px solid ${p.color}`,
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                        <span>{p.icon}</span>
+                                        <span style={{ fontWeight: 900, fontSize: '0.75em', color: p.color, letterSpacing: '0.5px' }}>{p.abbr}</span>
                                         <span style={{ fontWeight: 700, fontSize: '0.85em', color: 'var(--text-primary)' }}>{p.name}</span>
                                         <span style={{ marginLeft: 'auto', fontWeight: 800, fontSize: '1.1em', color: p.color }}>{total}</span>
                                     </div>

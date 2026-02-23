@@ -7,11 +7,11 @@ import { useI18n } from '../i18n/I18nContext';
 import { API } from '../api';
 
 const PROVIDERS = [
-    { id: 'gmail', name: 'Gmail', color: '#EA4335', icon: '📮', sms: 'simsms', mobileHint: true },
-    { id: 'yahoo', name: 'Yahoo', color: '#6001D2', icon: '📭', sms: 'simsms' },
-    { id: 'aol', name: 'AOL', color: '#FF6B00', icon: '📪', sms: 'simsms' },
-    { id: 'outlook', name: 'Outlook', color: '#0078D4', icon: '📧', sms: 'simsms' },
-    { id: 'hotmail', name: 'Hotmail', color: '#0078D4', icon: '📬', sms: 'simsms' },
+    { id: 'gmail', name: 'Gmail', color: '#EA4335', abbr: 'GM', sms: 'simsms', mobileHint: true },
+    { id: 'yahoo', name: 'Yahoo', color: '#6001D2', abbr: 'YH', sms: 'simsms' },
+    { id: 'aol', name: 'AOL', color: '#FF6B00', abbr: 'AO', sms: 'simsms' },
+    { id: 'outlook', name: 'Outlook', color: '#0078D4', abbr: 'OL', sms: 'simsms' },
+    { id: 'hotmail', name: 'Hotmail', color: '#0078D4', abbr: 'HM', sms: 'simsms' },
 ];
 export default function Birth() {
     const { t } = useI18n();
@@ -160,15 +160,19 @@ export default function Birth() {
                                 background: provider === p.id ? `${p.color}22` : undefined,
                                 borderWidth: provider === p.id ? 2 : 1,
                             }}>
-                            <span style={{ fontSize: '1.8em' }}>{p.icon}</span>
+                            <span style={{
+                                fontSize: '1.4em', fontWeight: 900,
+                                color: provider === p.id ? p.color : 'var(--text-muted)',
+                                letterSpacing: '1px',
+                            }}>{p.abbr}</span>
                             <span style={{
                                 fontWeight: 800,
                                 fontSize: '1.1em',
                                 color: provider === p.id ? p.color : 'var(--text-primary)',
                                 letterSpacing: '0.5px',
                             }}>{p.name}</span>
-                            <span style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>
-                                {p.mobileHint ? '📱 рек. Mobile' : '✅ Любой'}
+                            <span style={{ fontSize: '0.72em', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                {p.mobileHint ? 'Mobile рек.' : 'Любой'}
                             </span>
                         </button>
                     ))}
@@ -176,7 +180,7 @@ export default function Birth() {
             </div>
 
             {/* Name Packs + Device/Proxy — compact row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, alignItems: 'start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, alignItems: 'stretch' }}>
                 {/* Name Pack Selection — dropdown */}
                 <div className="card" style={{ padding: '12px 16px' }}>
                     <div
@@ -241,7 +245,7 @@ export default function Birth() {
                     </div>
                     {selectedProvider?.mobileHint && deviceType === 'desktop' && (
                         <div style={{ fontSize: '0.75em', color: 'var(--warning)', fontWeight: 600, padding: '3px 6px', background: 'rgba(251,191,36,0.1)', borderRadius: 4, marginBottom: 6 }}>
-                            📱 Рекомендуется Mobile
+                            Mobile рекомендуется
                         </div>
                     )}
                     {(() => {

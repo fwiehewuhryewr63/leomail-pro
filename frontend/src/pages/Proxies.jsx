@@ -140,17 +140,28 @@ export default function Proxies() {
     const cancelEdit = () => { setEditingId(null); setEditData({}); };
 
     const saveEdit = async (id) => {
-        const body = {};
-        if (editData.host) body.host = editData.host;
-        if (editData.port) body.port = parseInt(editData.port);
-        if (editData.username) body.username = editData.username;
-        if (editData.password) body.password = editData.password;
+        const body = {
+            host: editData.host || null,
+            port: editData.port ? parseInt(editData.port) : null,
+            username: editData.username ?? null,
+            password: editData.password || null,
+        };
 
-        await fetch(`${API}/proxies/${id}/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
+        try {
+            const res = await fetch(`${API}/proxies/${id}/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(`Ошибка: ${err.detail || res.statusText}`);
+                return;
+            }
+        } catch (e) {
+            alert(`Ошибка сети: ${e.message}`);
+            return;
+        }
         setEditingId(null);
         setEditData({});
         loadProxies();
