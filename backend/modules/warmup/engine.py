@@ -129,10 +129,15 @@ class WarmupSession:
             provider = self.account.provider or "gmail"
 
             # Navigate to mail
-            if provider == "gmail":
-                await page.goto("https://mail.google.com", wait_until="domcontentloaded", timeout=30000)
-            elif provider in ("outlook", "hotmail"):
-                await page.goto("https://outlook.live.com/mail", wait_until="domcontentloaded", timeout=30000)
+            mail_urls = {
+                "gmail": "https://mail.google.com",
+                "outlook": "https://outlook.live.com/mail",
+                "hotmail": "https://outlook.live.com/mail",
+                "yahoo": "https://mail.yahoo.com",
+                "aol": "https://mail.aol.com",
+            }
+            mail_url = mail_urls.get(provider, "https://mail.google.com")
+            await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
 
             # Check if logged in
             await asyncio.sleep(random.uniform(2, 5))
@@ -164,6 +169,10 @@ class WarmupSession:
                         await self._send_gmail(page, target.email, subject, body)
                     elif provider in ("outlook", "hotmail"):
                         await self._send_outlook(page, target.email, subject, body)
+                    elif provider == "yahoo":
+                        await self._send_yahoo(page, target.email, subject, body)
+                    elif provider == "aol":
+                        await self._send_aol(page, target.email, subject, body)
 
                     self.sent_count += 1
                     self.sent_emails.append((self.account.id, target.id, subject))
@@ -265,10 +274,59 @@ class WarmupSession:
         await page.click('button[aria-label="Send"]')
         await asyncio.sleep(random.uniform(2, 4))
 
+    async def _send_yahoo(self, page, to_email: str, subject: str, body: str):
+        """Compose and send email in Yahoo Mail."""
+        compose_btn = page.locator('a[data-test-id="compose-button"]')
+        if await compose_btn.count() == 0:
+            compose_btn = page.locator('a[aria-label="Compose"]')
+        await compose_btn.click()
+        await asyncio.sleep(random.uniform(1.5, 3))
+        await page.fill('input#message-to-field', to_email)
+        await asyncio.sleep(random.uniform(0.5, 1))
+        await page.press('input#message-to-field', 'Enter')
+        await asyncio.sleep(0.5)
+        await page.fill('input[data-test-id="compose-subject"]', subject)
+        await asyncio.sleep(random.uniform(0.5, 1))
+        body_div = page.locator('div[data-test-id="compose-editor-container"] div[role="textbox"]')
+        await body_div.click()
+        await body_div.type(body, delay=random.randint(20, 60))
+        await asyncio.sleep(random.uniform(0.5, 1.5))
+        send_btn = page.locator('button[data-test-id="compose-send-button"]')
+        await send_btn.click()
+        await asyncio.sleep(random.uniform(2, 4))
+
+    async def _send_aol(self, page, to_email: str, subject: str, body: str):
+        """Compose and send email in AOL Mail (same UI as Yahoo)."""
+        compose_btn = page.locator('a[data-test-id="compose-button"]')
+        if await compose_btn.count() == 0:
+            compose_btn = page.locator('a[aria-label="Compose"]')
+        await compose_btn.click()
+        await asyncio.sleep(random.uniform(1.5, 3))
+        await page.fill('input#message-to-field', to_email)
+        await asyncio.sleep(random.uniform(0.5, 1))
+        await page.press('input#message-to-field', 'Enter')
+        await asyncio.sleep(0.5)
+        await page.fill('input[data-test-id="compose-subject"]', subject)
+        await asyncio.sleep(random.uniform(0.5, 1))
+        body_div = page.locator('div[data-test-id="compose-editor-container"] div[role="textbox"]')
+        await body_div.click()
+        await body_div.type(body, delay=random.randint(20, 60))
+        await asyncio.sleep(random.uniform(0.5, 1.5))
+        send_btn = page.locator('button[data-test-id="compose-send-button"]')
+        await send_btn.click()
+        await asyncio.sleep(random.uniform(2, 4))
+
     async def _read_inbox(self, page, provider: str):
         """Read a few emails to simulate human behavior."""
         try:
-            emails = page.locator('tr[role="row"]' if provider == "gmail" else 'div[role="option"]')
+            if provider == "gmail":
+                emails = page.locator('tr[role="row"]')
+            elif provider in ("outlook", "hotmail"):
+                emails = page.locator('div[role="option"]')
+            elif provider in ("yahoo", "aol"):
+                emails = page.locator('a[data-test-id="message-list-item"]')
+            else:
+                return
             count = await emails.count()
             read_count = min(random.randint(1, 3), count)
             for i in range(read_count):
@@ -316,10 +374,15 @@ class ReceiverSession:
             page = await context.new_page()
             provider = self.account.provider or "gmail"
 
-            if provider == "gmail":
-                await page.goto("https://mail.google.com", wait_until="domcontentloaded", timeout=30000)
-            elif provider in ("outlook", "hotmail"):
-                await page.goto("https://outlook.live.com/mail", wait_until="domcontentloaded", timeout=30000)
+            mail_urls = {
+                "gmail": "https://mail.google.com",
+                "outlook": "https://outlook.live.com/mail",
+                "hotmail": "https://outlook.live.com/mail",
+                "yahoo": "https://mail.yahoo.com",
+                "aol": "https://mail.aol.com",
+            }
+            mail_url = mail_urls.get(provider, "https://mail.google.com")
+            await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
 
             await asyncio.sleep(random.uniform(3, 6))
 
@@ -469,6 +532,35 @@ class ReceiverSession:
                 except Exception:
                     pass
 
+            elif provider in ("yahoo", "aol"):
+                # Search in Yahoo/AOL
+                search_box = page.locator('input#mail-search-input, input[aria-label="Search"]')
+                await search_box.click()
+                await search_box.fill(f"from:{sender_email}")
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(random.uniform(2, 4))
+
+                results = page.locator('a[data-test-id="message-list-item"]')
+                count = await results.count()
+                if count > 0:
+                    await results.first.click()
+                    await asyncio.sleep(random.uniform(1, 3))
+                    return "inbox"
+
+                # Check spam folder
+                try:
+                    spam_folder = page.locator('a[data-test-folder-name="Bulk"], a[data-test-folder-name="Spam"]')
+                    if await spam_folder.count() > 0:
+                        await spam_folder.first.click()
+                        await asyncio.sleep(random.uniform(2, 4))
+                        spam_results = page.locator('a[data-test-id="message-list-item"]')
+                        if await spam_results.count() > 0:
+                            await spam_results.first.click()
+                            await asyncio.sleep(random.uniform(1, 3))
+                            return "spam"
+                except Exception:
+                    pass
+
         except Exception as e:
             logger.error(f"Search error: {e}")
 
@@ -513,6 +605,21 @@ class ReceiverSession:
                 await asyncio.sleep(random.uniform(2, 4))
                 return True
 
+            elif provider in ("yahoo", "aol"):
+                reply_btn = page.locator('button[data-test-id="reply-button"], button[title="Reply"]')
+                await reply_btn.click()
+                await asyncio.sleep(random.uniform(1, 2))
+
+                body_div = page.locator('div[data-test-id="compose-editor-container"] div[role="textbox"]')
+                await body_div.click()
+                await body_div.type(reply_text, delay=random.randint(30, 80))
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+
+                send_btn = page.locator('button[data-test-id="compose-send-button"]')
+                await send_btn.click()
+                await asyncio.sleep(random.uniform(2, 4))
+                return True
+
         except Exception as e:
             logger.error(f"Reply failed: {e}")
         return False
@@ -530,6 +637,11 @@ class ReceiverSession:
                 if await not_junk_btn.count() > 0:
                     await not_junk_btn.click()
                     await asyncio.sleep(1)
+            elif provider in ("yahoo", "aol"):
+                not_spam_btn = page.locator('button[data-test-id="toolbar-not-spam"], button:has-text("Not Spam")')
+                if await not_spam_btn.count() > 0:
+                    await not_spam_btn.first.click()
+                    await asyncio.sleep(1)
         except Exception:
             pass
 
@@ -543,8 +655,20 @@ class ReceiverSession:
             elif provider in ("outlook", "hotmail"):
                 await page.click('span:has-text("Inbox")')
                 await asyncio.sleep(random.uniform(1, 3))
+            elif provider in ("yahoo", "aol"):
+                inbox_link = page.locator('a[data-test-folder-name="Inbox"]')
+                if await inbox_link.count() > 0:
+                    await inbox_link.click()
+                    await asyncio.sleep(random.uniform(1, 3))
 
-            emails = page.locator('tr[role="row"]' if provider == "gmail" else 'div[role="option"]')
+            if provider == "gmail":
+                emails = page.locator('tr[role="row"]')
+            elif provider in ("outlook", "hotmail"):
+                emails = page.locator('div[role="option"]')
+            elif provider in ("yahoo", "aol"):
+                emails = page.locator('a[data-test-id="message-list-item"]')
+            else:
+                return
             count = await emails.count()
             read_count = min(random.randint(1, 3), count)
             for i in range(read_count):
