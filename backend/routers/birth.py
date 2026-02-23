@@ -447,7 +447,7 @@ async def register_single_outlook(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.info(f"[Outlook][W{wid}] {msg}")
         if thread_log:
-            thread_log.current_action = msg
+            thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
                 db.commit()
             except Exception:
@@ -457,7 +457,7 @@ async def register_single_outlook(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.error(f"[Outlook][W{wid}] {msg}")
         if thread_log:
-            thread_log.error_message = msg[:500]
+            thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:
                 db.commit()
             except Exception:
@@ -914,7 +914,7 @@ async def register_single_gmail(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.info(f"[Gmail][W{wid}] {msg}")
         if thread_log:
-            thread_log.current_action = msg
+            thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
                 db.commit()
             except Exception:
@@ -924,7 +924,7 @@ async def register_single_gmail(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.error(f"[Gmail][W{wid}] {msg}")
         if thread_log:
-            thread_log.error_message = msg[:500]
+            thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:
                 db.commit()
             except Exception:
@@ -1325,7 +1325,7 @@ async def register_single_yahoo(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.info(f"[Yahoo][W{wid}] {msg}")
         if thread_log:
-            thread_log.current_action = msg
+            thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
                 db.commit()
             except Exception:
@@ -1335,7 +1335,7 @@ async def register_single_yahoo(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.error(f"[Yahoo][W{wid}] {msg}")
         if thread_log:
-            thread_log.error_message = msg[:500]
+            thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:
                 db.commit()
             except Exception:
@@ -2040,7 +2040,7 @@ async def register_single_aol(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.info(f"[AOL][W{wid}] {msg}")
         if thread_log:
-            thread_log.current_action = msg
+            thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
                 db.commit()
             except Exception:
@@ -2050,7 +2050,7 @@ async def register_single_aol(
         wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
         logger.error(f"[AOL][W{wid}] {msg}")
         if thread_log:
-            thread_log.error_message = msg[:500]
+            thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:
                 db.commit()
             except Exception:
