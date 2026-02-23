@@ -112,12 +112,12 @@ export default function Warmup() {
     });
 
     const phaseLabels = {
-        0: `⟳ ${t('phaseAuto')}`,
-        1: `① ${t('phase1Label')}`,
-        2: `② ${t('phase2Label')}`,
-        3: `③ ${t('phase3Label')}`,
-        4: `④ ${t('phase4Label')}`,
-        5: `⑤ ${t('phase5Label')}`,
+        0: `${t('phaseAuto')}`,
+        1: `${t('phase1Label')}`,
+        2: `${t('phase2Label')}`,
+        3: `${t('phase3Label')}`,
+        4: `${t('phase4Label')}`,
+        5: `${t('phase5Label')}`,
     };
 
     const canStart = senderFarms.length > 0 && receiverFarms.length > 0 && selectedTemplates.length > 0;

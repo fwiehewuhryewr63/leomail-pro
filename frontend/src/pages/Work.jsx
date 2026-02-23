@@ -364,11 +364,11 @@ export default function Work() {
                         <label className="form-label">ПРЕСЕТЫ ССЫЛОК</label>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
                             <button className={`btn btn-sm ${maxLinkCycles === 0 && maxLinkUses === 0 ? 'btn-primary' : ''}`}
-                                onClick={() => { setMaxLinkCycles(0); setMaxLinkUses(0); }}>∞ Безлимит</button>
+                                onClick={() => { setMaxLinkCycles(0); setMaxLinkUses(0); }}>Безлимит</button>
                             <button className={`btn btn-sm ${maxLinkCycles === 1 && maxLinkUses === 1 ? 'btn-primary' : ''}`}
-                                onClick={() => { setMaxLinkCycles(1); setMaxLinkUses(1); }}>① Одноразовый</button>
+                                onClick={() => { setMaxLinkCycles(1); setMaxLinkUses(1); }}>1× Одноразовый</button>
                             <button className={`btn btn-sm ${maxLinkCycles === 3 && maxLinkUses === 0 ? 'btn-primary' : ''}`}
-                                onClick={() => { setMaxLinkCycles(3); setMaxLinkUses(0); }}>⟳ 3 круга</button>
+                                onClick={() => { setMaxLinkCycles(3); setMaxLinkUses(0); }}>3 круга</button>
                         </div>
                     </div>
                     <div className="form-group">
