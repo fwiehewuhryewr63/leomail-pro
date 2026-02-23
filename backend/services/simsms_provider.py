@@ -153,10 +153,14 @@ class SimSmsProvider:
             return self.order_best_number(service)
 
         service_code = SERVICE_CODES.get(service, "go")
-        available = [c for c in countries if not blacklist or c not in blacklist]
+        # Filter out virtual country keys
+        VIRTUAL_KEYS = {"us_v"}
+        VIRTUAL_CODES = {"17"}
+        available = [c for c in countries
+                     if c not in VIRTUAL_KEYS
+                     and (not blacklist or c not in blacklist)]
         if not available:
-            # All blacklisted — reset and try all
-            available = list(countries)
+            available = [c for c in countries if c not in VIRTUAL_KEYS]
 
         # Retry up to 3 times with 5s delay
         for attempt in range(3):
@@ -165,6 +169,8 @@ class SimSmsProvider:
 
             for country in order:
                 country_code = COUNTRY_CODES.get(country, country)
+                if country_code in VIRTUAL_CODES:
+                    continue  # Skip virtual
                 result = self._request("getNumber", service=service_code, country=country_code)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
@@ -193,8 +199,11 @@ class SimSmsProvider:
         service_code = SERVICE_CODES.get(service, "go")
 
         # Get prices and sort by MOST EXPENSIVE first
+        VIRTUAL_CODES = {"17"}
         price_data = self.get_prices(service)
         all_countries = price_data.get("prices", [])
+        # Filter out virtual country codes
+        all_countries = [c for c in all_countries if str(c.get("country_code", "")) not in VIRTUAL_CODES]
 
         if all_countries:
             # Sort descending by cost — most expensive = best quality
