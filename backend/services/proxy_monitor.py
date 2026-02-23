@@ -87,6 +87,22 @@ async def check_single_proxy(proxy: Proxy) -> dict:
     return {"alive": False, "response_time_ms": None, "external_ip": None, "geo": ""}
 
 
+async def resolve_geo(ip: str) -> str:
+    """Resolve GEO country code from IP using direct (non-proxy) lookup."""
+    if not ip or ip in ("unknown", "tcp-only"):
+        return ""
+    try:
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"http://ip-api.com/json/{ip}?fields=countryCode", ssl=False) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    return (data.get("countryCode", "") or "").upper()
+    except Exception:
+        pass
+    return ""
+
+
 async def monitor_all_proxies(max_fails: int = 3):
     """
     Check all non-dead proxies concurrently.
@@ -145,8 +161,13 @@ async def monitor_all_proxies(max_fails: int = 3):
                     proxy.external_ip = result["external_ip"]
                 if result.get("geo"):
                     proxy.geo = result["geo"]
+                elif proxy.external_ip and not proxy.geo:
+                    # Fallback: direct GEO lookup by external IP
+                    geo = await resolve_geo(proxy.external_ip)
+                    if geo:
+                        proxy.geo = geo
                 alive_count += 1
-                logger.debug(f"Proxy OK: {proxy.host}:{proxy.port} ({proxy.proxy_type}) {result['response_time_ms']}ms IP={result.get('external_ip','?')} GEO={result.get('geo','?')}")
+                logger.debug(f"Proxy OK: {proxy.host}:{proxy.port} ({proxy.proxy_type}) {result['response_time_ms']}ms IP={result.get('external_ip','?')} GEO={proxy.geo or '?'}")
             else:
                 proxy.fail_count = (proxy.fail_count or 0) + 1
                 proxy.response_time_ms = None
@@ -200,6 +221,10 @@ async def check_proxy_once(proxy_id: int) -> dict:
                 proxy.external_ip = result["external_ip"]
             if result.get("geo"):
                 proxy.geo = result["geo"]
+            elif proxy.external_ip and not proxy.geo:
+                geo = await resolve_geo(proxy.external_ip)
+                if geo:
+                    proxy.geo = geo
         else:
             proxy.fail_count = (proxy.fail_count or 0) + 1
             if proxy.fail_count >= 3:
