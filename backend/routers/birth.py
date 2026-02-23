@@ -2261,25 +2261,6 @@ async def run_birth_task(request: BirthRequest):
         db.add(task)
         db.commit()
 
-        # Create farm — auto-generate descriptive name: Date - Provider - GEO - Lvl0
-        if request.farm_name:
-            farm_name = request.farm_name
-        else:
-            date_str = datetime.now().strftime('%Y.%m.%d')
-            provider_label = request.provider.capitalize()
-            # Get GEO from first proxy in pool
-            geo_label = "MIX"
-            if proxy_pool:
-                geos = set(getattr(p, 'geo', '') or '' for p in proxy_pool if getattr(p, 'geo', ''))
-                if len(geos) == 1:
-                    geo_label = geos.pop().upper()
-                elif geos:
-                    geo_label = "/".join(sorted(geos))[:12].upper()
-            farm_name = f"{date_str} - {provider_label} - {geo_label} - Lvl0"
-        farm = Farm(name=farm_name, description=f"{request.quantity}x {request.provider}")
-        db.add(farm)
-        db.commit()
-
         # Get proxy pool — filter by device type + provider usage limit (NO FALLBACK)
         proxy_manager = ProxyManager(db)
         proxy_pool = proxy_manager.get_proxy_pool(
@@ -2296,6 +2277,26 @@ async def run_birth_task(request: BirthRequest):
                         stop_reason=f"Процесс завершился потому что — нет подходящих прокси ({device_label}) для {request.provider}. Загрузите прокси нужного типа или сбросьте счётчики.")
             db.add(task); db.commit()
             return {"status": "error", "message": task.stop_reason}
+
+        # Create farm — auto-generate descriptive name: Date - Provider - GEO - Lvl0
+        # Must be AFTER proxy_pool is loaded so we can get GEO
+        if request.farm_name:
+            farm_name = request.farm_name
+        else:
+            date_str = datetime.now().strftime('%Y.%m.%d')
+            provider_label = request.provider.capitalize()
+            # Get GEO from proxies in pool
+            geo_label = "MIX"
+            if proxy_pool:
+                geos = set(getattr(p, 'geo', '') or '' for p in proxy_pool if getattr(p, 'geo', ''))
+                if len(geos) == 1:
+                    geo_label = geos.pop().upper()
+                elif geos:
+                    geo_label = "/".join(sorted(geos))[:12].upper()
+            farm_name = f"{date_str} - {provider_label} - {geo_label} - Lvl0"
+        farm = Farm(name=farm_name, description=f"{request.quantity}x {request.provider}")
+        db.add(farm)
+        db.commit()
 
         # Load name pool from selected packs — COMBINATORIAL approach
         # Instead of using fixed (first,last) pairs, we collect ALL first names
