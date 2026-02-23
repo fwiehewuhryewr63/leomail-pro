@@ -2278,21 +2278,19 @@ async def run_birth_task(request: BirthRequest):
             db.add(task); db.commit()
             return {"status": "error", "message": task.stop_reason}
 
-        # Create farm — auto-generate descriptive name: Date - Provider - GEO - Lvl0
-        # Must be AFTER proxy_pool is loaded so we can get GEO
+        # Create farm — auto-generate descriptive name: Date - Provider - GEO(names) - Lvl0
         if request.farm_name:
             farm_name = request.farm_name
         else:
             date_str = datetime.now().strftime('%Y.%m.%d')
             provider_label = request.provider.capitalize()
-            # Get GEO from proxies in pool
+            # GEO from name packs (language/region of names), NOT proxy geo
             geo_label = "MIX"
-            if proxy_pool:
-                geos = set(getattr(p, 'geo', '') or '' for p in proxy_pool if getattr(p, 'geo', ''))
-                if len(geos) == 1:
-                    geo_label = geos.pop().upper()
-                elif geos:
-                    geo_label = "/".join(sorted(geos))[:12].upper()
+            if request.name_pack_ids:
+                name_packs_for_label = db.query(NamePack).filter(NamePack.id.in_(request.name_pack_ids)).all()
+                if name_packs_for_label:
+                    pack_names = [p.name for p in name_packs_for_label]
+                    geo_label = " + ".join(pack_names)[:30]
             farm_name = f"{date_str} - {provider_label} - {geo_label} - Lvl0"
         farm = Farm(name=farm_name, description=f"{request.quantity}x {request.provider}")
         db.add(farm)
