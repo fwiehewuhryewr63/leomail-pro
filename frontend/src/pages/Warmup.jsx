@@ -187,7 +187,7 @@ export default function Warmup() {
                                             opacity: isReceiver ? 0.3 : 1,
                                         }}>
                                         <span style={{ fontWeight: 600 }}>{f.name}</span>
-                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} {t('accounts')}</span>
+                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} {t('accountsCount')}</span>
                                     </button>
                                 );
                             })}
@@ -195,7 +195,7 @@ export default function Warmup() {
                     )}
                     {senderFarms.length > 0 && (
                         <div style={{ marginTop: 8, fontSize: '0.85em', color: '#e74c3c', fontWeight: 700 }}>
-                            {t('sendersCount')}: {totalSenders} {t('accounts')}
+                            {t('sendersCount')}: {totalSenders} {t('accountsCount')}
                         </div>
                     )}
                 </div>
@@ -230,7 +230,7 @@ export default function Warmup() {
                                             ...(receiverFarms.includes(f.id) ? { background: '#2ecc71', borderColor: '#2ecc71' } : {}),
                                         }}>
                                         <span style={{ fontWeight: 600 }}>{f.name}</span>
-                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} {t('accounts')}</span>
+                                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>{f.account_count || 0} {t('accountsCount')}</span>
                                     </button>
                                 );
                             })}
@@ -238,7 +238,7 @@ export default function Warmup() {
                     )}
                     {receiverFarms.length > 0 && (
                         <div style={{ marginTop: 8, fontSize: '0.85em', color: '#2ecc71', fontWeight: 700 }}>
-                            {t('receiversCount')}: {totalReceivers} {t('accounts')}
+                            {t('receiversCount')}: {totalReceivers} {t('accountsCount')}
                         </div>
                     )}
                 </div>
