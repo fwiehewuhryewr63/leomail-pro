@@ -38,11 +38,17 @@ class ProxyManager:
                 skipped += 1
                 continue
 
-            # Check duplicate
-            existing = self.db.query(Proxy).filter(
+            # Check duplicate — include username because rotating proxies
+            # use same host:port but different sessions via username
+            dup_query = self.db.query(Proxy).filter(
                 Proxy.host == parsed["host"],
                 Proxy.port == parsed["port"],
-            ).first()
+            )
+            if parsed.get("username"):
+                dup_query = dup_query.filter(Proxy.username == parsed["username"])
+            else:
+                dup_query = dup_query.filter(Proxy.username == None)  # noqa: E711
+            existing = dup_query.first()
             if existing:
                 skipped += 1
                 continue
