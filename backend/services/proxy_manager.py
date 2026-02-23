@@ -142,8 +142,7 @@ class ProxyManager:
         if device_type:
             if device_type.startswith('phone'):
                 query = query.filter(Proxy.proxy_type == 'mobile')
-            else:
-                query = query.filter(Proxy.proxy_type.in_(['socks5', 'http']))
+            # Desktop: include ALL proxy types (http, socks5, mobile)
         if provider:
             group_filter = self._provider_group_filter(provider, max_per_provider)
             if group_filter is not None:
@@ -167,6 +166,7 @@ class ProxyManager:
     def get_proxy_pool(self, count: int, geo: str = None, device_type: str = None, provider: str = None, max_per_provider: int = 3) -> list[Proxy]:
         """Get N unique proxies for batch operation.
         Filters by device_type and per-provider usage limit.
+        For strict providers (yahoo, gmail), mobile proxies are prioritized.
         NO FALLBACK: returns empty list if no matching proxies.
         """
         query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
@@ -174,8 +174,8 @@ class ProxyManager:
         if device_type:
             if device_type.startswith('phone'):
                 query = query.filter(Proxy.proxy_type == 'mobile')
-            else:
-                query = query.filter(Proxy.proxy_type.in_(['socks5', 'http']))
+            # Desktop: include ALL proxy types (http, socks5, mobile)
+            # Mobile proxies work fine for desktop emulation and are preferred for strict providers
 
         if provider:
             usage_col = self._provider_usage_col(provider)
@@ -186,6 +186,14 @@ class ProxyManager:
             query = query.filter(Proxy.geo == geo.upper())
 
         proxies = query.all()
+
+        # For strict providers (Yahoo, Gmail): sort mobile proxies first
+        strict_providers = ('yahoo', 'gmail')
+        if provider and provider.lower() in strict_providers:
+            proxies.sort(key=lambda p: 0 if (p.proxy_type or '').lower() == 'mobile' else 1)
+            mobile_count = sum(1 for p in proxies if (p.proxy_type or '').lower() == 'mobile')
+            if mobile_count > 0:
+                logger.info(f"[ProxyPool] {provider}: {mobile_count} mobile proxies prioritized out of {len(proxies)} total")
 
         if len(proxies) <= count:
             return proxies
