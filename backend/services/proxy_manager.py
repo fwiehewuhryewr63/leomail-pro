@@ -130,7 +130,9 @@ class ProxyManager:
 
     def get_unbound_proxy(self, geo: str = None, device_type: str = None, provider: str = None, max_per_provider: int = 3) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
-        Filters by device_type and per-provider usage limit.
+        Filters by device_type and per-provider-GROUP usage limit.
+        Groups: Gmail=G, Yahoo+AOL=YA, Outlook+Hotmail=OH.
+        Auto-deletes fully exhausted proxies (all groups at limit).
         NO FALLBACK: returns None if no matching proxy found.
         """
         query = self.db.query(Proxy).filter(
@@ -143,12 +145,21 @@ class ProxyManager:
             else:
                 query = query.filter(Proxy.proxy_type.in_(['socks5', 'http']))
         if provider:
-            usage_col = self._provider_usage_col(provider)
-            if usage_col is not None:
-                query = query.filter(usage_col < max_per_provider)
+            group_filter = self._provider_group_filter(provider, max_per_provider)
+            if group_filter is not None:
+                query = query.filter(group_filter)
         if geo and geo.upper() != "ANY":
             query = query.filter(Proxy.geo == geo.upper())
         proxies = query.all()
+
+        # Auto-delete exhausted proxies (all groups at limit) that are NOT bound
+        for p in list(proxies):
+            if self._is_exhausted(p, max_per_provider):
+                proxies.remove(p)
+                p.status = ProxyStatus.DEAD
+                logger.info(f"Proxy {p.host}:{p.port} exhausted (all provider groups at limit) → DEAD")
+                self.db.commit()
+
         if proxies:
             return random.choice(proxies)
         return None  # NO FALLBACK
@@ -192,6 +203,34 @@ class ProxyManager:
             'hotmail': Proxy.use_hotmail,
         }
         return mapping.get(provider.lower())
+
+    @staticmethod
+    def _provider_group_filter(provider: str, max_limit: int = 3):
+        """Get SQLAlchemy filter for provider GROUP limit.
+        Groups: Yahoo+AOL (YA), Outlook+Hotmail (OH), Gmail (G).
+        Check is against the max of the two counters in a group.
+        """
+        provider = provider.lower()
+        if provider in ('yahoo', 'aol'):
+            # YA group: combined max
+            return (Proxy.use_yahoo + Proxy.use_aol) < max_limit
+        elif provider in ('outlook', 'hotmail'):
+            # OH group: combined max
+            return (Proxy.use_outlook + Proxy.use_hotmail) < max_limit
+        elif provider == 'gmail':
+            return Proxy.use_gmail < max_limit
+        return None
+
+    @staticmethod
+    def _is_exhausted(proxy: Proxy, max_limit: int = 3) -> bool:
+        """Check if ALL provider groups are at their limit.
+        Groups: Gmail(G), Yahoo+AOL(YA), Outlook+Hotmail(OH).
+        Returns True only if all 3 groups are exhausted.
+        """
+        g_exhausted = (proxy.use_gmail or 0) >= max_limit
+        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= max_limit
+        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= max_limit
+        return g_exhausted and ya_exhausted and oh_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
         """Increment the per-provider usage counter and total use_count."""
