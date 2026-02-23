@@ -81,9 +81,15 @@ if exist "user_data\leomail.db" (
 
 REM === 5. Update Python dependencies ===
 echo.
-echo [5/6] Обновление Python зависимостей...
+echo [5/7] Обновление Python зависимостей...
 pip install -r requirements.txt --quiet 2>nul
 echo [OK] Python зависимости обновлены
+echo [*] Обновление браузеров Playwright...
+playwright install chromium 2>nul
+if %errorlevel% neq 0 (
+    python -m playwright install chromium 2>nul
+)
+echo [OK] Браузеры Playwright обновлены
 
 REM === 6. Update frontend ===
 echo.
