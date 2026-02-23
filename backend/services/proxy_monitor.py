@@ -17,7 +17,7 @@ CHECK_ENDPOINTS = [
     ("http://api.ipify.org/?format=json", "ip"),# Returns {"ip": "1.2.3.4"}
 ]
 
-TIMEOUT_SEC = 15
+TIMEOUT_SEC = 25
 CONCURRENT_CHECKS = 10
 
 
@@ -60,6 +60,7 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                                     "alive": True,
                                     "response_time_ms": elapsed_ms,
                                     "external_ip": str(ext_ip),
+                                    "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                                 }
                 except ImportError:
                     logger.warning("aiohttp-socks not installed — cannot check SOCKS5 proxies")
@@ -77,12 +78,13 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                                 "alive": True,
                                 "response_time_ms": elapsed_ms,
                                 "external_ip": str(ext_ip),
+                                "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                             }
         except Exception as e:
             logger.debug(f"Proxy check {proxy.host}:{proxy.port} ({proxy_type}) via {url} failed: {type(e).__name__}: {e}")
             continue  # Try next endpoint
 
-    return {"alive": False, "response_time_ms": None, "external_ip": None}
+    return {"alive": False, "response_time_ms": None, "external_ip": None, "geo": ""}
 
 
 async def monitor_all_proxies(max_fails: int = 3):
@@ -141,8 +143,10 @@ async def monitor_all_proxies(max_fails: int = 3):
                 proxy.status = ProxyStatus.ACTIVE
                 if result.get("external_ip") and result["external_ip"] not in ("unknown", "tcp-only"):
                     proxy.external_ip = result["external_ip"]
+                if result.get("geo"):
+                    proxy.geo = result["geo"]
                 alive_count += 1
-                logger.debug(f"Proxy OK: {proxy.host}:{proxy.port} ({proxy.proxy_type}) {result['response_time_ms']}ms IP={result.get('external_ip','?')}")
+                logger.debug(f"Proxy OK: {proxy.host}:{proxy.port} ({proxy.proxy_type}) {result['response_time_ms']}ms IP={result.get('external_ip','?')} GEO={result.get('geo','?')}")
             else:
                 proxy.fail_count = (proxy.fail_count or 0) + 1
                 proxy.response_time_ms = None
@@ -194,6 +198,8 @@ async def check_proxy_once(proxy_id: int) -> dict:
             proxy.status = ProxyStatus.ACTIVE
             if result.get("external_ip") and result["external_ip"] not in ("unknown", "tcp-only"):
                 proxy.external_ip = result["external_ip"]
+            if result.get("geo"):
+                proxy.geo = result["geo"]
         else:
             proxy.fail_count = (proxy.fail_count or 0) + 1
             if proxy.fail_count >= 3:
