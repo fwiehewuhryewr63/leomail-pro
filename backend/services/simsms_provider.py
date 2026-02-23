@@ -145,7 +145,8 @@ class SimSmsProvider:
 
     def order_number_from_countries(self, service: str = "gmail", countries: list = None, blacklist: set = None) -> dict:
         """
-        Order a number from a list of allowed countries (random order).
+        Order a number from allowed countries, sorted by PRICE DESC (most expensive = best quality).
+        Premium real-SIM numbers first, cheap virtual last.
         Retries up to 3 times with 5s delay if no numbers available.
         """
         import random
@@ -153,7 +154,6 @@ class SimSmsProvider:
             return self.order_best_number(service)
 
         service_code = SERVICE_CODES.get(service, "go")
-        # Filter out virtual country keys
         VIRTUAL_KEYS = {"us_v"}
         VIRTUAL_CODES = {"17"}
         available = [c for c in countries
@@ -162,21 +162,32 @@ class SimSmsProvider:
         if not available:
             available = [c for c in countries if c not in VIRTUAL_KEYS]
 
-        # Retry up to 3 times with 5s delay
-        for attempt in range(3):
-            order = list(available)
-            random.shuffle(order)
+        # ── Sort by price DESC: most expensive countries first ──
+        # Premium numbers (real SIM, EU/US) cost more but actually work
+        try:
+            price_data = self.get_prices(service)
+            all_prices = {p["country"]: p["cost"] for p in price_data.get("prices", [])}
+            # Sort available countries by price DESC (most expensive first)
+            available.sort(key=lambda c: all_prices.get(c, 0), reverse=True)
+            if all_prices:
+                top3 = [(c, all_prices.get(c, "?")) for c in available[:3]]
+                logger.info(f"SimSMS: sorted by price DESC — top: {top3}")
+        except Exception as e:
+            logger.warning(f"SimSMS: price sort failed ({e}), using random")
+            random.shuffle(available)
 
-            for country in order:
+        for attempt in range(3):
+            for country in available:
                 country_code = COUNTRY_CODES.get(country, country)
                 if country_code in VIRTUAL_CODES:
-                    continue  # Skip virtual
+                    continue
                 result = self._request("getNumber", service=service_code, country=country_code)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
                     if len(parts) >= 3:
-                        logger.info(f"SimSMS: got number from {country} (country rotation)")
-                        self._last_country = country  # Track for blacklist
+                        cost = all_prices.get(country, "?") if 'all_prices' in dir() else "?"
+                        logger.info(f"SimSMS: ✅ PREMIUM {country} (${cost}) — {parts[2]}")
+                        self._last_country = country
                         return {
                             "id": parts[1],
                             "number": parts[2],

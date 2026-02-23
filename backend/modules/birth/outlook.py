@@ -65,8 +65,8 @@ async def register_single_outlook(
     )
 
     def _log(msg: str):
-        wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
-        logger.info(f"[Outlook][W{wid}] {msg}")
+        tid = thread_log.id if thread_log else '?'
+        logger.info(f"[Outlook][#{tid}] {msg}")
         if thread_log:
             thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
@@ -75,8 +75,8 @@ async def register_single_outlook(
                 pass
 
     def _err(msg: str):
-        wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
-        logger.error(f"[Outlook][W{wid}] {msg}")
+        tid = thread_log.id if thread_log else '?'
+        logger.error(f"[Outlook][#{tid}] {msg}")
         if thread_log:
             thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:

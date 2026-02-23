@@ -66,8 +66,8 @@ async def register_single_gmail(
     )
 
     def _log(msg: str):
-        wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
-        logger.info(f"[Gmail][W{wid}] {msg}")
+        tid = thread_log.id if thread_log else '?'
+        logger.info(f"[Gmail][#{tid}] {msg}")
         if thread_log:
             thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
@@ -76,8 +76,8 @@ async def register_single_gmail(
                 pass
 
     def _err(msg: str):
-        wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
-        logger.error(f"[Gmail][W{wid}] {msg}")
+        tid = thread_log.id if thread_log else '?'
+        logger.error(f"[Gmail][#{tid}] {msg}")
         if thread_log:
             thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:

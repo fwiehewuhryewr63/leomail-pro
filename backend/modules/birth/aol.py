@@ -67,8 +67,8 @@ async def register_single_aol(
     )
 
     def _log(msg: str):
-        wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
-        logger.info(f"[AOL][W{wid}] {msg}")
+        tid = thread_log.id if thread_log else '?'
+        logger.info(f"[AOL][#{tid}] {msg}")
         if thread_log:
             thread_log.current_action = f"#{thread_log.id} {msg}"
             try:
@@ -77,8 +77,8 @@ async def register_single_aol(
                 pass
 
     def _err(msg: str):
-        wid = getattr(thread_log, '_worker_id', '?') if thread_log else '?'
-        logger.error(f"[AOL][W{wid}] {msg}")
+        tid = thread_log.id if thread_log else '?'
+        logger.error(f"[AOL][#{tid}] {msg}")
         if thread_log:
             thread_log.error_message = f"#{thread_log.id} {msg}"[:500]
             try:
