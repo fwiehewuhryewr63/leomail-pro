@@ -1389,7 +1389,6 @@ async def register_single_yahoo(
 
         # Yahoo: all fields on one page — fill with human-like behavior
         _log(f"Ввод данных: {first_name} {last_name} / {username}")
-        await _debug_screenshot(page, "1_yahoo_form_loaded", _log)
 
         # First name
         fn_sel = await _wait_and_find(page, [
@@ -1507,7 +1506,6 @@ async def register_single_yahoo(
         await _human_delay(0.5, 1.0)
 
         # Click Next / Continue / Submit
-        await _debug_screenshot(page, "2_yahoo_form_filled", _log)
         _log("Отправка формы (Next)...")
         submit_btn = await _wait_for_any(page, [
             'button:has-text("Next")', 'button:has-text("Далее")',
@@ -1530,7 +1528,6 @@ async def register_single_yahoo(
         # ── Post-submit: Handle Yahoo's "Add your phone number" page ──
         post_url = page.url
         _log(f"После отправки: {post_url}")
-        await _debug_screenshot(page, "3_yahoo_after_submit", _log)
 
         # Check for reCAPTCHA after submit
         await _detect_and_solve_recaptcha(page, captcha_provider, _log)
@@ -1545,8 +1542,7 @@ async def register_single_yahoo(
         ], timeout=15000)
 
         if phone_page_input:
-            _log("📱 Обнаружена страница 'Add your phone number'")
-            await _debug_screenshot(page, "4_yahoo_phone_page", _log)
+            _log("Обнаружена страница 'Add your phone number'")
 
             if not sms_provider:
                 _err("Yahoo требует SMS, но SMS провайдер не настроен")
@@ -1760,10 +1756,7 @@ async def register_single_yahoo(
             _log(f"Ввели номер: {local_number}")
             await _human_delay(1.5, 3.0)
 
-            # Take screenshot AFTER filling to verify
-            await _debug_screenshot(page, "4b_yahoo_phone_filled", _log)
-
-            # Human reads terms, looks at button before clicking (2-4 seconds)
+            # Human reads terms, looks at button before clicking
             await random_mouse_move(page, steps=2)
             await _human_delay(2.0, 4.0)
 
@@ -1780,20 +1773,101 @@ async def register_single_yahoo(
             ], timeout=5000)
 
             if get_code_btn:
-                _log("📲 Нажимаем 'Get code by text'...")
-                await _human_click(page, get_code_btn)
-                await _human_delay(5, 8)  # Longer wait for response
+                # ── RETRY LOOP: if Yahoo rejects the number, try up to 3 new numbers ──
+                max_phone_retries = 3
+                phone_accepted = False
 
-                # Check for challenge/fail — Yahoo blocked us
-                curr = page.url
-                _log(f"После нажатия 'Get code': {curr}")
-                await _debug_screenshot(page, "5_yahoo_after_getcode", _log)
-                if 'challenge/fail' in curr or 'error' in curr:
-                    _err("🔴 Yahoo заблокировал: challenge/fail — попробуй другой прокси")
+                for phone_attempt in range(max_phone_retries):
+                    if phone_attempt > 0:
+                        _log(f"Попытка #{phone_attempt + 1} с новым номером...")
+
+                    _log("Нажимаем 'Get code by text'...")
+                    await _human_click(page, get_code_btn)
+                    await _human_delay(4, 7)
+
+                    # Check for phone rejection error on page
+                    try:
+                        page_text = await page.locator('body').inner_text()
+                        rejection_phrases = [
+                            "don't support this number",
+                            "doesn't look right",
+                            "not a valid phone",
+                            "invalid phone",
+                            "try another number",
+                            "provide another one",
+                            "не поддерживается",
+                            "неверный номер",
+                        ]
+                        is_rejected = any(phrase.lower() in page_text.lower() for phrase in rejection_phrases)
+                    except Exception:
+                        is_rejected = False
+
+                    if not is_rejected:
+                        # Also check URL for challenge/fail
+                        curr = page.url
+                        _log(f"После 'Get code': {curr}")
+                        if 'challenge/fail' in curr or '/error' in curr:
+                            _err("Yahoo заблокировал: challenge/fail")
+                            await _debug_screenshot(page, "yahoo_blocked", _log)
+                            try:
+                                await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                            except Exception:
+                                pass
+                            return None
+                        phone_accepted = True
+                        break
+
+                    # Phone rejected — cancel old number and get a new one
+                    _log(f"Yahoo отклонил номер {display_phone} — берём новый")
+                    await _debug_screenshot(page, f"yahoo_phone_rejected_{phone_attempt}", _log)
                     try:
                         await asyncio.to_thread(sms_provider.cancel_number, order_id)
                     except Exception:
                         pass
+
+                    # Order new number
+                    if _countries and hasattr(sms_provider, 'order_number_from_countries'):
+                        new_order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
+                    else:
+                        new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
+                    if "error" in new_order:
+                        _err(f"SMS ошибка при получении нового номера: {new_order['error']}")
+                        return None
+
+                    phone_number = new_order["number"]
+                    order_id = new_order["id"]
+                    sms_country = new_order.get("country", sms_country)
+                    display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+                    _log(f"Новый номер: {display_phone} (страна: {sms_country})")
+
+                    # Recalculate local number
+                    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country, phone_prefix)
+                    local_number = phone_number.lstrip("+")
+                    if phone_prefix and local_number.startswith(phone_prefix):
+                        local_number = local_number[len(phone_prefix):]
+
+                    # Clear phone field and fill with new number
+                    try:
+                        await page.locator(phone_page_input).first.fill("")
+                        await _human_delay(0.3, 0.5)
+                    except Exception:
+                        pass
+                    await _human_fill(page, phone_page_input, local_number)
+                    _log(f"Ввели новый номер: {local_number}")
+                    await _human_delay(1.5, 3.0)
+
+                    # Re-find the button (might change state)
+                    get_code_btn = await _wait_for_any(page, [
+                        'button:has-text("Get code by text")',
+                        'button:has-text("code by text")',
+                        'button[type="submit"]',
+                    ], timeout=3000)
+                    if not get_code_btn:
+                        _err("Кнопка 'Get code' не найдена после смены номера")
+                        return None
+
+                if not phone_accepted:
+                    _err(f"Yahoo отклонил {max_phone_retries} номеров подряд — прокси или SMS сервис")
                     return None
             else:
                 _log("⚠️ Кнопка 'Get code by text' не найдена — пробуем Enter")
