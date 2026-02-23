@@ -90,6 +90,14 @@ echo.
 echo [6/6] Обновление frontend...
 cd frontend
 call npm install --silent 2>nul
+echo [OK] Зависимости frontend установлены
+echo [*] Сборка frontend (npm run build)...
+call npm run build 2>nul
+if %errorlevel% equ 0 (
+    echo [OK] Frontend собран
+) else (
+    echo [WARN] npm run build не удался!
+)
 cd ..
 echo [OK] Frontend обновлён
 
