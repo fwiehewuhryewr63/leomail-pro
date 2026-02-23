@@ -6,12 +6,24 @@ import { useI18n } from '../i18n/I18nContext';
 
 import { API } from '../api';
 
+// SVG provider icons — clean, minimal emblems
+const ProviderIcon = ({ id, size = 28 }) => {
+    const icons = {
+        gmail: <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="3" stroke="#EA4335" strokeWidth="2" /><path d="M2 7l10 6 10-6" stroke="#EA4335" strokeWidth="2" strokeLinecap="round" /></svg>,
+        yahoo: <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 4l6 8v8" stroke="#6001D2" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M20 4l-6 8" stroke="#6001D2" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /><circle cx="18" cy="5" r="2" fill="#6001D2" /></svg>,
+        aol: <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#FF6B00" strokeWidth="2.5" /><circle cx="12" cy="12" r="3" fill="#FF6B00" /></svg>,
+        outlook: <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="#0078D4" strokeWidth="2" /><path d="M3 9h18" stroke="#0078D4" strokeWidth="2" /><path d="M12 9v10" stroke="#0078D4" strokeWidth="2" /></svg>,
+        hotmail: <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 3C8 3 5 6.5 5 10c0 5 7 11 7 11s7-6 7-11c0-3.5-3-7-7-7z" stroke="#0078D4" strokeWidth="2" fill="rgba(0,120,212,0.2)" /><circle cx="12" cy="10" r="2.5" fill="#0078D4" /></svg>,
+    };
+    return icons[id] || null;
+};
+
 const PROVIDERS = [
-    { id: 'gmail', name: 'Gmail', color: '#EA4335', abbr: 'GM', sms: 'simsms', mobileHint: true },
-    { id: 'yahoo', name: 'Yahoo', color: '#6001D2', abbr: 'YH', sms: 'simsms' },
-    { id: 'aol', name: 'AOL', color: '#FF6B00', abbr: 'AO', sms: 'simsms' },
-    { id: 'outlook', name: 'Outlook', color: '#0078D4', abbr: 'OL', sms: 'simsms' },
-    { id: 'hotmail', name: 'Hotmail', color: '#0078D4', abbr: 'HM', sms: 'simsms' },
+    { id: 'gmail', name: 'Gmail', color: '#EA4335', sms: 'simsms', mobileHint: true },
+    { id: 'yahoo', name: 'Yahoo', color: '#6001D2', sms: 'simsms' },
+    { id: 'aol', name: 'AOL', color: '#FF6B00', sms: 'simsms' },
+    { id: 'outlook', name: 'Outlook', color: '#0078D4', sms: 'simsms' },
+    { id: 'hotmail', name: 'Hotmail', color: '#0078D4', sms: 'simsms' },
 ];
 export default function Birth() {
     const { t } = useI18n();
@@ -160,14 +172,10 @@ export default function Birth() {
                                 background: provider === p.id ? `${p.color}22` : undefined,
                                 borderWidth: provider === p.id ? 2 : 1,
                             }}>
-                            <span style={{
-                                fontSize: '1.4em', fontWeight: 900,
-                                color: provider === p.id ? p.color : 'var(--text-muted)',
-                                letterSpacing: '1px',
-                            }}>{p.abbr}</span>
+                            <ProviderIcon id={p.id} size={28} />
                             <span style={{
                                 fontWeight: 800,
-                                fontSize: '1.1em',
+                                fontSize: '1.05em',
                                 color: provider === p.id ? p.color : 'var(--text-primary)',
                                 letterSpacing: '0.5px',
                             }}>{p.name}</span>
@@ -180,9 +188,9 @@ export default function Birth() {
             </div>
 
             {/* Name Packs + Device/Proxy — compact row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, alignItems: 'stretch' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                 {/* Name Pack Selection — dropdown */}
-                <div className="card" style={{ padding: '12px 16px' }}>
+                <div className="card" style={{ padding: '14px 18px', minHeight: 90 }}>
                     <div
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                         onClick={() => setPacksOpen(!packsOpen)}
@@ -223,7 +231,7 @@ export default function Birth() {
                 </div>
 
                 {/* Device + Proxy (compact) */}
-                <div className="card" style={{ padding: '12px 16px' }}>
+                <div className="card" style={{ padding: '14px 18px', minHeight: 90 }}>
                     <div className="card-title" style={{ marginBottom: 8 }}>
                         <Monitor size={14} style={{ marginRight: 6 }} /> УСТРОЙСТВО + ПРОКСИ
                     </div>

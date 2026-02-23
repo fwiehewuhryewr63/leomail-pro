@@ -44,12 +44,12 @@ export default function Dashboard() {
     const proxyFree = Math.max(0, proxyAlive - (s.total_accounts || 0));
 
     const lifecycle = [
-        { label: 'Новые', count: s.status_new || 0, color: 'var(--info)', icon: '🆕' },
-        { label: 'Прогрев', count: s.status_warmup || 0, color: 'var(--warning)', icon: '🔥' },
-        { label: 'WARMED', count: s.status_warmed || 0, color: 'var(--success)', icon: '✅' },
-        { label: 'В работе', count: s.status_working || 0, color: 'var(--accent)', icon: '📨' },
-        { label: 'Пауза', count: s.status_paused || 0, color: 'var(--text-muted)', icon: '⏸' },
-        { label: 'Мёртвые', count: s.status_dead || 0, color: 'var(--danger)', icon: '💀' },
+        { label: 'Новые', count: s.status_new || 0, color: 'var(--info)' },
+        { label: 'Прогрев', count: s.status_warmup || 0, color: 'var(--warning)' },
+        { label: 'WARMED', count: s.status_warmed || 0, color: 'var(--success)' },
+        { label: 'В работе', count: s.status_working || 0, color: 'var(--accent)' },
+        { label: 'Пауза', count: s.status_paused || 0, color: 'var(--text-muted)' },
+        { label: 'Мёртвые', count: s.status_dead || 0, color: 'var(--danger)' },
     ];
 
     const totalLife = lifecycle.reduce((a, l) => a + l.count, 0) || 1;
@@ -64,10 +64,10 @@ export default function Dashboard() {
             {/* Top stats row */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
                 <StatCard icon={Users} label="Аккаунты" value={s.total_accounts || 0}
-                    sub={`${s.status_warmed || 0} warmed · ${s.status_dead || 0} мёртв.`}
+                    sub={`${s.status_warmed || 0} warmed / ${s.status_dead || 0} мёртв.`}
                     onClick={() => navigate('/accounts')} />
                 <StatCard icon={Shield} label="Прокси" value={proxyTotal}
-                    sub={`🟢${proxyAlive} · 🔴${proxyDead} · 💤${proxyFree} своб.`}
+                    sub={`${proxyAlive} живых / ${proxyDead} мёртвых / ${proxyFree} своб.`}
                     color={proxyDead > proxyAlive ? 'var(--danger)' : 'var(--success)'}
                     onClick={() => navigate('/proxies')} />
                 <StatCard icon={Flame} label="Фермы" value={s.total_farms || 0}
@@ -124,11 +124,11 @@ export default function Dashboard() {
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
                         {[
-                            { id: 'gmail', name: 'Gmail', abbr: 'GM', color: '#EA4335' },
-                            { id: 'yahoo', name: 'Yahoo', abbr: 'YH', color: '#6001D2' },
-                            { id: 'aol', name: 'AOL', abbr: 'AO', color: '#FF6B00' },
-                            { id: 'outlook', name: 'Outlook', abbr: 'OL', color: '#0078D4' },
-                            { id: 'hotmail', name: 'Hotmail', abbr: 'HM', color: '#0078D4' },
+                            { id: 'gmail', name: 'Gmail', color: '#EA4335' },
+                            { id: 'yahoo', name: 'Yahoo', color: '#6001D2' },
+                            { id: 'aol', name: 'AOL', color: '#FF6B00' },
+                            { id: 'outlook', name: 'Outlook', color: '#0078D4' },
+                            { id: 'hotmail', name: 'Hotmail', color: '#0078D4' },
                         ].map(p => {
                             const total = (s.by_provider || {})[p.id] || 0;
                             const statuses = (s.by_provider_status || {})[p.id] || {};
@@ -138,17 +138,17 @@ export default function Dashboard() {
                                     borderLeft: `3px solid ${p.color}`,
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                        <span style={{ fontWeight: 900, fontSize: '0.75em', color: p.color, letterSpacing: '0.5px' }}>{p.abbr}</span>
+                                        <span style={{ color: p.color, fontSize: '0.7em' }}>●</span>
                                         <span style={{ fontWeight: 700, fontSize: '0.85em', color: 'var(--text-primary)' }}>{p.name}</span>
                                         <span style={{ marginLeft: 'auto', fontWeight: 800, fontSize: '1.1em', color: p.color }}>{total}</span>
                                     </div>
                                     {total > 0 && (
                                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                            {statuses.new > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 5px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>🆕{statuses.new}</span>}
-                                            {(statuses.phase_1 || 0) + (statuses.phase_2 || 0) + (statuses.phase_3 || 0) + (statuses.phase_4 || 0) + (statuses.phase_5 || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 5px', background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>🔥{(statuses.phase_1 || 0) + (statuses.phase_2 || 0) + (statuses.phase_3 || 0) + (statuses.phase_4 || 0) + (statuses.phase_5 || 0)}</span>}
-                                            {statuses.warmed > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 5px', background: 'rgba(16,185,129,0.15)', color: '#34d399' }}>✅{statuses.warmed}</span>}
-                                            {statuses.sending > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 5px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa' }}>📨{statuses.sending}</span>}
-                                            {(statuses.dead || 0) + (statuses.banned || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 5px', background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>💀{(statuses.dead || 0) + (statuses.banned || 0)}</span>}
+                                            {statuses.new > 0 && <span className="badge" style={{ fontSize: '0.68em', padding: '2px 6px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}><span style={{ color: '#60a5fa', marginRight: 2 }}>●</span>{statuses.new}</span>}
+                                            {(statuses.phase_1 || 0) + (statuses.phase_2 || 0) + (statuses.phase_3 || 0) + (statuses.phase_4 || 0) + (statuses.phase_5 || 0) > 0 && <span className="badge" style={{ fontSize: '0.68em', padding: '2px 6px', background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}><span style={{ color: '#fbbf24', marginRight: 2 }}>●</span>{(statuses.phase_1 || 0) + (statuses.phase_2 || 0) + (statuses.phase_3 || 0) + (statuses.phase_4 || 0) + (statuses.phase_5 || 0)}</span>}
+                                            {statuses.warmed > 0 && <span className="badge" style={{ fontSize: '0.68em', padding: '2px 6px', background: 'rgba(16,185,129,0.15)', color: '#34d399' }}><span style={{ color: '#34d399', marginRight: 2 }}>●</span>{statuses.warmed}</span>}
+                                            {statuses.sending > 0 && <span className="badge" style={{ fontSize: '0.68em', padding: '2px 6px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa' }}><span style={{ color: '#a78bfa', marginRight: 2 }}>●</span>{statuses.sending}</span>}
+                                            {(statuses.dead || 0) + (statuses.banned || 0) > 0 && <span className="badge" style={{ fontSize: '0.68em', padding: '2px 6px', background: 'rgba(239,68,68,0.15)', color: '#f87171' }}><span style={{ color: '#f87171', marginRight: 2 }}>●</span>{(statuses.dead || 0) + (statuses.banned || 0)}</span>}
                                         </div>
                                     )}
                                 </div>
