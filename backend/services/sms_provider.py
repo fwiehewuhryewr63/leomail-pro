@@ -206,6 +206,9 @@ class GrizzlySMS(SMSProvider):
                 return 0.0
         return 0.0
 
+    # Virtual country codes to ALWAYS exclude (these give non-working numbers)
+    VIRTUAL_COUNTRY_CODES = {"187", "17"}  # us_v=187, us_v in simsms=17
+
     def order_number_from_countries(self, service: str = "gmail", countries: list = None, blacklist: set = None) -> dict:
         """
         Order a number from a list of allowed countries (random order).
@@ -218,10 +221,12 @@ class GrizzlySMS(SMSProvider):
             return self.order_number(service, "auto")
 
         service_code = GRIZZLY_SERVICE_CODES.get(service, "go")
-        available = [c for c in countries if not blacklist or c not in blacklist]
+        # Filter out virtual country keys
+        available = [c for c in countries
+                     if c not in ("us_v",)
+                     and (not blacklist or c not in blacklist)]
         if not available:
-            # All blacklisted — reset and try all
-            available = list(countries)
+            available = [c for c in countries if c not in ("us_v",)]
 
         # Retry up to 3 times with 5s delay
         for attempt in range(3):
@@ -230,8 +235,9 @@ class GrizzlySMS(SMSProvider):
 
             for country in order:
                 country_code = GRIZZLY_COUNTRY_CODES.get(country, country)
-                # Use getNumberV2 with maxPrice for premium real numbers
-                result = self._request("getNumberV2", service=service_code, country=country_code, maxPrice=150)
+                if country_code in self.VIRTUAL_COUNTRY_CODES:
+                    continue  # Skip virtual
+                result = self._request("getNumber", service=service_code, country=country_code)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
                     if len(parts) >= 3:
@@ -251,37 +257,55 @@ class GrizzlySMS(SMSProvider):
 
         return {"error": f"Нет номеров ни в одной из {len(available)} стран"}
 
+    # Countries known to have REAL (physical) numbers that work for SMS verification
+    REAL_COUNTRIES = [
+        "de", "uk", "pl", "nl", "se", "at", "cz", "ee",
+        "fr", "es", "it", "pt", "ro", "bg", "hr",
+        "ru", "ua", "kz", "br", "ca", "il",
+    ]
+
     def order_number(self, service: str = "gmail", country: str = "auto") -> dict:
         """
         Order a phone number.
         service: gmail, yahoo, aol, outlook, etc.
-        country: "auto" = let Grizzly auto-select, or country key
+        country: "auto" = try real-country list (no virtual), or specific country key
         """
         service_code = GRIZZLY_SERVICE_CODES.get(service, "go")
 
         if country == "auto":
-            # Use getNumberV2 with maxPrice for premium real numbers (not virtual)
-            result = self._request("getNumberV2", service=service_code, country="any", maxPrice=150)
-            if result.startswith("ACCESS_NUMBER:"):
-                parts = result.split(":")
-                if len(parts) >= 3:
-                    logger.info(f"GrizzlySMS: got PREMIUM number (auto, maxPrice=150)")
-                    self._last_country = "auto"
-                    return {"id": parts[1], "number": parts[2], "country": "auto", "service": service}
+            # Try REAL countries only (not virtual) — shuffle for variety
+            real_order = list(self.REAL_COUNTRIES)
+            random.shuffle(real_order)
 
-            # Map error (no cheap fallback — we want quality numbers only)
+            for c in real_order:
+                country_code = GRIZZLY_COUNTRY_CODES.get(c, c)
+                if country_code in self.VIRTUAL_COUNTRY_CODES:
+                    continue
+                result = self._request("getNumber", service=service_code, country=country_code)
+                if result.startswith("ACCESS_NUMBER:"):
+                    parts = result.split(":")
+                    if len(parts) >= 3:
+                        logger.info(f"GrizzlySMS: got REAL number from {c} (auto)")
+                        self._last_country = c
+                        return {"id": parts[1], "number": parts[2], "country": c, "service": service}
+                logger.debug(f"GrizzlySMS auto: {c} ({country_code}) → {result}")
+
             error_map = {
-                "NO_NUMBERS": "Нет свободных номеров (premium)",
+                "NO_NUMBERS": "Нет свободных реальных номеров",
                 "NO_BALANCE": "Недостаточно средств",
                 "BAD_KEY": "Неверный API ключ",
                 "BAD_SERVICE": "Неверный сервис",
                 "BAD_ACTION": "Неверное действие",
             }
-            return {"error": error_map.get(result, f"GrizzlySMS: {result}")}
+            return {"error": error_map.get(result, f"GrizzlySMS: нет реальных номеров")}
 
-        # Specific country — use getNumberV2 with maxPrice for premium
+        # Specific country
+        if country == "us_v":
+            return {"error": "Виртуальные номера отключены — используйте реальные"}
         country_code = GRIZZLY_COUNTRY_CODES.get(country, country)
-        result = self._request("getNumberV2", service=service_code, country=country_code, maxPrice=150)
+        if country_code in self.VIRTUAL_COUNTRY_CODES:
+            return {"error": f"Страна {country} — виртуальные номера, пропуск"}
+        result = self._request("getNumber", service=service_code, country=country_code)
         if result.startswith("ACCESS_NUMBER:"):
             parts = result.split(":")
             if len(parts) >= 3:
