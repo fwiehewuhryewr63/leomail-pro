@@ -1585,6 +1585,22 @@ async def register_single_yahoo(
                 "am": "374", "az": "994", "by": "375", "md": "373", "al": "355", "rs": "381",
                 "hr": "385", "si": "386", "lv": "371", "lt": "370", "uy": "598", "bo": "591",
             }
+            # SMS country code → ISO alpha-2 for Yahoo's country dropdown
+            COUNTRY_TO_ISO2 = {
+                "ru": "RU", "ua": "UA", "kz": "KZ", "cn": "CN", "ph": "PH", "id": "ID",
+                "my": "MY", "ke": "KE", "tz": "TZ", "br": "BR", "us": "US", "us_v": "US",
+                "il": "IL", "hk": "HK", "pl": "PL", "uk": "GB", "ng": "NG", "eg": "EG",
+                "in": "IN", "ie": "IE", "za": "ZA", "ro": "RO", "co": "CO", "ee": "EE",
+                "ca": "CA", "de": "DE", "nl": "NL", "at": "AT", "th": "TH", "mx": "MX",
+                "es": "ES", "tr": "TR", "cz": "CZ", "pe": "PE", "nz": "NZ", "se": "SE",
+                "fr": "FR", "ar": "AR", "vn": "VN", "bd": "BD", "pk": "PK", "cl": "CL",
+                "be": "BE", "bg": "BG", "hu": "HU", "it": "IT", "pt": "PT", "gr": "GR",
+                "fi": "FI", "dk": "DK", "no": "NO", "ch": "CH", "au": "AU", "jp": "JP",
+                "ge": "GE", "ae": "AE", "sa": "SA", "cr": "CR", "gt": "GT", "sk": "SK",
+                "am": "AM", "az": "AZ", "by": "BY", "md": "MD", "al": "AL", "rs": "RS",
+                "hr": "HR", "si": "SI", "lv": "LV", "lt": "LT", "uy": "UY", "bo": "BO",
+            }
+
             phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
             local_number = phone_number.lstrip("+")
             if phone_prefix and local_number.startswith(phone_prefix):
@@ -1592,6 +1608,58 @@ async def register_single_yahoo(
                 _log(f"Стрипнули префикс +{phone_prefix}, вводим: {local_number}")
             else:
                 _log(f"Вводим как есть: {local_number}")
+
+            # ── CRITICAL: Change Yahoo's country code dropdown to match SMS number ──
+            # Yahoo auto-sets country from proxy GEO, but SMS number may be from different country
+            target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
+            if target_iso and phone_prefix:
+                _log(f"Меняем код страны в Yahoo: → {target_iso} (+{phone_prefix})")
+                try:
+                    # Yahoo uses a <select> dropdown for country code
+                    country_select = await _wait_for_any(page, [
+                        'select#phone-country-code', 'select[name="countryCode"]',
+                        'select[name="country-code"]', 'select[aria-label*="ountry"]',
+                        'select[data-type="country"]',
+                        # Generic: any select near the phone input
+                        'select',
+                    ], timeout=5000)
+                    if country_select:
+                        # Try selecting by value (ISO code like "US", "DE", etc.)
+                        try:
+                            await page.locator(country_select).first.select_option(value=target_iso)
+                            _log(f"✅ Код страны выбран: {target_iso}")
+                        except Exception:
+                            # Try with lowercase or phone prefix
+                            try:
+                                await page.locator(country_select).first.select_option(value=target_iso.lower())
+                                _log(f"✅ Код страны выбран (lowercase): {target_iso.lower()}")
+                            except Exception:
+                                # Try selecting by label containing the phone prefix
+                                try:
+                                    await page.locator(country_select).first.select_option(label=f"+{phone_prefix}")
+                                    _log(f"✅ Код страны выбран по label: +{phone_prefix}")
+                                except Exception:
+                                    _log(f"⚠️ Не удалось выбрать код страны {target_iso} — пробуем JS")
+                                    # Last resort: use JavaScript to change the select value
+                                    await page.evaluate(f"""() => {{
+                                        const selects = document.querySelectorAll('select');
+                                        for (const sel of selects) {{
+                                            for (const opt of sel.options) {{
+                                                if (opt.value === '{target_iso}' || opt.value === '{target_iso.lower()}'
+                                                    || opt.text.includes('+{phone_prefix}')) {{
+                                                    sel.value = opt.value;
+                                                    sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                                    break;
+                                                }}
+                                            }}
+                                        }}
+                                    }}""")
+                                    _log(f"JS fallback для смены кода страны")
+                        await _human_delay(0.5, 1.0)
+                    else:
+                        _log("⚠️ Select кода страны не найден — Yahoo может использовать другой UI")
+                except Exception as e:
+                    _log(f"⚠️ Ошибка смены кода страны: {e}")
 
             # Human-like: read the page text first (real person would read instructions)
             await random_mouse_move(page, steps=3)
