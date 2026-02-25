@@ -733,7 +733,13 @@ async def register_single_yahoo(
                         else:
                             new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
                     if not new_order or "error" in new_order:
-                        _err(f"SMS ошибка при получении нового номера: {new_order['error']}")
+                        # Last resort: try US
+                        try:
+                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "us")
+                        except Exception:
+                            pass
+                    if not new_order or "error" in new_order:
+                        _err(f"SMS ошибка при получении нового номера: {new_order.get('error', 'no number') if new_order else 'Failed'}")
                         return None
 
                     phone_number = new_order["number"]
