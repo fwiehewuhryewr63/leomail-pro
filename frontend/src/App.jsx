@@ -45,6 +45,7 @@ function App() {
               <Route path="/birth" element={<Birth />} />
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/:id" element={<CampaignDetail />} />
+              <Route path="/work" element={<Work />} />
               <Route path="/proxies" element={<Proxies />} />
               <Route path="/farms" element={<Farms />} />
               <Route path="/accounts" element={<Accounts />} />

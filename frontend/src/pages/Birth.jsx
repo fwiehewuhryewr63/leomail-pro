@@ -335,7 +335,7 @@ export default function Birth() {
                                 <button key={sp} className={`btn ${smsProvider === sp ? 'btn-primary' : ''}`}
                                     onClick={() => setSmsProvider(sp)}
                                     style={{ flex: 1, fontSize: '0.95em', padding: '10px' }}>
-                                    {sp === 'grizzly' ? 'Grizzly' : 'SimSMS'}
+                                    {sp === 'simsms' ? 'SimSMS' : sp === 'grizzly' ? 'Grizzly' : '5Sim'}
                                 </button>
                             ))}
                         </div>
@@ -364,7 +364,7 @@ export default function Birth() {
                     <span><Mail size={12} style={{ marginRight: 3 }} /> {quantity}× <strong style={{ color: 'var(--accent)' }}>{provider.toUpperCase()}</strong></span>
                     <span><UserCircle size={12} style={{ marginRight: 3 }} /> <strong style={{ color: 'var(--accent)' }}>{totalNames || 0}</strong> имён</span>
                     <span><Zap size={12} style={{ marginRight: 3 }} /> <strong style={{ color: 'var(--accent)' }}>{threads}</strong> потоков</span>
-                    <span><Smartphone size={12} style={{ marginRight: 3 }} /> SMS: <strong style={{ color: 'var(--accent)' }}>{smsProvider === 'grizzly' ? 'Grizzly' : 'SimSMS'}</strong></span>
+                    <span><Smartphone size={12} style={{ marginRight: 3 }} /> SMS: <strong style={{ color: 'var(--accent)' }}>{smsProvider === 'simsms' ? 'SimSMS' : smsProvider === 'grizzly' ? 'Grizzly' : '5Sim'}</strong></span>
                 </div>
             </div>
 
