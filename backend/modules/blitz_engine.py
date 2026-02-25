@@ -527,8 +527,10 @@ class BlitzCampaignRunner:
                 logger.info(f"Blitz send[{worker_id}]: starting with {email}")
 
                 consecutive_errors = 0
-                # Existing farm accounts skip warmup — use their prior send count
-                emails_sent = account_data.get("prior_sends", 0)
+                emails_sent = 0  # count for THIS campaign only (MAX cap)
+                # Warmup level: existing accounts start at their maturity level
+                # so they immediately get fast delays (1min for warmed accounts)
+                warmup_level = account_data.get("prior_sends", 0)
 
                 while (
                     not self._stop_event.is_set()
@@ -670,6 +672,7 @@ class BlitzCampaignRunner:
                     if result == SendResult.OK:
                         recipient.result = "ok"
                         emails_sent += 1
+                        warmup_level += 1
                         consecutive_errors = 0
 
                         # NOW increment link usage (only on success!)
@@ -774,12 +777,12 @@ class BlitzCampaignRunner:
                         db.commit()
                         consecutive_errors += 1
 
-                    # Progressive warmup delay — ramps down from 10min to 1min
-                    delay = get_warmup_delay(emails_sent)
-                    if emails_sent <= len(WARMUP_DELAYS):
+                    # Progressive warmup delay — uses warmup_level (includes prior sends)
+                    delay = get_warmup_delay(warmup_level)
+                    if warmup_level <= len(WARMUP_DELAYS):
                         logger.debug(
                             f"Blitz send[{worker_id}] {email}: warmup delay "
-                            f"{delay:.0f}s after email #{emails_sent}"
+                            f"{delay:.0f}s (level={warmup_level}, sent={emails_sent})"
                         )
                     await asyncio.sleep(delay)
 
