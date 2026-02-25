@@ -1,5 +1,5 @@
 """
-Leomail v3 — AOL Registration Engine
+Leomail v3 — AOL Registration Engine (with Vision CV)
 Upgraded to Yahoo-level: country detection, phone retry, human behavior, challenge handling.
 """
 import asyncio
@@ -87,6 +87,15 @@ async def register_single_aol(
                 db.commit()
             except Exception:
                 pass
+
+    # ── Initialize Vision Engine (OCR + stage detection) ──
+    vision = None
+    try:
+        from ..vision import VisionEngine
+        vision = VisionEngine("aol", debug=True)
+        _log("👁️ Vision Engine активен")
+    except Exception as ve:
+        logger.debug(f"[AOL] Vision not available: {ve}")
 
     try:
         page = await context.new_page()

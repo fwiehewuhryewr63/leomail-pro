@@ -1,5 +1,5 @@
 """
-Leomail v3 — Yahoo Registration Engine
+Leomail v3 — Yahoo Registration Engine (with Vision CV)
 """
 import asyncio
 import random
@@ -87,6 +87,15 @@ async def register_single_yahoo(
             except Exception:
                 pass
 
+    # ── Initialize Vision Engine (OCR + stage detection) ──
+    vision = None
+    try:
+        from ..vision import VisionEngine
+        vision = VisionEngine("yahoo", debug=True)
+        _log("👁️ Vision Engine активен — OCR + детекция этапов")
+    except Exception as ve:
+        logger.debug(f"[Yahoo] Vision not available: {ve}")
+
     try:
         page = await context.new_page()
         thread_id = thread_log.id if thread_log else 0
@@ -134,6 +143,18 @@ async def register_single_yahoo(
 
         await random_mouse_move(page, steps=3)
         _log(f"Страница: {page.url}")
+
+        # ── Vision: detect initial stage ──
+        if vision:
+            try:
+                stage = await vision.analyze(page)
+                _log(f"👁️ Этап: {stage['stage']} ({stage['confidence']:.0%}) — {stage['description']}")
+                err = await vision.is_error(page)
+                if err:
+                    _err(f"👁️ Обнаружена ошибка: {err['type']} — {err['text']}")
+                    return None
+            except Exception as ve:
+                logger.debug(f"[Yahoo] Vision stage detect: {ve}")
 
         # Yahoo: all fields on one page — fill with human-like behavior
         _log(f"Ввод данных: {first_name} {last_name} / {username}")
@@ -241,6 +262,18 @@ async def register_single_yahoo(
             await page.keyboard.press("Enter")
 
         await _human_delay(4, 8)  # Longer wait for page transition
+
+        # ── Vision: check post-submit stage ──
+        if vision:
+            try:
+                stage = await vision.analyze(page)
+                _log(f"👁️ После сабмита: {stage['stage']} ({stage['confidence']:.0%})")
+                err = await vision.is_error(page)
+                if err and err['type'] == 'blocked':
+                    _err(f"👁️ IP заблокирован: {err['text']}")
+                    return None
+            except Exception:
+                pass
 
         # ── CRITICAL: Detect "Email not available" and retry with new username ──
         for email_retry in range(3):
