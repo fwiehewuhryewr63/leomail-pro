@@ -465,14 +465,26 @@ async def register_single_yahoo(
             order = None
             active_sms_provider = sms_provider  # will be updated to whichever works
 
-            # Expanded country list: Yahoo's country first, then popular SMS countries
-            SMS_FALLBACK_COUNTRIES = ["us", "uk", "br", "de", "nl", "se", "pl", "ru", "ca", "fr"]
+            # Build expanded country list: Yahoo's detected country first, then all available
+            # Priority countries (known good quality) first, then all others
+            PRIORITY_COUNTRIES = ["us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr", "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il"]
             expanded_countries = []
             if yahoo_sms_country:
                 expanded_countries.append(yahoo_sms_country)
-            for c in SMS_FALLBACK_COUNTRIES:
+            for c in PRIORITY_COUNTRIES:
                 if c not in expanded_countries:
                     expanded_countries.append(c)
+            # Add ALL remaining countries from all providers
+            try:
+                from ..services.simsms_provider import COUNTRY_CODES as SIM_CC
+                from ..services.sms_provider import GRIZZLY_COUNTRY_CODES as GR_CC
+                from ..services.fivesim_provider import FIVESIM_COUNTRIES as FS_CC
+                all_known = set(SIM_CC.keys()) | set(GR_CC.keys()) | set(FS_CC.keys())
+                for c in all_known:
+                    if c not in expanded_countries and c != "us_v":
+                        expanded_countries.append(c)
+            except Exception:
+                pass
 
             for provider_name, provider in sms_chain:
                 _log(f"📱 Пробуем SMS: {provider_name} (страны: {expanded_countries[:5]}...)")
