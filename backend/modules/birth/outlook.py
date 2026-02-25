@@ -1,5 +1,5 @@
 """
-Leomail v3 — Outlook/Hotmail Registration Engine
+Leomail v3 — Outlook/Hotmail Registration Engine (with Vision CV)
 Upgraded: human_fill, BIRTH_CANCEL_EVENT, better error handling, proxy detection.
 """
 import asyncio
@@ -91,6 +91,15 @@ async def register_single_outlook(
                 pass
 
     thread_id = thread_log.id if thread_log else 0
+
+    # ── Initialize Vision Engine ──
+    vision = None
+    try:
+        from ..vision import VisionEngine
+        vision = VisionEngine("outlook", debug=True)
+        _log("👁️ Vision Engine активен")
+    except Exception as ve:
+        logger.debug(f"[Outlook] Vision not available: {ve}")
 
     try:
         page = await context.new_page()

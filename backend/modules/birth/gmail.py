@@ -1,5 +1,5 @@
 """
-Leomail v3 — Gmail Registration Engine
+Leomail v3 — Gmail Registration Engine (with Vision CV)
 """
 import asyncio
 import random
@@ -85,6 +85,15 @@ async def register_single_gmail(
                 db.commit()
             except Exception:
                 pass
+
+    # ── Initialize Vision Engine ──
+    vision = None
+    try:
+        from ..vision import VisionEngine
+        vision = VisionEngine("gmail", debug=True)
+        _log("👁️ Vision Engine активен")
+    except Exception as ve:
+        logger.debug(f"[Gmail] Vision not available: {ve}")
 
     try:
         page = await context.new_page()
