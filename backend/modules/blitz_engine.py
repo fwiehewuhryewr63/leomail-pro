@@ -392,29 +392,41 @@ class BlitzCampaignRunner:
                     link_url = f"{link.esp_url}#{rand_hash}"
                     link_id = link.id  # save for post-send update
 
-                    # Render template
+                    # Render template with BASIC/VIP variables
                     subject = template.subject
                     body = template.body_html
-                    subject = subject.replace("{first_name}", from_name)
-                    subject = subject.replace("{date}", datetime.utcnow().strftime("%d/%m/%Y"))
-                    body = body.replace("{first_name}", from_name)
-                    body = body.replace("{date}", datetime.utcnow().strftime("%d/%m/%Y"))
 
-                    # Handle recipient name substitution
+                    # ═══ BASIC variables (always available) ═══
+                    # {{USERNAME}} = part before @ in recipient email
+                    to_email_str = recipient.email or ""
+                    username = to_email_str.split("@")[0] if "@" in to_email_str else to_email_str
+                    subject = subject.replace("{{USERNAME}}", username)
+                    body = body.replace("{{USERNAME}}", username)
+
+                    # ═══ VIP variables (only if DB has names) ═══
+                    # {{NAME}} = first_name from VIP database
                     to_name = getattr(recipient, 'first_name', '') or ''
                     to_last = getattr(recipient, 'last_name', '') or ''
+                    subject = subject.replace("{{NAME}}", to_name)
+                    body = body.replace("{{NAME}}", to_name)
+
+                    # Legacy compatibility
                     subject = subject.replace("{{FIRSTNAME}}", to_name).replace("{{LASTNAME}}", to_last)
                     body = body.replace("{{FIRSTNAME}}", to_name).replace("{{LASTNAME}}", to_last)
-                    # Legacy placeholders
-                    subject = subject.replace("{recipient_name}", to_name)
-                    body = body.replace("{recipient_name}", to_name)
+                    subject = subject.replace("{first_name}", from_name)
+                    body = body.replace("{first_name}", from_name)
 
-                    # Insert link based on mode
-                    if campaign.link_mode == "hyperlink":
-                        body = body.replace("{link}", link_url)
-                    else:
-                        body = body.replace("{link}", link_url)
+                    # Date
+                    date_str = datetime.utcnow().strftime("%d/%m/%Y")
+                    subject = subject.replace("{{DATE}}", date_str).replace("{date}", date_str)
+                    body = body.replace("{{DATE}}", date_str).replace("{date}", date_str)
+
+                    # ═══ LINK variable ═══
+                    # {{LINK}} = ESP link with random hash
                     body = body.replace("{{LINK}}", link_url)
+                    subject = subject.replace("{{LINK}}", link_url)
+                    # Legacy
+                    body = body.replace("{link}", link_url)
 
                     # Lock recipient to prevent double-send by other threads
                     recipient.sent = True

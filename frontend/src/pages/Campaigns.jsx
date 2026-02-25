@@ -375,8 +375,8 @@ export default function Campaigns() {
                                                     opacity: match ? 1 : 0.5,
                                                 }}>
                                                 {t.name}
-                                                {t.needs_names && <span style={{ fontSize: '0.68em', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>👤📛</span>}
-                                                {!t.needs_names && <span style={{ fontSize: '0.68em', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>👤</span>}
+                                                {t.needs_names && <span style={{ fontSize: '0.68em', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>VIP</span>}
+                                                {!t.needs_names && <span style={{ fontSize: '0.68em', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>BASIC</span>}
                                                 {t.niche && <span style={{ fontSize: '0.65em', opacity: 0.5, marginLeft: 3 }}>{t.niche}</span>}
                                             </div>
                                         );
@@ -387,7 +387,7 @@ export default function Campaigns() {
                                 selectedDBs.length > 0 &&
                                 selectedDBs.every(id => !databases.find(d => d.id === id)?.with_name) && (
                                     <div style={{ fontSize: '0.72em', color: 'var(--danger)', fontWeight: 600, marginTop: 6, padding: '4px 8px', background: 'rgba(239,68,68,0.08)', borderRadius: 4 }}>
-                                        ⚠️ Шаблон требует имена, но выбранные базы — только email!
+                                        ⚠️ VIP шаблон требует имена — выберите VIP базу!
                                     </div>
                                 )}
                         </div>
@@ -404,8 +404,8 @@ export default function Campaigns() {
                                             color: selectedDBs.includes(d.id) ? 'var(--accent)' : 'var(--text-muted)',
                                             fontWeight: selectedDBs.includes(d.id) ? 600 : 400,
                                         }}>
-                                        {d.with_name ? '👤📛' : '👤'} {d.name} ({d.total_count - (d.used_count || 0)})
-                                        <span style={{ fontSize: '0.68em', background: d.with_name ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.06)', color: d.with_name ? '#a78bfa' : 'var(--text-muted)', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>{d.with_name ? 'email+имя' : 'email'}</span>
+                                        {d.with_name ? '⭐' : '📧'} {d.name} ({d.total_count - (d.used_count || 0)})
+                                        <span style={{ fontSize: '0.68em', background: d.with_name ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.06)', color: d.with_name ? '#a78bfa' : 'var(--text-muted)', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>{d.with_name ? 'VIP' : 'BASIC'}</span>
                                     </div>
                                 ))}
                             </div>
