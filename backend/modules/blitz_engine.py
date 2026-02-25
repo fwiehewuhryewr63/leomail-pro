@@ -6,6 +6,7 @@ Two async pools: birth_pool feeds send_pool via asyncio.Queue.
 import asyncio
 import random
 import string
+import threading
 from datetime import datetime
 from loguru import logger
 
@@ -227,83 +228,155 @@ class BlitzCampaignRunner:
 
     async def _do_birth(self, provider: str, name_pack: str, proxy, geo: str, db) -> dict | None:
         """
-        Execute a single account birth.
-        Returns {email, password, first_name, provider, proxy_id} or None.
-        
-        TODO: Integrate with existing birth modules (gmail.py, yahoo.py, etc.)
-        For now, this is a placeholder that will be connected to the real birth pipeline.
+        Execute a single account birth using real birth modules.
+        Returns {email, password, first_name, provider, proxy_id, account_id} or None.
         """
-        # Import real birth functions
-        try:
-            from ..modules.birth import (
-                register_single_gmail, register_single_yahoo,
-                register_single_aol, register_single_outlook,
-            )
-            from ..modules.browser_manager import BrowserManager
-            from ..modules.birth._helpers import get_sms_provider, get_captcha_provider
-            from ..config import load_config
-            import os
+        from ..birth import (
+            register_single_gmail, register_single_yahoo,
+            register_single_aol, register_single_outlook,
+        )
+        from ..browser_manager import BrowserManager
+        from ..birth._helpers import get_sms_provider, get_captcha_provider, get_sms_chain
+        import os, json
 
-            config = load_config()
-
-            # Load name pack
-            name_file = f"backend/data/names/{name_pack}.txt"
-            if not os.path.exists(name_file):
-                name_file = f"data/names/{name_pack}.txt"
-            
-            first_name = "Maria"
-            last_name = "Silva"
+        # ── Load name pack ──
+        name_pool = []
+        for name_dir in ["user_data/names", "backend/data/names", "data/names"]:
+            name_file = os.path.join(name_dir, f"{name_pack}.txt")
             if os.path.exists(name_file):
                 with open(name_file, "r", encoding="utf-8") as f:
-                    lines = [l.strip() for l in f if l.strip()]
-                if lines:
-                    parts = random.choice(lines).split(",")
-                    first_name = parts[0] if parts else "Maria"
-                    last_name = parts[1] if len(parts) > 1 else "Silva"
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        parts = line.split(",")
+                        first = parts[0].strip()
+                        last = parts[1].strip() if len(parts) > 1 else "Smith"
+                        if first:
+                            name_pool.append((first, last))
+                break
 
-            # Select birth function
-            birth_funcs = {
-                "gmail": register_single_gmail,
-                "yahoo": register_single_yahoo,
-                "aol": register_single_aol,
-                "outlook": register_single_outlook,
-                "hotmail": register_single_outlook,
-            }
-            birth_fn = birth_funcs.get(provider)
-            if not birth_fn:
-                logger.error(f"Unknown provider for birth: {provider}")
-                return None
+        if not name_pool:
+            # Fallback — generate random
+            name_pool = [("Maria", "Silva"), ("Jessica", "Smith"), ("Sarah", "Johnson")]
+            logger.warning(f"Blitz: name pack '{name_pack}' not found, using fallback names")
 
-            # Start browser for birth
-            bm = BrowserManager(headless=True)
-            await bm.start()
-            try:
-                result = await birth_fn(
+        # ── Get SMS provider (with fallback chain) ──
+        sms_provider = None
+        sms_chain = get_sms_chain("simsms")
+        if sms_chain:
+            sms_provider = sms_chain[0][1]  # (name, provider_instance)
+
+        # ── Get Captcha provider ──
+        captcha_provider = get_captcha_provider()
+
+        # ── Create ThreadLog for this birth ──
+        thread_log = ThreadLog(
+            task_id=0,
+            thread_number=0,
+            status="running",
+            current_action=f"Blitz birth: {provider}",
+        )
+        db.add(thread_log)
+        db.commit()
+
+        # ── Start browser ──
+        bm = BrowserManager(headless=True)
+        await bm.start()
+
+        active_pages = {}
+        cancel_event = threading.Event()
+
+        try:
+            account = None
+
+            if provider == "yahoo":
+                account = await register_single_yahoo(
                     browser_manager=bm,
                     proxy=proxy,
-                    first_name=first_name,
-                    last_name=last_name,
-                    geo=geo or "US",
-                    gender="female",
+                    device_type="desktop",
+                    name_pool=name_pool,
+                    sms_provider=sms_provider,
                     db=db,
+                    thread_log=thread_log,
+                    captcha_provider=captcha_provider,
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
                 )
 
-                if result and result.get("success"):
-                    return {
-                        "email": result["email"],
-                        "password": result["password"],
-                        "first_name": first_name,
-                        "provider": provider,
-                        "proxy_id": proxy.id if proxy else None,
-                        "account_id": result.get("account_id"),
-                    }
+            elif provider == "aol":
+                account = await register_single_aol(
+                    browser_manager=bm,
+                    proxy=proxy,
+                    device_type="desktop",
+                    name_pool=name_pool,
+                    sms_provider=sms_provider,
+                    db=db,
+                    thread_log=thread_log,
+                    captcha_provider=captcha_provider,
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
+                )
+
+            elif provider == "outlook" or provider == "hotmail":
+                domain = "hotmail.com" if provider == "hotmail" else "outlook.com"
+                account = await register_single_outlook(
+                    browser_manager=bm,
+                    proxy=proxy,
+                    device_type="desktop",
+                    name_pool=name_pool,
+                    captcha_provider=captcha_provider,
+                    db=db,
+                    thread_log=thread_log,
+                    domain=domain,
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
+                )
+
+            elif provider == "gmail":
+                account = await register_single_gmail(
+                    browser_manager=bm,
+                    proxy=proxy,
+                    name_pool=name_pool,
+                    captcha_provider=captcha_provider,
+                    sms_provider=sms_provider,
+                    db=db,
+                    thread_log=thread_log,
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
+                )
+
+            else:
+                logger.error(f"Unknown provider: {provider}")
                 return None
-            finally:
-                await bm.stop()
+
+            # ── Process result ──
+            if account and isinstance(account, Account):
+                return {
+                    "email": account.email,
+                    "password": account.password,
+                    "first_name": account.first_name or "",
+                    "provider": provider,
+                    "proxy_id": proxy.id if proxy else None,
+                    "account_id": account.id,
+                }
+            return None
 
         except Exception as e:
-            logger.error(f"Birth execution error: {e}")
+            logger.error(f"Birth execution error ({provider}): {e}")
             return None
+        finally:
+            # Close all open pages
+            for pid, pdata in active_pages.items():
+                try:
+                    await pdata["page"].close()
+                except Exception:
+                    pass
+                try:
+                    await pdata["context"].close()
+                except Exception:
+                    pass
+            await bm.stop()
 
     # ─── Send Worker ──────────────────────────────────────────────────────────
 
