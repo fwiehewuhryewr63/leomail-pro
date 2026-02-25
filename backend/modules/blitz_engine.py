@@ -33,12 +33,62 @@ def list_active_campaigns() -> list[int]:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-SEND_DELAY_MIN = 5       # seconds between emails (per thread)
-SEND_DELAY_MAX = 15
 MAX_EMAILS_PER_ACCOUNT = 50   # then burn account
 MAX_CONSECUTIVE_ERRORS = 3    # kill account after N errors in a row
 BIRTH_RETRY_DELAY = 30        # seconds between birth retries on failure
 RESOURCE_CHECK_INTERVAL = 300  # check resources every 5 min
+RESOURCE_WAIT_TIMEOUT = 300   # wait up to 5 min for user to add links/templates
+
+# ── Progressive warmup delay schedule (seconds) ──
+# After each email, wait this long before the next one.
+# Ramps down from 10 min to 1 min, then stays at 1 min.
+WARMUP_DELAYS = [
+    600,   # after 1st email: 10 min
+    600,   # after 2nd: 10 min
+    600,   # after 3rd: 10 min
+    300,   # after 4th: 5 min
+    240,   # after 5th: 4 min
+    180,   # after 6th: 3 min
+    120,   # after 7th: 2 min
+    60,    # after 8th+: 1 min (minimum)
+]
+
+def get_warmup_delay(emails_sent: int) -> float:
+    """Get delay in seconds based on how many emails this account has sent."""
+    if emails_sent < len(WARMUP_DELAYS):
+        base = WARMUP_DELAYS[emails_sent]
+    else:
+        base = WARMUP_DELAYS[-1]  # 60 seconds minimum
+    jitter = random.uniform(0.85, 1.15)
+    return base * jitter
+
+
+# ── Auto GEO → Name Pack mapping ──
+GEO_NAME_PACK_MAP = {
+    "AR": "argentina_5k", "BO": "bolivia_5k", "BR": "brazil_5k",
+    "CA": "canada_5k", "CL": "chile_5k", "CO": "colombia_5k",
+    "CR": "costa_rica_5k", "CU": "cuba_5k", "DO": "dominican_5k",
+    "EC": "ecuador_5k", "EG": "egypt_5k", "SV": "el_salvador_5k",
+    "GT": "guatemala_5k", "HN": "honduras_5k", "MX": "mexico_5k",
+    "NI": "nicaragua_5k", "NG": "nigeria_5k", "PA": "panama_5k",
+    "PY": "paraguay_5k", "PE": "peru_5k", "PR": "puerto_rico_5k",
+    "ZA": "south_africa_5k", "UY": "uruguay_5k", "US": "us_names_5k",
+    "VE": "venezuela_5k",
+    "GB": "us_uk", "UK": "us_uk", "AU": "us_uk", "NZ": "us_uk",
+    "DE": "europe_de_fr_it", "FR": "europe_de_fr_it", "IT": "europe_de_fr_it",
+    "RU": "ru_cis", "UA": "ru_cis", "KZ": "ru_cis", "BY": "ru_cis",
+    "SA": "arab", "AE": "arab",
+    "KE": "africa", "TZ": "africa",
+}
+
+def resolve_name_pack(campaign_name_pack: str, geo: str) -> str:
+    """Auto-resolve name pack: explicit > GEO mapping > us_names_5k."""
+    if campaign_name_pack and campaign_name_pack != "auto":
+        return campaign_name_pack
+    geo_upper = (geo or "").upper().strip()
+    if geo_upper in GEO_NAME_PACK_MAP:
+        return GEO_NAME_PACK_MAP[geo_upper]
+    return "us_names_5k"
 
 
 class BlitzCampaignRunner:
@@ -190,7 +240,7 @@ class BlitzCampaignRunner:
                     await asyncio.sleep(BIRTH_RETRY_DELAY)
                     continue
 
-                name_pack = campaign.name_pack or "us_names_5k"
+                name_pack = resolve_name_pack(campaign.name_pack, campaign.geo)
 
                 logger.debug(f"Blitz birth[{worker_id}]: birthing {provider} via proxy {proxy.id}...")
 
@@ -448,8 +498,22 @@ class BlitzCampaignRunner:
                         CampaignTemplate.active == True  # noqa
                     ).all()
                     if not templates:
-                        await self.stop("No active templates")
-                        break
+                        # Wait for user to add templates (hot-reload)
+                        logger.warning(f"Blitz send[{worker_id}]: no active templates, waiting for reload...")
+                        for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
+                            await asyncio.sleep(10)
+                            if self._stop_event.is_set():
+                                break
+                            templates = db.query(CampaignTemplate).filter(
+                                CampaignTemplate.campaign_id == self.campaign_id,
+                                CampaignTemplate.active == True
+                            ).all()
+                            if templates:
+                                logger.info(f"Blitz send[{worker_id}]: templates reloaded ({len(templates)} active)")
+                                break
+                        if not templates:
+                            await self.stop("No active templates (waited 5 min)")
+                            break
 
                     template = random.choice(templates)
 
@@ -461,8 +525,23 @@ class BlitzCampaignRunner:
                     ).order_by(CampaignLink.use_count.asc()).first()
 
                     if not link:
-                        await self.stop("All ESP links exhausted")
-                        break
+                        # Wait for user to add more links (hot-reload)
+                        logger.warning(f"Blitz send[{worker_id}]: all links exhausted, waiting for reload...")
+                        for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
+                            await asyncio.sleep(10)
+                            if self._stop_event.is_set():
+                                break
+                            link = db.query(CampaignLink).filter(
+                                CampaignLink.campaign_id == self.campaign_id,
+                                CampaignLink.active == True,
+                                CampaignLink.use_count < CampaignLink.max_uses
+                            ).order_by(CampaignLink.use_count.asc()).first()
+                            if link:
+                                logger.info(f"Blitz send[{worker_id}]: links reloaded ({link.esp_url[:40]}...)")
+                                break
+                        if not link:
+                            await self.stop("All ESP links exhausted (waited 5 min)")
+                            break
 
                     # Randomize link (but DON'T increment use_count yet!)
                     rand_hash = ''.join(random.choices(
@@ -618,8 +697,13 @@ class BlitzCampaignRunner:
                         db.commit()
                         consecutive_errors += 1
 
-                    # Delay between emails
-                    delay = random.uniform(SEND_DELAY_MIN, SEND_DELAY_MAX)
+                    # Progressive warmup delay — ramps down from 10min to 1min
+                    delay = get_warmup_delay(emails_sent)
+                    if emails_sent <= len(WARMUP_DELAYS):
+                        logger.debug(
+                            f"Blitz send[{worker_id}] {email}: warmup delay "
+                            f"{delay:.0f}s after email #{emails_sent}"
+                        )
                     await asyncio.sleep(delay)
 
                 # Account exhausted or dead
