@@ -84,6 +84,32 @@ echo.
 echo [5/7] Обновление Python зависимостей...
 pip install -r requirements.txt --quiet 2>nul
 echo [OK] Python зависимости обновлены
+
+REM === 5b. Install Tesseract OCR for Vision Engine ===
+where tesseract >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [*] Установка Tesseract OCR для Vision Engine...
+    where choco >nul 2>&1
+    if !errorlevel! equ 0 (
+        choco install tesseract -y --no-progress >nul 2>&1
+        echo [OK] Tesseract установлен через Chocolatey
+    ) else (
+        echo [*] Chocolatey не найден — скачиваем Tesseract напрямую...
+        set "TESS_URL=https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0.20241111/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
+        set "TESS_INSTALLER=%TEMP%\tesseract_setup.exe"
+        powershell -Command "Invoke-WebRequest -Uri '!TESS_URL!' -OutFile '!TESS_INSTALLER!'" >nul 2>&1
+        if exist "!TESS_INSTALLER!" (
+            "!TESS_INSTALLER!" /S /D=C:\Tesseract-OCR
+            echo [OK] Tesseract установлен в C:\Tesseract-OCR
+            setx PATH "%PATH%;C:\Tesseract-OCR" >nul 2>&1
+        ) else (
+            echo [WARN] Не удалось скачать Tesseract — Vision Engine будет работать без OCR
+        )
+    )
+) else (
+    echo [OK] Tesseract уже установлен
+)
+
 echo [*] Обновление браузеров Playwright...
 playwright install chromium 2>nul
 if %errorlevel% neq 0 (

@@ -11,3 +11,6 @@ aiohttp-socks
 beautifulsoup4
 python-multipart
 playwright
+opencv-python-headless
+pytesseract
+Pillow
