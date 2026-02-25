@@ -15,7 +15,7 @@ from ..models import (
     Campaign, CampaignStatus, CampaignTemplate, CampaignLink, CampaignRecipient,
 )
 
-router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
 
 
 # ─── Pydantic Schemas ─────────────────────────────────────────────────────────
