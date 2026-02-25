@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     LayoutDashboard, Users, Shield, FileText, Zap, Send, Activity,
-    Database, StopCircle, Flame, Link2, UserPlus, TrendingUp
+    Database, StopCircle, Flame, Link2, UserPlus, TrendingUp, Cpu
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ import { API } from '../api';
 
 export default function Dashboard() {
     const [s, setS] = useState({});
+    const [health, setHealth] = useState(null);
     const { t } = useI18n();
     const navigate = useNavigate();
 
@@ -16,6 +17,10 @@ export default function Dashboard() {
         fetch(`${API}/dashboard/stats`)
             .then(r => r.json())
             .then(setS)
+            .catch(() => { });
+        fetch(`${API}/health/resources`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => d && setHealth(d))
             .catch(() => { });
     };
 
@@ -79,6 +84,85 @@ export default function Dashboard() {
                 <StatCard icon={Database} label="Базы" value={dbCount}
                     onClick={() => navigate('/databases')} />
             </div>
+
+            {/* ═══ RESOURCE ANALYZER ═══ */}
+            {health && (
+                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Cpu size={14} style={{ color: health.overall === 'ok' ? 'var(--success)' : health.overall === 'warning' ? 'var(--warning)' : 'var(--danger)' }} />
+                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Анализатор ресурсов</span>
+                        <span style={{
+                            marginLeft: 'auto', fontSize: '0.7em', fontWeight: 700, padding: '2px 10px', borderRadius: 4,
+                            background: health.overall === 'ok' ? 'rgba(16,185,129,0.15)' : health.overall === 'warning' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                            color: health.overall === 'ok' ? 'var(--success)' : health.overall === 'warning' ? 'var(--warning)' : 'var(--danger)',
+                        }}>
+                            {health.overall === 'ok' ? 'OK' : health.overall === 'warning' ? 'WARNING' : 'CRITICAL'}
+                        </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                        {/* SMS */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${health.sms?.status === 'ok' ? 'var(--success)' : health.sms?.status === 'warning' ? 'var(--warning)' : 'var(--danger)'}` }}>
+                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>SMS</div>
+                            {health.sms?.providers?.length > 0 ? health.sms.providers.map(p => (
+                                <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
+                                    <span style={{ fontWeight: 600 }}>{p.name}</span>
+                                    <span style={{ fontWeight: 700, color: p.error ? 'var(--danger)' : p.balance > 1 ? 'var(--success)' : 'var(--warning)' }}>
+                                        {p.error ? 'err' : `$${p.balance}`}
+                                    </span>
+                                </div>
+                            )) : <div style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>Не настроено</div>}
+                        </div>
+                        {/* Captcha */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${health.captcha?.status === 'ok' ? 'var(--success)' : 'var(--danger)'}` }}>
+                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Captcha</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
+                                <span style={{ fontWeight: 600 }}>Баланс</span>
+                                <span style={{ fontWeight: 700, color: (health.captcha?.balance || 0) > 0.5 ? 'var(--success)' : 'var(--danger)' }}>
+                                    ${health.captcha?.balance || 0}
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4 }}>~{health.captcha?.estimated_solves || 0} решений</div>
+                        </div>
+                        {/* Proxies */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${health.proxies?.status === 'ok' ? 'var(--success)' : health.proxies?.status === 'warning' ? 'var(--warning)' : 'var(--danger)'}` }}>
+                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Прокси</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
+                                <span style={{ fontWeight: 600 }}>Живые</span>
+                                <span style={{ fontWeight: 700, color: 'var(--success)' }}>{health.proxies?.alive ?? 0}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
+                                <span style={{ fontWeight: 600 }}>Мёртвые</span>
+                                <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{health.proxies?.dead ?? 0}</span>
+                            </div>
+                        </div>
+                    </div>
+                    {/* Per-campaign health */}
+                    {health.campaigns?.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                            <div style={{ fontSize: '0.7em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Кампании</div>
+                            <div style={{ display: 'grid', gap: 6 }}>
+                                {health.campaigns.map(c => (
+                                    <div key={c.id} style={{
+                                        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px',
+                                        background: 'rgba(255,255,255,0.02)', borderRadius: 6,
+                                        borderLeft: `3px solid ${c.resource_status === 'ok' ? 'var(--success)' : c.resource_status === 'warning' ? 'var(--warning)' : 'var(--danger)'}`,
+                                    }}>
+                                        <span style={{ fontSize: '0.82em', fontWeight: 600, flex: 1 }}>{c.name}</span>
+                                        {c.issues?.length > 0 && (
+                                            <span style={{ fontSize: '0.72em', color: 'var(--warning)' }}>{c.issues.join(' · ')}</span>
+                                        )}
+                                        <span style={{
+                                            fontSize: '0.68em', fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+                                            background: c.resource_status === 'ok' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                            color: c.resource_status === 'ok' ? 'var(--success)' : 'var(--danger)',
+                                        }}>{c.resource_status?.toUpperCase()}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* ═══ ACTIVE TASKS — always visible ═══ */}
             {(s.active_tasks || 0) > 0 && (
