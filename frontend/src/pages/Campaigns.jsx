@@ -156,24 +156,27 @@ export default function Campaigns() {
 
             {/* Create form */}
             {showCreate && (
-                <div className="card" style={{ marginBottom: 16, padding: '22px 24px' }}>
-                    <div style={{ fontSize: '0.82em', fontWeight: 700, marginBottom: 16, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
+                <div className="card" style={{ marginBottom: 16, padding: '28px 30px' }}>
+                    <div style={{ fontSize: '0.9em', fontWeight: 700, marginBottom: 20, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
                         Создать кампанию
                     </div>
 
-                    {/* Row 1: Name, GEO, Niche */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+                    {/* Row 1: Name */}
+                    <div style={{ marginBottom: 20 }}>
+                        <label style={lbl}>Название кампании</label>
+                        <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} value={form.name}
+                            onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Brazil Nutra Q1" />
+                    </div>
+
+                    {/* Row 2: GEO + Niche */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
                         <div>
-                            <label style={lbl}>Название</label>
-                            <input style={inp} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Brazil Nutra Q1" />
-                        </div>
-                        <div>
-                            <label style={lbl}>GEO</label>
+                            <label style={lbl}>GEO (регион)</label>
                             <DarkSelect
                                 value={form.geo}
                                 onChange={v => setForm({ ...form, geo: v })}
                                 options={GEOS}
-                                renderSelected={g => g ? `${g.flag} ${g.code}` : '—'}
+                                renderSelected={g => g ? `${g.flag} ${g.code} — ${g.name}` : '—'}
                                 renderOption={g => `${g.flag} ${g.code} — ${g.name}`}
                             />
                         </div>
@@ -189,69 +192,78 @@ export default function Campaigns() {
                         </div>
                     </div>
 
-                    {/* Row 2: Providers */}
-                    <div style={{ marginBottom: 16 }}>
-                        <label style={lbl}>Провайдеры</label>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {/* Row 3: Providers — BIG CARDS */}
+                    <div style={{ marginBottom: 24 }}>
+                        <label style={lbl}>Почтовые провайдеры</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PROVIDERS.length}, 1fr)`, gap: 10 }}>
                             {PROVIDERS.map(p => {
                                 const active = form.providers.includes(p.id);
                                 return (
                                     <div key={p.id} onClick={() => toggleProvider(p.id)} style={{
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                        padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
-                                        background: active ? `${p.color}22` : 'rgba(255,255,255,0.03)',
-                                        border: `1px solid ${active ? p.color : 'rgba(255,255,255,0.08)'}`,
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                        justifyContent: 'center', gap: 8,
+                                        padding: '16px 10px', borderRadius: 10, cursor: 'pointer',
+                                        background: active ? `${p.color}18` : 'rgba(255,255,255,0.02)',
+                                        border: `2px solid ${active ? p.color : 'rgba(255,255,255,0.06)'}`,
+                                        borderLeft: `4px solid ${active ? p.color : 'rgba(255,255,255,0.06)'}`,
                                         transition: 'all 0.2s',
+                                        boxShadow: active ? `0 0 20px ${p.color}15` : 'none',
                                     }}>
                                         <div style={{
-                                            width: 14, height: 14, borderRadius: 3,
+                                            width: 22, height: 22, borderRadius: 5,
                                             background: active ? p.color : 'transparent',
-                                            border: `2px solid ${active ? p.color : 'rgba(255,255,255,0.2)'}`,
+                                            border: `2.5px solid ${active ? p.color : 'rgba(255,255,255,0.2)'}`,
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            fontSize: '10px', color: '#fff', fontWeight: 900,
+                                            fontSize: '13px', color: '#fff', fontWeight: 900,
                                             transition: 'all 0.2s',
                                         }}>
                                             {active && '✓'}
                                         </div>
                                         <span style={{
-                                            fontSize: '0.85em', fontWeight: 600,
-                                            color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                                            fontSize: '1em', fontWeight: 700, letterSpacing: 0.5,
+                                            color: active ? p.color : 'var(--text-muted)',
                                         }}>{p.name}</span>
                                     </div>
                                 );
                             })}
                         </div>
+                        {form.providers.length === 0 && (
+                            <div style={{ fontSize: '0.8em', color: 'var(--danger)', marginTop: 6, fontWeight: 600 }}>
+                                Выберите хотя бы одного провайдера
+                            </div>
+                        )}
                     </div>
 
-                    {/* Row 3: Threads */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 14, marginBottom: 16 }}>
+                    {/* Row 4: Threads */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
                         <div>
-                            <label style={lbl}>Birth потоков</label>
-                            <input style={inp} type="number" min="1" max="50" value={form.birth_threads}
+                            <label style={lbl}>Birth потоков (регистрация)</label>
+                            <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="50" value={form.birth_threads}
                                 onChange={e => setForm({ ...form, birth_threads: +e.target.value })} />
+                            <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>~300MB RAM / поток</div>
                         </div>
                         <div>
-                            <label style={lbl}>Send потоков</label>
-                            <input style={inp} type="number" min="1" max="100" value={form.send_threads}
+                            <label style={lbl}>Send потоков (рассылка)</label>
+                            <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="100" value={form.send_threads}
                                 onChange={e => setForm({ ...form, send_threads: +e.target.value })} />
+                            <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>SMTP отправка параллельно</div>
                         </div>
-                        <div />
                     </div>
 
                     {/* Actions */}
-                    <div style={{ display: 'flex', gap: 10 }}>
-                        <button onClick={create} disabled={loading || !form.name} style={{
-                            padding: '10px 28px', fontWeight: 700, fontSize: '0.9em', border: 'none',
-                            borderRadius: 6, cursor: loading || !form.name ? 'not-allowed' : 'pointer',
-                            background: loading || !form.name ? 'rgba(255,255,255,0.06)' : 'var(--accent)',
-                            color: loading || !form.name ? 'var(--text-muted)' : '#000',
+                    <div style={{ display: 'flex', gap: 12 }}>
+                        <button onClick={create} disabled={loading || !form.name || form.providers.length === 0} style={{
+                            padding: '14px 36px', fontWeight: 700, fontSize: '1em', border: 'none',
+                            borderRadius: 8, cursor: loading || !form.name ? 'not-allowed' : 'pointer',
+                            background: loading || !form.name || form.providers.length === 0 ? 'rgba(255,255,255,0.06)' : 'var(--accent)',
+                            color: loading || !form.name || form.providers.length === 0 ? 'var(--text-muted)' : '#000',
                             transition: 'all 0.2s',
                         }}>
                             {loading ? '⏳ Создание...' : '🚀 Создать'}
                         </button>
                         <button onClick={() => setShowCreate(false)} style={{
-                            padding: '10px 22px', fontWeight: 600, fontSize: '0.9em', border: '1px solid rgba(255,255,255,0.1)',
-                            borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--text-secondary)',
+                            padding: '14px 28px', fontWeight: 600, fontSize: '1em', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 8, cursor: 'pointer', background: 'transparent', color: 'var(--text-secondary)',
                         }}>
                             Отмена
                         </button>
