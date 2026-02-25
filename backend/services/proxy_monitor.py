@@ -180,6 +180,40 @@ async def monitor_all_proxies(max_fails: int = 3):
 
         db.commit()
 
+        # ── Auto-revive DEAD proxies ──
+        # Check if any DEAD proxies have come back to life
+        # (prevents permanently killing proxies that had momentary hiccups)
+        dead_proxies = db.query(Proxy).filter(
+            Proxy.status.in_([ProxyStatus.DEAD, "dead"])
+        ).all()
+        revived_count = 0
+
+        if dead_proxies:
+            dead_tasks = [check_one(p) for p in dead_proxies]
+            dead_results = await asyncio.gather(*dead_tasks, return_exceptions=True)
+
+            for item in dead_results:
+                if isinstance(item, Exception):
+                    continue
+                proxy, result = item
+                proxy.last_check = datetime.utcnow()
+                if result["alive"]:
+                    proxy.status = ProxyStatus.ACTIVE
+                    proxy.fail_count = 0
+                    proxy.response_time_ms = result["response_time_ms"]
+                    if result.get("external_ip") and result["external_ip"] not in ("unknown", "tcp-only"):
+                        proxy.external_ip = result["external_ip"]
+                    if result.get("geo"):
+                        proxy.geo = result["geo"]
+                    revived_count += 1
+                    logger.info(
+                        f"🔄 Proxy REVIVED: {proxy.host}:{proxy.port} ({proxy.proxy_type}) "
+                        f"{result['response_time_ms']}ms — back to ACTIVE"
+                    )
+
+            if revived_count > 0:
+                db.commit()
+
         # Auto-reassign accounts bound to dead proxies
         if dead_count > 0:
             try:
@@ -190,8 +224,11 @@ async def monitor_all_proxies(max_fails: int = 3):
             except Exception as e:
                 logger.error(f"Auto-reassign error: {e}")
 
-        logger.info(f"Proxy monitor: {len(to_check)} checked ({alive_count} alive, {dead_count} dead)")
-        return {"checked": len(to_check), "alive": alive_count, "dead": dead_count}
+        logger.info(
+            f"Proxy monitor: {len(to_check)} checked ({alive_count} alive, {dead_count} dead)"
+            + (f", {revived_count} revived" if revived_count > 0 else "")
+        )
+        return {"checked": len(to_check), "alive": alive_count, "dead": dead_count, "revived": revived_count}
 
     except Exception as e:
         logger.error(f"Proxy monitor error: {e}")
