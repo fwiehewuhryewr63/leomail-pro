@@ -331,9 +331,10 @@ class ProxyManager:
 
         return None
 
-    async def get_verified_unbound_proxy_async(self, proxy_type: str = None, protocol: str = None, exclude_ids: set = None) -> Proxy | None:
+    async def get_verified_unbound_proxy_async(self, proxy_type: str = None, protocol: str = None, exclude_ids: set = None, provider: str = None) -> Proxy | None:
         """Async version of get_verified_unbound_proxy.
         exclude_ids: set of proxy IDs to skip (blacklisted/burned).
+        provider: e.g. 'yahoo' — excludes proxies that hit per-provider usage limit.
         """
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
@@ -345,6 +346,10 @@ class ProxyManager:
             query = query.filter(Proxy.protocol == protocol)
         if exclude_ids:
             query = query.filter(~Proxy.id.in_(exclude_ids))
+        if provider:
+            group_filter = self._provider_group_filter(provider)
+            if group_filter is not None:
+                query = query.filter(group_filter)
 
         candidates = query.all()
 

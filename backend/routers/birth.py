@@ -247,7 +247,8 @@ async def run_birth_task(request: BirthRequest):
                     try:
                         # Get a verified proxy (excluding blacklisted/burned ones)
                         proxy = await proxy_manager.get_verified_unbound_proxy_async(
-                            exclude_ids=proxy_blacklist
+                            exclude_ids=proxy_blacklist,
+                            provider=request.provider,
                         )
                         if not proxy:
                             if proxy_blacklist:
