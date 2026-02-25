@@ -492,30 +492,34 @@ class BlitzCampaignRunner:
                         await self.stop("All recipients sent")
                         break
 
-                    # Get template
-                    templates = db.query(CampaignTemplate).filter(
+                    # Get template — ONE-TIME USE (like links, each template burns after use)
+                    template = db.query(CampaignTemplate).filter(
                         CampaignTemplate.campaign_id == self.campaign_id,
                         CampaignTemplate.active == True  # noqa
-                    ).all()
-                    if not templates:
+                    ).first()  # sequential, not random
+                    if not template:
                         # Wait for user to add templates (hot-reload)
                         logger.warning(f"Blitz send[{worker_id}]: no active templates, waiting for reload...")
                         for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
                             await asyncio.sleep(10)
                             if self._stop_event.is_set():
                                 break
-                            templates = db.query(CampaignTemplate).filter(
+                            template = db.query(CampaignTemplate).filter(
                                 CampaignTemplate.campaign_id == self.campaign_id,
                                 CampaignTemplate.active == True
-                            ).all()
-                            if templates:
-                                logger.info(f"Blitz send[{worker_id}]: templates reloaded ({len(templates)} active)")
+                            ).first()
+                            if template:
+                                logger.info(f"Blitz send[{worker_id}]: templates reloaded")
                                 break
-                        if not templates:
+                        if not template:
                             await self.stop("No active templates (waited 5 min)")
                             break
 
-                    template = random.choice(templates)
+                    # Lock template — mark inactive BEFORE send to prevent other threads using it
+                    template_id = template.id
+                    template.active = False
+                    template.use_count = (template.use_count or 0) + 1
+                    db.commit()
 
                     # Get ESP link
                     link = db.query(CampaignLink).filter(
@@ -540,7 +544,7 @@ class BlitzCampaignRunner:
                                 logger.info(f"Blitz send[{worker_id}]: links reloaded ({link.esp_url[:40]}...)")
                                 break
                         if not link:
-                            await self.stop("All ESP links exhausted (waited 5 min)")
+                            await self.stop("All links exhausted (waited 5 min)")
                             break
 
                     # Randomize link (but DON'T increment use_count yet!)
@@ -618,7 +622,7 @@ class BlitzCampaignRunner:
                             if link.use_count >= link.max_uses:
                                 link.active = False
 
-                        template.use_count += 1
+                        # Template already burned (active=False before send) — no action needed
 
                         # Update campaign stats — only real successes
                         campaign = db.query(Campaign).filter(
@@ -634,10 +638,15 @@ class BlitzCampaignRunner:
                         )
 
                     elif result == SendResult.RATE_LIMIT:
-                        # Rate limited — undo recipient, SWITCH to new account
+                        # Rate limited — undo recipient + template, SWITCH to new account
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
+                        # Unlock template (wasn't delivered)
+                        t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
+                        if t:
+                            t.active = True
+                            t.use_count = max((t.use_count or 1) - 1, 0)
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
                         ).first()
@@ -650,10 +659,15 @@ class BlitzCampaignRunner:
                         break  # exit inner loop → get NEW account from queue
 
                     elif result in (SendResult.AUTH_FAIL, SendResult.SUSPENDED):
-                        # Account is dead — undo recipient, DON'T burn link
+                        # Account is dead — undo recipient + template, DON'T burn
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
+                        # Unlock template
+                        t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
+                        if t:
+                            t.active = True
+                            t.use_count = max((t.use_count or 1) - 1, 0)
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
                         ).first()
@@ -678,10 +692,14 @@ class BlitzCampaignRunner:
                         consecutive_errors = 0  # bounce is recipient issue, not account
 
                     elif result == SendResult.NETWORK:
-                        # Network issue — undo everything, retry later
+                        # Network issue — undo everything including template
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
+                        t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
+                        if t:
+                            t.active = True
+                            t.use_count = max((t.use_count or 1) - 1, 0)
                         db.commit()
                         consecutive_errors += 1
                         await asyncio.sleep(10)

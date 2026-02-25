@@ -116,6 +116,12 @@ export default function CampaignDetail() {
             )}
 
             {/* Low resource warning banners */}
+            {isRunning && templateActive > 0 && templateActive < 5 && (
+                <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
+                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Шаблоны заканчиваются ({templateActive} осталось) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('templates')}>подгрузить</strong></span>
+                </div>
+            )}
             {linksLow && (
                 <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
