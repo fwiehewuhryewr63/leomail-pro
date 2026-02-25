@@ -483,6 +483,7 @@ class CampaignRecipient(Base):
     id = Column(Integer, primary_key=True, index=True)
     campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
     email = Column(String, nullable=False)
+    first_name = Column(String, nullable=True)             # VIP: name from database
     sent = Column(Boolean, default=False, index=True)
     sent_at = Column(DateTime, nullable=True)
     result = Column(String, nullable=True)              # ok / bounce / error

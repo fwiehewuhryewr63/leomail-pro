@@ -201,18 +201,45 @@ async def create_campaign(req: CampaignCreate, db: Session = Depends(get_db)):
     if req.database_ids:
         from ..models import RecipientDatabase
         from ..config import CONFIG_DIR
+        import json as _json
         rd_list = db.query(RecipientDatabase).filter(RecipientDatabase.id.in_(req.database_ids)).all()
         for rd in rd_list:
             try:
-                full_path = CONFIG_DIR / rd.file_path
-                if full_path.exists():
-                    with open(full_path, "r", encoding="utf-8") as f:
+                # Try direct path first, then relative to CONFIG_DIR
+                from pathlib import Path as _Path
+                fp = _Path(rd.file_path)
+                if not fp.exists():
+                    fp = CONFIG_DIR / rd.file_path
+
+                if fp.exists() and fp.suffix == '.json':
+                    # JSON format (standard)
+                    entries = _json.loads(fp.read_text(encoding='utf-8'))
+                    for entry in entries:
+                        email = (entry.get('email', '') or '').strip().lower()
+                        if '@' in email:
+                            cr = CampaignRecipient(
+                                campaign_id=campaign.id,
+                                email=email,
+                                first_name=entry.get('first_name', '') or '',
+                                sent=False,
+                            )
+                            db.add(cr)
+                            imported["recipients"] += 1
+                elif fp.exists():
+                    # Legacy txt format: email or email,Name
+                    with open(fp, "r", encoding="utf-8") as f:
                         for line in f:
-                            email = line.strip().split(",")[0].strip()  # handle CSV
+                            line = line.strip()
+                            if not line:
+                                continue
+                            parts = [p.strip() for p in line.split(",")]
+                            email = parts[0].lower()
+                            name = parts[1] if len(parts) > 1 else ""
                             if "@" in email:
                                 cr = CampaignRecipient(
                                     campaign_id=campaign.id,
                                     email=email,
+                                    first_name=name,
                                     sent=False,
                                 )
                                 db.add(cr)
@@ -560,9 +587,15 @@ async def import_recipients(campaign_id: int, req: BulkTextImport, db: Session =
 
     batch = []
     for line in req.content.strip().split("\n"):
-        email = line.strip().lower()
-        if not email or email.startswith("#"):
+        line = line.strip()
+        if not line or line.startswith("#"):
             continue
+
+        # Parse: email or email,Name
+        parts = [p.strip() for p in line.split(",")]
+        email = parts[0].lower()
+        first_name = parts[1] if len(parts) > 1 else ""
+
         if "@" not in email:
             skipped += 1
             continue
@@ -571,7 +604,7 @@ async def import_recipients(campaign_id: int, req: BulkTextImport, db: Session =
             continue
 
         seen.add(email)
-        batch.append(CampaignRecipient(campaign_id=c.id, email=email))
+        batch.append(CampaignRecipient(campaign_id=c.id, email=email, first_name=first_name))
         added += 1
 
         # Batch insert every 1000
