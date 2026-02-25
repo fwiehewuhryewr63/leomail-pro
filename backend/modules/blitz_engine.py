@@ -694,6 +694,15 @@ class BlitzCampaignRunner:
                         if campaign:
                             campaign.total_sent = (campaign.total_sent or 0) + 1
 
+                        # Track account maturity for future warmup skip
+                        if account_data.get("account_id"):
+                            acc = db.query(Account).filter(
+                                Account.id == account_data["account_id"]
+                            ).first()
+                            if acc:
+                                acc.total_emails_sent = (acc.total_emails_sent or 0) + 1
+                                acc.emails_sent_today = (acc.emails_sent_today or 0) + 1
+
                         db.commit()
                         logger.debug(
                             f"Blitz send[{worker_id}] {email} → {recipient.email} ✓ "
