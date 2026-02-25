@@ -192,8 +192,8 @@ export default function Databases() {
                             <div style={{ fontWeight: 700, marginBottom: 3 }}>Совместимость:</div>
                             <div>✅ BASIC шаблон + BASIC база → OK</div>
                             <div>✅ BASIC шаблон + VIP база → OK</div>
-                            <div>✅ VIP шаблон + VIP база → OK</div>
-                            <div style={{ color: 'var(--warning)' }}>⚠️ VIP шаблон + BASIC база → {'{{NAME}}'} будет пустым!</div>
+                            <div>✅ VIP шаблон + VIP база → OK (имя из базы)</div>
+                            <div>✅ VIP шаблон + BASIC база → OK ({'{{NAME}}'} = username)</div>
                         </div>
                     </div>
 
