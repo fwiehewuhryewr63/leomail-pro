@@ -388,6 +388,22 @@ async def run_birth_task(request: BirthRequest):
                             if proxy and ("ip" in err_msg or "e500" in err_msg or "заблокирован" in err_msg):
                                 proxy_blacklist.add(proxy.id)
                                 logger.info(f"[Birth] Proxy {proxy.host} blacklisted for this task")
+                                # Permanently burn this proxy for the provider:
+                                # Max out the usage counter so it's excluded in ALL future tasks too
+                                provider_lower = request.provider.lower()
+                                attr = f"use_{provider_lower}"
+                                if hasattr(proxy, attr):
+                                    if provider_lower in ('yahoo', 'aol'):
+                                        limit = proxy_manager.YA_LIMIT
+                                    elif provider_lower in ('outlook', 'hotmail'):
+                                        limit = proxy_manager.OH_LIMIT
+                                    elif provider_lower == 'gmail':
+                                        limit = proxy_manager.GMAIL_LIMIT
+                                    else:
+                                        limit = 99
+                                    setattr(proxy, attr, limit)
+                                    db.commit()
+                                    logger.info(f"[Birth] Proxy {proxy.host}: {attr} maxed to {limit} (burned for {request.provider})")
 
                             # Smart retry: blacklist country if SMS actually timed out
                             # (NOT for "no numbers" or user cancel — only real delivery failure)
