@@ -16,7 +16,7 @@ export default function Sidebar({ status }) {
             items: [
                 { to: '/', icon: LayoutDashboard, label: t('dashboard'), end: true },
                 { to: '/birth', icon: Baby, label: t('birth') },
-                { to: '/campaigns', icon: Rocket, label: 'Кампании' },
+                { to: '/campaigns', icon: Rocket, label: 'Компании' },
             ]
         },
         {

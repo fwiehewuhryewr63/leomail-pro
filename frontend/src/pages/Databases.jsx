@@ -96,7 +96,7 @@ export default function Databases() {
             color: 'var(--text-muted)',
             icon: '📧',
             example: 'jessica.smith92@gmail.com\njohn.doe@yahoo.com\nmaria.santos@aol.com',
-            vars: ['{{USERNAME}} — часть email до @', '{{LINK}} — ссылка из кампании'],
+            vars: ['{{USERNAME}} — часть email до @', '{{LINK}} — ссылка из компании'],
             rules: '{{USERNAME}} работает с любой базой',
         },
         email_first: {
@@ -105,7 +105,7 @@ export default function Databases() {
             color: '#f59e0b',
             icon: '⭐',
             example: 'jessica.smith92@gmail.com,Jessica\njohn.doe@yahoo.com,John\nmaria.santos@aol.com,Maria',
-            vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из кампании'],
+            vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из компании'],
             rules: '{{NAME}} = имя, либо username если BASIC',
         },
         // email_first_last detected → treat as VIP
@@ -115,7 +115,7 @@ export default function Databases() {
             color: '#f59e0b',
             icon: '⭐',
             example: 'jessica@gmail.com,Jessica,Smith\njohn@yahoo.com,John,Doe',
-            vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из кампании'],
+            vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из компании'],
             rules: '{{NAME}} = имя, либо username если BASIC',
         },
     };

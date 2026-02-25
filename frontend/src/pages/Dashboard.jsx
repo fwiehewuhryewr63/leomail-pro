@@ -198,7 +198,7 @@ export default function Dashboard() {
                     {/* Per-campaign resource health */}
                     {health.campaigns?.length > 0 && (
                         <div style={{ marginTop: 12 }}>
-                            <div style={{ fontSize: '0.7em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Ресурсы кампаний</div>
+                            <div style={{ fontSize: '0.7em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Ресурсы компаний</div>
                             <div style={{ display: 'grid', gap: 6 }}>
                                 {health.campaigns.map(c => (
                                     <div key={c.id} onClick={() => navigate(`/campaigns/${c.id}`)} style={{
@@ -377,7 +377,7 @@ export default function Dashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
                 {[
                     { icon: UserPlus, label: t('birth'), desc: 'Авторег', to: '/birth' },
-                    { icon: TrendingUp, label: 'Кампании', desc: 'Blitz Pipeline', to: '/campaigns' },
+                    { icon: TrendingUp, label: 'Компании', desc: 'Blitz Pipeline', to: '/campaigns' },
                     { icon: Shield, label: t('proxies'), desc: 'Прокси', to: '/proxies' },
                     { icon: Flame, label: 'Фермы', desc: 'Аккаунты', to: '/farms' },
                     { icon: FileText, label: 'Шаблоны', desc: 'Писем', to: '/templates' },

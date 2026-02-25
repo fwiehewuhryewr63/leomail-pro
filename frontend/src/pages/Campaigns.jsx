@@ -147,14 +147,14 @@ export default function Campaigns() {
         const r = await fetch(`${API}/campaigns/${id}/${act}`, { method: 'POST' });
         const d = await r.json();
         if (act === 'start' && d.ok === false && d.issues) {
-            alert('❌ Нельзя запустить кампанию:\n\n' + d.issues.map(i => '• ' + i).join('\n'));
+            alert('❌ Нельзя запустить компанию:\n\n' + d.issues.map(i => '• ' + i).join('\n'));
             return;
         }
         load();
     };
 
     const del = async (id) => {
-        if (!confirm('Удалить кампанию?')) return;
+        if (!confirm('Удалить компанию?')) return;
         await fetch(`${API}/campaigns/${id}`, { method: 'DELETE' });
         load();
     };
@@ -175,7 +175,7 @@ export default function Campaigns() {
     return (
         <div className="page">
             <h2 className="page-title">
-                <Rocket size={22} /> Кампании
+                <Rocket size={22} /> Компании
                 <span style={{ marginLeft: 'auto', fontSize: '0.42em', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: 2 }}>BLITZ v4</span>
             </h2>
 
@@ -187,7 +187,7 @@ export default function Campaigns() {
                     cursor: 'pointer', background: 'var(--accent)', color: '#000',
                     transition: 'all 0.2s',
                 }}>
-                    <Plus size={16} /> Новая кампания
+                    <Plus size={16} /> Новая компания
                 </button>
             </div>
 
@@ -195,12 +195,12 @@ export default function Campaigns() {
             {showCreate && (
                 <div className="card" style={{ marginBottom: 16, padding: '28px 30px' }}>
                     <div style={{ fontSize: '0.9em', fontWeight: 700, marginBottom: 20, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
-                        Создать кампанию
+                        Создать компанию
                     </div>
 
                     {/* Row 1: Name */}
                     <div style={{ marginBottom: 20 }}>
-                        <label style={lbl}>Название кампании</label>
+                        <label style={lbl}>Название компании</label>
                         <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} value={form.name}
                             onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Brazil Nutra Q1" />
                     </div>
@@ -517,8 +517,8 @@ export default function Campaigns() {
                 campaigns.length === 0 && !showCreate && (
                     <div className="card" style={{ padding: 50, textAlign: 'center', color: 'var(--text-muted)' }}>
                         <Rocket size={44} style={{ opacity: 0.2, marginBottom: 12 }} />
-                        <div style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: 6 }}>Нет кампаний</div>
-                        <div style={{ fontSize: '0.85em' }}>Создайте первую кампанию для запуска Blitz Pipeline</div>
+                        <div style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: 6 }}>Нет компаний</div>
+                        <div style={{ fontSize: '0.85em' }}>Создайте первую компанию для запуска Blitz Pipeline</div>
                     </div>
                 )
             }
