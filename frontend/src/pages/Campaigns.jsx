@@ -99,12 +99,18 @@ function DarkSelect({ value, onChange, options, renderOption, renderSelected, st
 export default function Campaigns() {
     const [campaigns, setCampaigns] = useState([]);
     const [showCreate, setShowCreate] = useState(false);
-    const [form, setForm] = useState({ name: '', geo: 'BR', niche: 'nutra', name_pack: 'brazil_5k', providers: ['yahoo', 'aol'], birth_threads: 10, send_threads: 20 });
+    const [form, setForm] = useState({ name: '', geo: 'BR', niche: 'nutra', providers: ['yahoo', 'aol'], birth_threads: 10, send_threads: 20, use_existing: false, farm_ids: [] });
     const [loading, setLoading] = useState(false);
+    const [farms, setFarms] = useState([]);
     const navigate = useNavigate();
 
     const load = () => fetch(`${API}/campaigns`).then(r => r.json()).then(setCampaigns).catch(() => { });
-    useEffect(() => { load(); const iv = setInterval(load, 10000); return () => clearInterval(iv); }, []);
+    useEffect(() => {
+        load();
+        const iv = setInterval(load, 10000);
+        fetch(`${API}/farms/`).then(r => r.json()).then(f => setFarms(Array.isArray(f) ? f : [])).catch(() => { });
+        return () => clearInterval(iv);
+    }, []);
 
     const create = async () => {
         setLoading(true);
@@ -234,14 +240,90 @@ export default function Campaigns() {
                         )}
                     </div>
 
-                    {/* Row 4: Threads */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-                        <div>
-                            <label style={lbl}>Birth потоков (регистрация)</label>
-                            <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="50" value={form.birth_threads}
-                                onChange={e => setForm({ ...form, birth_threads: +e.target.value })} />
-                            <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>~300MB RAM / поток</div>
+                    {/* Row 4: Account source */}
+                    <div style={{ marginBottom: 24 }}>
+                        <label style={lbl}>Источник аккаунтов</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: form.use_existing ? 12 : 0 }}>
+                            <div onClick={() => setForm({ ...form, use_existing: false, farm_ids: [] })} style={{
+                                padding: '14px 16px', borderRadius: 8, cursor: 'pointer',
+                                background: !form.use_existing ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.02)',
+                                border: `2px solid ${!form.use_existing ? 'var(--success)' : 'rgba(255,255,255,0.06)'}`,
+                                transition: 'all 0.2s',
+                            }}>
+                                <div style={{ fontWeight: 700, fontSize: '0.95em', color: !form.use_existing ? 'var(--success)' : 'var(--text-muted)', marginBottom: 4 }}>
+                                    🚀 Создать новые
+                                </div>
+                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>
+                                    Birth Engine зарегистрирует акки с нуля
+                                </div>
+                            </div>
+                            <div onClick={() => setForm({ ...form, use_existing: true })} style={{
+                                padding: '14px 16px', borderRadius: 8, cursor: 'pointer',
+                                background: form.use_existing ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)',
+                                border: `2px solid ${form.use_existing ? 'var(--info)' : 'rgba(255,255,255,0.06)'}`,
+                                transition: 'all 0.2s',
+                            }}>
+                                <div style={{ fontWeight: 700, fontSize: '0.95em', color: form.use_existing ? 'var(--info)' : 'var(--text-muted)', marginBottom: 4 }}>
+                                    📦 Из существующих ферм
+                                </div>
+                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>
+                                    Использовать уже живые аккаунты
+                                </div>
+                            </div>
                         </div>
+                        {/* Farm selector */}
+                        {form.use_existing && (
+                            <div>
+                                {farms.length === 0 ? (
+                                    <div style={{ fontSize: '0.85em', color: 'var(--warning)', fontWeight: 600, padding: '10px 0' }}>
+                                        ⚠️ Нет ферм — сначала зарегистрируйте аккаунты
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                                        {farms.map(f => {
+                                            const selected = form.farm_ids.includes(f.id);
+                                            return (
+                                                <div key={f.id} onClick={() => setForm(prev => ({
+                                                    ...prev,
+                                                    farm_ids: selected ? prev.farm_ids.filter(x => x !== f.id) : [...prev.farm_ids, f.id]
+                                                }))} style={{
+                                                    padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                                                    background: selected ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.02)',
+                                                    border: `1px solid ${selected ? 'var(--info)' : 'rgba(255,255,255,0.06)'}`,
+                                                    transition: 'all 0.15s',
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <div style={{
+                                                            width: 16, height: 16, borderRadius: 4,
+                                                            background: selected ? 'var(--info)' : 'transparent',
+                                                            border: `2px solid ${selected ? 'var(--info)' : 'rgba(255,255,255,0.2)'}`,
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            fontSize: '10px', color: '#fff', fontWeight: 900,
+                                                        }}>{selected && '✓'}</div>
+                                                        <span style={{ fontWeight: 600, fontSize: '0.88em', color: selected ? 'var(--text-primary)' : 'var(--text-muted)' }}>{f.name}</span>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4, marginLeft: 24 }}>
+                                                        {f.account_count || 0} акков
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Row 5: Threads */}
+                    <div style={{ display: 'grid', gridTemplateColumns: form.use_existing ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                        {!form.use_existing && (
+                            <div>
+                                <label style={lbl}>Birth потоков (регистрация)</label>
+                                <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="50" value={form.birth_threads}
+                                    onChange={e => setForm({ ...form, birth_threads: +e.target.value })} />
+                                <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>~300MB RAM / поток</div>
+                            </div>
+                        )}
                         <div>
                             <label style={lbl}>Send потоков (рассылка)</label>
                             <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="100" value={form.send_threads}

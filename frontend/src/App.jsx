@@ -7,7 +7,6 @@ import Dashboard from './pages/Dashboard';
 import Birth from './pages/Birth';
 import Campaigns from './pages/Campaigns';
 import CampaignDetail from './pages/CampaignDetail';
-import Work from './pages/Work';
 import Farms from './pages/Farms';
 import Accounts from './pages/Accounts';
 import Databases from './pages/Databases';
@@ -45,7 +44,6 @@ function App() {
               <Route path="/birth" element={<Birth />} />
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/:id" element={<CampaignDetail />} />
-              <Route path="/work" element={<Work />} />
               <Route path="/proxies" element={<Proxies />} />
               <Route path="/farms" element={<Farms />} />
               <Route path="/accounts" element={<Accounts />} />

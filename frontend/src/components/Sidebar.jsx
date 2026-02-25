@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-    LayoutDashboard, Baby, Flame, Send, Database, Users, UserCircle,
+    LayoutDashboard, Baby, Flame, Database, Users, UserCircle,
     FileText, Monitor, Settings, Link, Globe, Shield, Boxes,
     Terminal, Rocket
 } from 'lucide-react';
@@ -17,7 +17,6 @@ export default function Sidebar({ status }) {
                 { to: '/', icon: LayoutDashboard, label: t('dashboard'), end: true },
                 { to: '/birth', icon: Baby, label: t('birth') },
                 { to: '/campaigns', icon: Rocket, label: 'Кампании' },
-                { to: '/work', icon: Send, label: t('work') },
             ]
         },
         {
