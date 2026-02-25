@@ -104,35 +104,70 @@ async def batch_resources(db: Session = Depends(get_db)):
     except Exception:
         pass
 
-    # Templates (only id, name + pack_name if exists)
+    # Templates (with niche + variables for campaign matching)
     templates = []
     try:
-        # Check if pack_name column exists
-        cols = [c["name"] for c in db.execute(text("PRAGMA table_info(templates)")).fetchall()]
-        if "pack_name" in [r[1] for r in db.execute(text("PRAGMA table_info(templates)")).fetchall()]:
-            rows = db.execute(text("SELECT id, name, pack_name FROM templates")).fetchall()
-            templates = [{"id": r[0], "name": r[1], "pack_name": r[2]} for r in rows]
-        else:
-            rows = db.execute(text("SELECT id, name FROM templates")).fetchall()
-            templates = [{"id": r[0], "name": r[1], "pack_name": None} for r in rows]
+        tpl_cols = [r[1] for r in db.execute(text("PRAGMA table_info(templates)")).fetchall()]
+        select_parts = ["id", "name"]
+        if "pack_name" in tpl_cols:
+            select_parts.append("pack_name")
+        if "niche" in tpl_cols:
+            select_parts.append("niche")
+        if "variables" in tpl_cols:
+            select_parts.append("variables")
+        rows = db.execute(text(f"SELECT {', '.join(select_parts)} FROM templates")).fetchall()
+        for r in rows:
+            t = {"id": r[0], "name": r[1]}
+            idx = 2
+            if "pack_name" in select_parts:
+                t["pack_name"] = r[idx]; idx += 1
+            else:
+                t["pack_name"] = None
+            if "niche" in select_parts:
+                t["niche"] = r[idx] or ""; idx += 1
+            else:
+                t["niche"] = ""
+            if "variables" in select_parts:
+                import json as _json
+                try:
+                    t["variables"] = _json.loads(r[idx]) if r[idx] else []
+                except Exception:
+                    t["variables"] = []
+                idx += 1
+            else:
+                t["variables"] = []
+            t["needs_names"] = any(v in ["FIRSTNAME", "LASTNAME"] for v in t["variables"])
+            templates.append(t)
     except Exception:
         pass
 
-    # Recipient databases
+    # Recipient databases (with_name flag)
     databases = []
     try:
-        rows = db.execute(text(
-            "SELECT id, name, total_count, used_count FROM recipient_databases"
-        )).fetchall()
-        databases = [{"id": r[0], "name": r[1], "total_count": r[2], "used_count": r[3]} for r in rows]
+        db_cols = [r[1] for r in db.execute(text("PRAGMA table_info(recipient_databases)")).fetchall()]
+        if "with_name" in db_cols:
+            rows = db.execute(text(
+                "SELECT id, name, total_count, used_count, with_name FROM recipient_databases"
+            )).fetchall()
+            databases = [{"id": r[0], "name": r[1], "total_count": r[2], "used_count": r[3], "with_name": bool(r[4])} for r in rows]
+        else:
+            rows = db.execute(text(
+                "SELECT id, name, total_count, used_count FROM recipient_databases"
+            )).fetchall()
+            databases = [{"id": r[0], "name": r[1], "total_count": r[2], "used_count": r[3], "with_name": False} for r in rows]
     except Exception:
         pass
 
-    # Link packs
+    # Link packs (with niche)
     links = []
     try:
-        rows = db.execute(text("SELECT id, name, total_count FROM link_databases")).fetchall()
-        links = [{"id": r[0], "name": r[1], "total_count": r[2]} for r in rows]
+        lnk_cols = [r[1] for r in db.execute(text("PRAGMA table_info(link_databases)")).fetchall()]
+        if "niche" in lnk_cols:
+            rows = db.execute(text("SELECT id, name, total_count, niche FROM link_databases")).fetchall()
+            links = [{"id": r[0], "name": r[1], "total_count": r[2], "niche": r[3] or ""} for r in rows]
+        else:
+            rows = db.execute(text("SELECT id, name, total_count FROM link_databases")).fetchall()
+            links = [{"id": r[0], "name": r[1], "total_count": r[2], "niche": ""} for r in rows]
     except Exception:
         pass
 

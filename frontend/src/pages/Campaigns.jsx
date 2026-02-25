@@ -334,9 +334,16 @@ export default function Campaigns() {
                                                             fontSize: '10px', color: '#fff', fontWeight: 900,
                                                         }}>{selected && '✓'}</div>
                                                         <span style={{ fontWeight: 600, fontSize: '0.88em', color: selected ? 'var(--text-primary)' : 'var(--text-muted)' }}>{f.name}</span>
+                                                        <span style={{ fontSize: '0.65em', color: 'var(--info)', fontWeight: 400 }}>♀</span>
                                                     </div>
-                                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4, marginLeft: 24 }}>
-                                                        {f.account_count || 0} акков
+                                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4, marginLeft: 24, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                                        <span>{f.account_count || 0} акк.</span>
+                                                        {f.providers && Object.entries(f.providers).map(([p, c]) => (
+                                                            <span key={p} style={{ background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: 3, fontSize: '0.9em' }}>{p} {c}</span>
+                                                        ))}
+                                                        {f.geos && Object.entries(f.geos).map(([g, c]) => (
+                                                            <span key={g} style={{ background: 'rgba(212,168,38,0.1)', color: 'var(--accent)', padding: '1px 5px', borderRadius: 3, fontSize: '0.9em' }}>{g}</span>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             );
@@ -367,11 +374,22 @@ export default function Campaigns() {
                                                     fontWeight: selectedTemplates.includes(t.id) ? 600 : 400,
                                                     opacity: match ? 1 : 0.5,
                                                 }}>
-                                                {t.name} {t.niche && <span style={{ fontSize: '0.7em', opacity: 0.6 }}>({t.niche})</span>}
+                                                {t.name}
+                                                {t.needs_names && <span style={{ fontSize: '0.68em', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>👤📛</span>}
+                                                {!t.needs_names && <span style={{ fontSize: '0.68em', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>👤</span>}
+                                                {t.niche && <span style={{ fontSize: '0.65em', opacity: 0.5, marginLeft: 3 }}>{t.niche}</span>}
                                             </div>
                                         );
                                     })}
                             </div>
+                            {/* Name compatibility warning */}
+                            {selectedTemplates.some(id => templates.find(t => t.id === id)?.needs_names) &&
+                                selectedDBs.length > 0 &&
+                                selectedDBs.every(id => !databases.find(d => d.id === id)?.with_name) && (
+                                    <div style={{ fontSize: '0.72em', color: 'var(--danger)', fontWeight: 600, marginTop: 6, padding: '4px 8px', background: 'rgba(239,68,68,0.08)', borderRadius: 4 }}>
+                                        ⚠️ Шаблон требует имена, но выбранные базы — только email!
+                                    </div>
+                                )}
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
                             <div style={{ ...lbl, marginBottom: 8 }}>📧 Базы получателей</div>
@@ -386,7 +404,8 @@ export default function Campaigns() {
                                             color: selectedDBs.includes(d.id) ? 'var(--accent)' : 'var(--text-muted)',
                                             fontWeight: selectedDBs.includes(d.id) ? 600 : 400,
                                         }}>
-                                        {d.name} ({d.total_count - d.used_count})
+                                        {d.with_name ? '👤📛' : '👤'} {d.name} ({d.total_count - (d.used_count || 0)})
+                                        <span style={{ fontSize: '0.68em', background: d.with_name ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.06)', color: d.with_name ? '#a78bfa' : 'var(--text-muted)', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>{d.with_name ? 'email+имя' : 'email'}</span>
                                     </div>
                                 ))}
                             </div>
@@ -533,16 +552,19 @@ export default function Campaigns() {
                         </button>
                     </div>
                 </div>
-            )}
+            )
+            }
 
             {/* Empty state */}
-            {campaigns.length === 0 && !showCreate && (
-                <div className="card" style={{ padding: 50, textAlign: 'center', color: 'var(--text-muted)' }}>
-                    <Rocket size={44} style={{ opacity: 0.2, marginBottom: 12 }} />
-                    <div style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: 6 }}>Нет кампаний</div>
-                    <div style={{ fontSize: '0.85em' }}>Создайте первую кампанию для запуска Blitz Pipeline</div>
-                </div>
-            )}
+            {
+                campaigns.length === 0 && !showCreate && (
+                    <div className="card" style={{ padding: 50, textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <Rocket size={44} style={{ opacity: 0.2, marginBottom: 12 }} />
+                        <div style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: 6 }}>Нет кампаний</div>
+                        <div style={{ fontSize: '0.85em' }}>Создайте первую кампанию для запуска Blitz Pipeline</div>
+                    </div>
+                )
+            }
 
             {/* Campaign cards */}
             <div style={{ display: 'grid', gap: 12 }}>
@@ -593,7 +615,7 @@ export default function Campaigns() {
                     );
                 })}
             </div>
-        </div>
+        </div >
     );
 }
 

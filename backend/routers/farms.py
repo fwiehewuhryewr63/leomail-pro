@@ -19,9 +19,12 @@ async def list_farms(db: Session = Depends(get_db)):
     for farm in farms:
         accounts = farm.accounts
         providers = {}
+        geos = {}
         statuses = {"new": 0, "phase_1": 0, "phase_2": 0, "phase_3": 0, "phase_4": 0, "phase_5": 0, "warmed": 0, "sending": 0, "dead": 0, "banned": 0}
         for acc in accounts:
             providers[acc.provider] = providers.get(acc.provider, 0) + 1
+            if acc.geo:
+                geos[acc.geo] = geos.get(acc.geo, 0) + 1
             if acc.status in statuses:
                 statuses[acc.status] += 1
 
@@ -33,8 +36,11 @@ async def list_farms(db: Session = Depends(get_db)):
             "id": farm.id,
             "name": farm.name,
             "description": farm.description,
-            "accounts_count": total,
+            "account_count": total,
+            "accounts_count": total,  # backward compat
             "providers": providers,
+            "geos": geos,
+            "gender": "female",  # always female
             "statuses": statuses,
             "warmup_progress": progress,
             "created_at": farm.created_at.isoformat() if farm.created_at else None
