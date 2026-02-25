@@ -1058,3 +1058,95 @@ textarea.form-input {
     display: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   OVERFLOW & TEXT PROTECTION — prevents layout breaks
+   ═══════════════════════════════════════════════════════════ */
+
+/* Global: break long words/URLs so they don't overflow containers */
+body {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+/* All flex and grid children need min-width:0 to allow shrinking */
+.card, .card > *, .page > *, .main-content > * {
+  min-width: 0;
+}
+
+/* Monospace text (API keys, code, URLs) — must truncate or break */
+[style*="monospace"], [style*="JetBrains"], code, pre {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Table cells — prevent single long string from blowing up table */
+.data-table {
+  table-layout: fixed;
+}
+
+.data-table td, .data-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0; /* forces ellipsis to work with table-layout:fixed */
+}
+
+/* Cards — ensure content can't escape */
+.card {
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* Flex rows inside cards — prevent children from pushing out */
+.card > div[style*="display: flex"],
+.card > div[style*="display:flex"] {
+  min-width: 0;
+}
+
+/* Form inputs — prevent overflow on paste */
+.form-input, input, textarea, select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Textareas — prevent horizontal overflow on long content */
+textarea {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Modal content — stay within viewport */
+.modal-content {
+  max-width: 90vw;
+  overflow-x: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE — SMALL SCREENS
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 1200px) {
+  /* Campaign stats: 5 cols → 3 cols on medium screens */
+  .page div[style*="grid-template-columns: repeat(5"] {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Campaign stats: 3 cols → 2 cols on small screens */
+  .page div[style*="grid-template-columns: repeat(5"],
+  .page div[style*="grid-template-columns: repeat(3"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .main-content {
+    padding: 12px 14px;
+  }
+
+  .page-title {
+    font-size: 1.1em;
+  }
+}
