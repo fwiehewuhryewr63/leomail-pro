@@ -448,44 +448,74 @@ async def register_single_yahoo(
                 else:
                     _log(f"Код +{yahoo_page_prefix} не найден в маппинге, берём по конфигу")
 
-            # Order from Yahoo's detected country FIRST, fallback to configured countries
+            # ── SMS Provider Chain: try each provider until one works ──
+            from ._helpers import get_sms_chain
+            # Detect primary provider name from class type
+            _cls = type(sms_provider).__name__.lower()
+            if 'grizzly' in _cls:
+                _primary = 'grizzly'
+            elif 'fivesim' in _cls or '5sim' in _cls:
+                _primary = '5sim'
+            else:
+                _primary = 'simsms'
+            sms_chain = get_sms_chain(_primary)
+            if not sms_chain:
+                sms_chain = [("primary", sms_provider)]
+
             order = None
-            if yahoo_sms_country:
-                # Try ordering PREMIUM number from Yahoo's exact country
-                try:
-                    _log(f"Заказываем PREMIUM номер из страны {yahoo_sms_country} (по коду Yahoo)...")
-                    if hasattr(sms_provider, 'order_number_from_countries'):
-                        order = await asyncio.to_thread(
-                            sms_provider.order_number_from_countries, "yahoo", [yahoo_sms_country]
-                        )
-                    else:
-                        order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
-                    if "error" in order:
-                        _log(f"Нет PREMIUM номеров в {yahoo_sms_country}: {order.get('error', '')}, пробуем другие страны...")
+            active_sms_provider = sms_provider  # will be updated to whichever works
+
+            for provider_name, provider in sms_chain:
+                _log(f"📱 Пробуем SMS: {provider_name}")
+
+                # Try 1: Yahoo's detected country
+                if yahoo_sms_country:
+                    try:
+                        if hasattr(provider, 'order_number_from_countries'):
+                            order = await asyncio.to_thread(
+                                provider.order_number_from_countries, "yahoo", [yahoo_sms_country]
+                            )
+                        else:
+                            order = await asyncio.to_thread(provider.order_number, "yahoo", yahoo_sms_country)
+                        if order and "error" not in order:
+                            active_sms_provider = provider
+                            _log(f"✅ {provider_name}: номер из {yahoo_sms_country}")
+                            break
+                        _log(f"{provider_name}: нет номеров в {yahoo_sms_country}: {order.get('error', '') if order else ''}")
                         order = None
-                except Exception as e:
-                    _log(f"Ошибка заказа из {yahoo_sms_country}: {e}")
+                    except Exception as e:
+                        _log(f"{provider_name}: ошибка {yahoo_sms_country}: {e}")
+                        order = None
+
+                # Try 2: auto/best
+                try:
+                    order = await asyncio.to_thread(provider.order_number, "yahoo", "auto")
+                    if order and "error" not in order:
+                        active_sms_provider = provider
+                        _log(f"✅ {provider_name}: номер auto")
+                        break
+                    order = None
+                except Exception:
                     order = None
 
-            if not order:
-                # Fallback 1: use configured countries
-                _countries = getattr(sms_provider, '_sms_countries', None)
-                _blacklist = getattr(sms_provider, '_country_blacklist', None)
-                if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                    order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
-                else:
-                    order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
-
-            if not order or "error" in order:
-                # Fallback 2: try explicit US (always available on most SMS providers)
-                _log(f"Fallback: заказываем номер US напрямую...")
+                # Try 3: explicit US
                 try:
-                    order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "us")
-                except Exception as e:
-                    _log(f"US fallback ошибка: {e}")
+                    order = await asyncio.to_thread(provider.order_number, "yahoo", "us")
+                    if order and "error" not in order:
+                        active_sms_provider = provider
+                        _log(f"✅ {provider_name}: номер US")
+                        break
+                    order = None
+                except Exception:
+                    order = None
+
+                _log(f"❌ {provider_name}: не удалось, пробуем следующий...")
+
+            # Update sms_provider to whichever worked
+            sms_provider = active_sms_provider
 
             if not order or "error" in order:
-                _err(f"SMS ошибка: {order.get('error', 'no order') if order else 'Failed to order'}")
+                _err(f"SMS ошибка: все провайдеры исчерпаны")
                 return None
 
             phone_number = order["number"]
