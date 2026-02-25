@@ -12,9 +12,9 @@ from .config import init_directories, load_config
 
 # Import routers
 from .routers import dashboard, birth, settings, proxies, farms, templates, databases, links, geo, resources
-from .routers import sms, human_engine, errors, names, warmup, work, logs, stats
+from .routers import sms, human_engine, errors, names, work, logs, stats, campaigns
 
-app = FastAPI(title="Leomail", version="3.0")
+app = FastAPI(title="Leomail", version="4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,10 +39,10 @@ app.include_router(sms.router)
 app.include_router(human_engine.router)
 app.include_router(errors.router)
 app.include_router(names.router)
-app.include_router(warmup.router)
 app.include_router(work.router)
 app.include_router(logs.router)
 app.include_router(stats.router)
+app.include_router(campaigns.router)
 
 
 @app.on_event("startup")
@@ -166,7 +166,7 @@ async def startup_event():
     asyncio.create_task(proxy_monitor_loop(interval_sec=interval, max_fails=max_fails))
     logger.info(f"Proxy monitor started (every {interval}s, max_fails={max_fails})")
 
-    logger.info("Leomail v3.0 Backend Started")
+    logger.info("Leomail v4.0 Backend Started — Blitz Pipeline")
 
 
 # Serve React frontend in production

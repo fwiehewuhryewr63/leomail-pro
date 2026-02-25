@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
     LayoutDashboard, Baby, Flame, Send, Database, Users, UserCircle,
     FileText, Monitor, Settings, Link, Globe, Shield, Boxes,
-    Terminal
+    Terminal, Rocket
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 
@@ -16,7 +16,7 @@ export default function Sidebar({ status }) {
             items: [
                 { to: '/', icon: LayoutDashboard, label: t('dashboard'), end: true },
                 { to: '/birth', icon: Baby, label: t('birth') },
-                { to: '/warmup', icon: Flame, label: t('warmup') },
+                { to: '/campaigns', icon: Rocket, label: 'Кампании' },
                 { to: '/work', icon: Send, label: t('work') },
             ]
         },
@@ -45,7 +45,7 @@ export default function Sidebar({ status }) {
     return (
         <div className="sidebar">
             <div className="sidebar-logo">
-                <h1>LEOMAIL<span>EMAIL ENGINE v3.0</span></h1>
+                <h1>LEOMAIL<span>BLITZ PIPELINE v4.0</span></h1>
             </div>
 
             <div className="lang-toggle" onClick={toggleLang}>

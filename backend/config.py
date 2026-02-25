@@ -103,6 +103,9 @@ def get_api_key(service: str) -> str | None:
     elif service == "twocaptcha":
         key = config.get("captcha", {}).get("twocaptcha", {}).get("api_key", "")
         return key if key else None
+    elif service == "5sim":
+        key = config.get("sms", {}).get("5sim", {}).get("api_key", "")
+        return key if key else None
 
     return None
 

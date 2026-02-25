@@ -28,6 +28,7 @@ from ._helpers import (
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2,
+    export_account_to_file,
 )
 
 async def register_single_gmail(
@@ -90,10 +91,12 @@ async def register_single_gmail(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Pre-registration warmup
-        _log("Прогрев сессии...")
+        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
+        _log("Быстрый прогрев сессии...")
         try:
-            await pre_registration_warmup(page)
+            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(1, 2)
+            await random_mouse_move(page, steps=2)
         except Exception:
             pass
 
@@ -102,7 +105,7 @@ async def register_single_gmail(
         try:
             await page.goto(
                 "https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp",
-                wait_until="networkidle",
+                wait_until="domcontentloaded",
                 timeout=60000,
             )
         except Exception as nav_e:
@@ -399,8 +402,22 @@ async def register_single_gmail(
             await page.locator(agree_btn).first.click()
             await _human_delay(3, 5)
 
-        # Verify success
-        _log(f"Финальный URL: {page.url}")
+        # Verify success — check URL
+        final_url = page.url.lower()
+        _log(f"Финальный URL: {final_url}")
+
+        registration_success = False
+        success_indicators = ["myaccount.google.com", "mail.google.com", "/speedbump", "/interstitial", "/signinchooser"]
+        if any(ind in final_url for ind in success_indicators):
+            registration_success = True
+            _log("✅ URL подтверждает успешную регистрацию")
+        elif "accounts.google.com/signup" not in final_url:
+            registration_success = True
+            _log("✅ Покинули страницу регистрации")
+        else:
+            _err(f"❌ Регистрация не подтверждена — URL: {final_url}")
+            await _debug_screenshot(page, "gmail_not_confirmed", _log)
+            return None
 
         # Save session
         try:
@@ -432,6 +449,7 @@ async def register_single_gmail(
                 pass
 
         logger.info(f"✅ Gmail registered: {email}")
+        export_account_to_file(account)
         return account
 
     except Exception as e:

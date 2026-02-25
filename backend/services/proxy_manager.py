@@ -134,59 +134,70 @@ class ProxyManager:
 
         return proxy
 
-    def get_unbound_proxy(self, geo: str = None, device_type: str = None, provider: str = None, max_per_provider: int = 3) -> Proxy | None:
+    # Provider-specific limits
+    GMAIL_LIMIT = 1   # Gmail: 1 use only, first error = done
+    YA_LIMIT = 3      # Yahoo+AOL combined limit
+    OH_LIMIT = 3      # Outlook+Hotmail combined limit
+
+    def get_unbound_proxy(self, geo: str = None, device_type: str = None, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
         Filters by device_type and per-provider-GROUP usage limit.
-        Groups: Gmail=G, Yahoo+AOL=YA, Outlook+Hotmail=OH.
-        Auto-deletes fully exhausted proxies (all groups at limit).
+        Groups: Gmail=G (limit 1, mobile-only), Yahoo+AOL=YA (limit 3), Outlook+Hotmail=OH (limit 3).
+        Marks fully exhausted proxies as EXHAUSTED.
         NO FALLBACK: returns None if no matching proxy found.
         """
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
         )
-        if device_type:
+
+        # Gmail: FORCE mobile proxy type
+        if provider and provider.lower() == 'gmail':
+            query = query.filter(Proxy.proxy_type == 'mobile')
+        elif device_type:
             if device_type.startswith('phone'):
                 query = query.filter(Proxy.proxy_type == 'mobile')
             # Desktop: include ALL proxy types (http, socks5, mobile)
+
         if provider:
-            group_filter = self._provider_group_filter(provider, max_per_provider)
+            group_filter = self._provider_group_filter(provider)
             if group_filter is not None:
                 query = query.filter(group_filter)
         if geo and geo.upper() != "ANY":
             query = query.filter(Proxy.geo == geo.upper())
         proxies = query.all()
 
-        # Auto-delete exhausted proxies (all groups at limit) that are NOT bound
+        # Auto-mark exhausted proxies (all groups at limit)
         for p in list(proxies):
-            if self._is_exhausted(p, max_per_provider):
+            if self._is_exhausted(p):
                 proxies.remove(p)
-                p.status = ProxyStatus.DEAD
-                logger.info(f"Proxy {p.host}:{p.port} exhausted (all provider groups at limit) → DEAD")
+                p.status = ProxyStatus.EXHAUSTED
+                logger.info(f"Proxy {p.host}:{p.port} exhausted (all provider groups at limit) → EXHAUSTED")
                 self.db.commit()
 
         if proxies:
             return random.choice(proxies)
         return None  # NO FALLBACK
 
-    def get_proxy_pool(self, count: int, geo: str = None, device_type: str = None, provider: str = None, max_per_provider: int = 3) -> list[Proxy]:
+    def get_proxy_pool(self, count: int, geo: str = None, device_type: str = None, provider: str = None) -> list[Proxy]:
         """Get N unique proxies for batch operation.
         Filters by device_type and per-provider usage limit.
-        For strict providers (yahoo, gmail), mobile proxies are prioritized.
+        Gmail: mobile-only. Yahoo/Gmail: mobile proxies prioritized.
         NO FALLBACK: returns empty list if no matching proxies.
         """
         query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
 
-        if device_type:
+        # Gmail: FORCE mobile proxy type
+        if provider and provider.lower() == 'gmail':
+            query = query.filter(Proxy.proxy_type == 'mobile')
+        elif device_type:
             if device_type.startswith('phone'):
                 query = query.filter(Proxy.proxy_type == 'mobile')
-            # Desktop: include ALL proxy types (http, socks5, mobile)
-            # Mobile proxies work fine for desktop emulation and are preferred for strict providers
 
         if provider:
-            usage_col = self._provider_usage_col(provider)
-            if usage_col is not None:
-                query = query.filter(usage_col < max_per_provider)
+            group_filter = self._provider_group_filter(provider)
+            if group_filter is not None:
+                query = query.filter(group_filter)
 
         if geo and geo.upper() != "ANY":
             query = query.filter(Proxy.geo == geo.upper())
@@ -227,31 +238,28 @@ class ProxyManager:
         return mapping.get(provider.lower())
 
     @staticmethod
-    def _provider_group_filter(provider: str, max_limit: int = 3):
+    def _provider_group_filter(provider: str):
         """Get SQLAlchemy filter for provider GROUP limit.
-        Groups: Yahoo+AOL (YA), Outlook+Hotmail (OH), Gmail (G).
-        Check is against the max of the two counters in a group.
+        Groups: Yahoo+AOL (YA, limit 3), Outlook+Hotmail (OH, limit 3), Gmail (G, limit 1).
         """
         provider = provider.lower()
         if provider in ('yahoo', 'aol'):
-            # YA group: combined max
-            return (Proxy.use_yahoo + Proxy.use_aol) < max_limit
+            return (Proxy.use_yahoo + Proxy.use_aol) < ProxyManager.YA_LIMIT
         elif provider in ('outlook', 'hotmail'):
-            # OH group: combined max
-            return (Proxy.use_outlook + Proxy.use_hotmail) < max_limit
+            return (Proxy.use_outlook + Proxy.use_hotmail) < ProxyManager.OH_LIMIT
         elif provider == 'gmail':
-            return Proxy.use_gmail < max_limit
+            return Proxy.use_gmail < ProxyManager.GMAIL_LIMIT
         return None
 
     @staticmethod
-    def _is_exhausted(proxy: Proxy, max_limit: int = 3) -> bool:
+    def _is_exhausted(proxy: Proxy) -> bool:
         """Check if ALL provider groups are at their limit.
-        Groups: Gmail(G), Yahoo+AOL(YA), Outlook+Hotmail(OH).
+        Groups: Gmail (limit 1), Yahoo+AOL (limit 3), Outlook+Hotmail (limit 3).
         Returns True only if all 3 groups are exhausted.
         """
-        g_exhausted = (proxy.use_gmail or 0) >= max_limit
-        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= max_limit
-        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= max_limit
+        g_exhausted = (proxy.use_gmail or 0) >= ProxyManager.GMAIL_LIMIT
+        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= ProxyManager.YA_LIMIT
+        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= ProxyManager.OH_LIMIT
         return g_exhausted and ya_exhausted and oh_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
@@ -417,7 +425,7 @@ class ProxyManager:
     def release_all_free_proxies(self) -> dict:
         """
         Reset all dead/expired UNBOUND proxies back to ACTIVE.
-        Used when user wants to reuse proxies for new accounts.
+        Does NOT touch EXHAUSTED proxies — those stay until manually deleted.
         """
         freed = self.db.query(Proxy).filter(
             Proxy.status.in_([ProxyStatus.DEAD, ProxyStatus.EXPIRED]),
@@ -431,7 +439,7 @@ class ProxyManager:
             count += 1
 
         self.db.commit()
-        logger.info(f"Released {count} free proxies back to ACTIVE")
+        logger.info(f"Released {count} dead/expired proxies back to ACTIVE")
         return {"released": count}
 
     def refresh_proxy(self, proxy_id: int, new_host: str = None, new_port: int = None,
@@ -528,11 +536,8 @@ class ProxyManager:
         total = self.db.query(Proxy).count()
         active = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE).count()
         dead = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.DEAD).count()
+        exhausted = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.EXHAUSTED).count()
         bound = self.db.query(Proxy).filter(Proxy.bound_account_id != None).count()  # noqa: E711
-        free = self.db.query(Proxy).filter(
-            Proxy.status == ProxyStatus.ACTIVE,
-            Proxy.bound_account_id == None,  # noqa: E711
-        ).count()
 
         # Type breakdown (socks5 / http / mobile)
         from sqlalchemy import func
@@ -543,9 +548,8 @@ class ProxyManager:
             "total": total,
             "active": active,
             "dead": dead,
-            "expired": total - active - dead,
+            "exhausted": exhausted,
             "bound": bound,
-            "free": free,
             "by_type": by_type,
         }
 

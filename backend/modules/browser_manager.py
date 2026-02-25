@@ -170,6 +170,176 @@ GPU_COMBOS = [
     ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
 ]
 
+# ─── Mobile GPU Combos (Adreno, Mali, Apple — must match mobile devices!) ─────
+
+MOBILE_GPU_ANDROID = [
+    ("Qualcomm", "Adreno (TM) 730"),       # Snapdragon 8 Gen 1 (Pixel 7, Galaxy S22)
+    ("Qualcomm", "Adreno (TM) 740"),       # Snapdragon 8 Gen 2 (Galaxy S23, Pixel 8)
+    ("Qualcomm", "Adreno (TM) 750"),       # Snapdragon 8 Gen 3 (Galaxy S24)
+    ("Qualcomm", "Adreno (TM) 660"),       # Snapdragon 778G (Nord CE 3)
+    ("Qualcomm", "Adreno (TM) 650"),       # Snapdragon 865
+    ("Qualcomm", "Adreno (TM) 642L"),      # Snapdragon 7 Gen 1
+    ("ARM", "Mali-G715"),                    # Exynos 2300 (Galaxy S23 FE)
+    ("ARM", "Mali-G710"),                    # Mediatek Dimensity 9000
+    ("ARM", "Mali-G78"),                     # Exynos 2100 (Galaxy S21)
+    ("ARM", "Mali-G77"),                     # Exynos 990
+    ("Imagination Technologies", "PowerVR GE8320"),  # Budget devices
+]
+
+MOBILE_GPU_IOS = [
+    ("Apple", "Apple GPU"),                  # All modern iPhones
+    ("Apple", "ANGLE (Apple, ANGLE Metal Renderer: Apple A17 Pro GPU, Unspecified Version)"),
+    ("Apple", "ANGLE (Apple, ANGLE Metal Renderer: Apple A16 GPU, Unspecified Version)"),
+    ("Apple", "ANGLE (Apple, ANGLE Metal Renderer: Apple A15 GPU, Unspecified Version)"),
+
+]
+
+
+def _build_mobile_stealth_extra(platform: str = "android") -> str:
+    """
+    Additional stealth scripts specific to mobile device emulation.
+    Adds sensors, touch events, screen orientation, realistic battery, etc.
+    """
+    battery_level = round(random.uniform(0.35, 0.95), 2)
+    battery_charging = random.choice([True, False])
+    charging_time = 0 if battery_charging else float('inf')
+    discharge_time = float('inf') if battery_charging else random.randint(3600, 14400)
+
+    screen_orientation = random.choice(["portrait-primary", "landscape-primary"])
+    orientation_angle = 0 if screen_orientation == "portrait-primary" else 90
+
+    conn_type = random.choice(["wifi", "cellular"])
+    conn_effective = "4g" if conn_type == "cellular" else "4g"
+    conn_rtt = random.choice([50, 75, 100, 150]) if conn_type == "cellular" else random.choice([25, 50, 75])
+    conn_downlink = random.choice([5, 8, 10, 15]) if conn_type == "cellular" else random.choice([20, 50, 100])
+
+    return f"""
+    // ═══ MOBILE-SPECIFIC STEALTH ═══
+
+    // M1. Realistic Battery API (not always full/charging)
+    navigator.getBattery = () => Promise.resolve({{
+        charging: {'true' if battery_charging else 'false'},
+        chargingTime: {charging_time if charging_time != float('inf') else 'Infinity'},
+        dischargingTime: {discharge_time if discharge_time != float('inf') else 'Infinity'},
+        level: {battery_level},
+        addEventListener: () => {{}}, removeEventListener: () => {{}}, dispatchEvent: () => true,
+    }});
+
+    // M2. No plugins on mobile Chrome
+    Object.defineProperty(navigator, 'plugins', {{
+        get: () => {{
+            const p = [];
+            p.length = 0;
+            p.namedItem = () => null;
+            p.refresh = () => {{}};
+            return p;
+        }}
+    }});
+    Object.defineProperty(navigator, 'mimeTypes', {{
+        get: () => {{
+            const m = [];
+            m.length = 0;
+            m.namedItem = () => null;
+            return m;
+        }}
+    }});
+
+    // M3. Screen Orientation API
+    if (!screen.orientation || !screen.orientation.type) {{
+        Object.defineProperty(screen, 'orientation', {{
+            get: () => ({{
+                type: '{screen_orientation}',
+                angle: {orientation_angle},
+                addEventListener: () => {{}},
+                removeEventListener: () => {{}},
+                dispatchEvent: () => true,
+                lock: () => Promise.resolve(),
+                unlock: () => {{}},
+            }})
+        }});
+    }}
+
+    // M4. DeviceMotionEvent & DeviceOrientationEvent (essential for mobile fingerprinting)
+    if (typeof DeviceMotionEvent === 'undefined') {{
+        window.DeviceMotionEvent = class DeviceMotionEvent extends Event {{
+            constructor(type, init) {{ super(type, init); }}
+        }};
+    }}
+    if (typeof DeviceOrientationEvent === 'undefined') {{
+        window.DeviceOrientationEvent = class DeviceOrientationEvent extends Event {{
+            constructor(type, init) {{ super(type, init); }}
+        }};
+    }}
+    // Simulate periodic sensor data
+    (function() {{
+        let alpha = {random.randint(0, 359)}, beta = {random.randint(-5, 5)}, gamma = {random.randint(-3, 3)};
+        setInterval(() => {{
+            alpha = (alpha + (Math.random() * 0.1 - 0.05)) % 360;
+            beta += Math.random() * 0.05 - 0.025;
+            gamma += Math.random() * 0.05 - 0.025;
+            try {{
+                window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', {{
+                    alpha: alpha, beta: beta, gamma: gamma, absolute: false
+                }}));
+                window.dispatchEvent(new DeviceMotionEvent('devicemotion', {{
+                    acceleration: {{ x: Math.random() * 0.02 - 0.01, y: 9.8 + Math.random() * 0.04 - 0.02, z: Math.random() * 0.02 - 0.01 }},
+                    accelerationIncludingGravity: {{ x: 0, y: 9.8, z: 0 }},
+                    rotationRate: {{ alpha: 0, beta: 0, gamma: 0 }},
+                    interval: 16
+                }}));
+            }} catch(e) {{}}
+        }}, 1000 + Math.random() * 500);
+    }})();
+
+    // M5. TouchEvent constructor (critical — Google checks this!)
+    if (typeof TouchEvent === 'undefined') {{
+        window.TouchEvent = class TouchEvent extends UIEvent {{
+            constructor(type, init) {{ super(type, init); }}
+        }};
+    }}
+    // Ensure maxTouchPoints is set for mobile
+    Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => {random.choice([5, 10])} }});
+
+    // M6. Connection API with realistic mobile values
+    Object.defineProperty(navigator, 'connection', {{
+        configurable: true,
+        get: () => ({{
+            effectiveType: '{conn_effective}',
+            type: '{conn_type}',
+            rtt: {conn_rtt},
+            downlink: {conn_downlink},
+            saveData: false,
+            addEventListener: () => {{}}, removeEventListener: () => {{}},
+        }})
+    }});
+
+    // M7. Vibrate API (mobile-only)
+    if (!navigator.vibrate) {{
+        navigator.vibrate = function(pattern) {{ return true; }};
+    }}
+
+    // M8. MediaDevices — mobile has front+back cameras
+    if (navigator.mediaDevices) {{
+        navigator.mediaDevices.enumerateDevices = async function() {{
+            return [
+                {{ deviceId: 'mic0', kind: 'audioinput', label: '', groupId: 'mic' }},
+                {{ deviceId: 'speaker0', kind: 'audiooutput', label: '', groupId: 'speaker' }},
+                {{ deviceId: 'cam_front', kind: 'videoinput', label: '', groupId: 'cam_front' }},
+                {{ deviceId: 'cam_back', kind: 'videoinput', label: '', groupId: 'cam_back' }},
+            ];
+        }};
+    }}
+
+    // M9. Disable Notification permission (mobile Chrome rarely has it)
+    const _origPQuery = window.navigator.permissions?.query;
+    if (_origPQuery) {{
+        window.navigator.permissions.query = (p) => {{
+            if (p.name === 'notifications') return Promise.resolve({{ state: 'default' }});
+            return _origPQuery.call(navigator.permissions, p);
+        }};
+    }}
+    """  # noqa: E501
+
 
 def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int = 8,
                            device_memory: int = 8, langs: list = None) -> str:
@@ -485,11 +655,16 @@ class BrowserManager:
                 await socks5_bridge.start()
                 proxy_config = {"server": f"http://127.0.0.1:{socks5_bridge.port}"}
                 logger.debug(f"SOCKS5 auth bridge: :{socks5_bridge.port} → {proxy.host}:{proxy.port}")
+            elif is_socks and not has_auth:
+                # SOCKS5 without auth — Playwright/Chromium handles it natively
+                proxy_config = {"server": f"socks5://{proxy.host}:{proxy.port}"}
             elif hasattr(proxy, 'to_playwright'):
                 proxy_config = proxy.to_playwright()
             elif hasattr(proxy, 'host'):
-                proxy_config = {"server": f"{protocol}://{proxy.host}:{proxy.port}"}
-                if has_auth and not is_socks:
+                # HTTP or HTTPS proxy
+                scheme = "https" if protocol == "https" else "http"
+                proxy_config = {"server": f"{scheme}://{proxy.host}:{proxy.port}"}
+                if has_auth:
                     proxy_config["username"] = proxy.username
                     proxy_config["password"] = proxy.password or ""
 
@@ -545,13 +720,34 @@ class BrowserManager:
 
         # Apply antidetect stealth scripts (per-context: GPU rotation, UA-matched platform)
         ctx_ua = context_options.get("user_agent", "")
-        ctx_gpu = random.choice(GPU_COMBOS)
-        ctx_hw = random.choice([4, 8, 12, 16])
-        ctx_mem = random.choice([4, 8, 16])
+        is_mobile = context_options.get("is_mobile", False)
+
+        # Select GPU, hw, memory based on device type
+        if device_type.startswith("phone_android"):
+            ctx_gpu = random.choice(MOBILE_GPU_ANDROID)
+            ctx_hw = random.choice([4, 6, 8])
+            ctx_mem = random.choice([2, 4, 6, 8])
+        elif device_type.startswith("phone_ios"):
+            ctx_gpu = random.choice(MOBILE_GPU_IOS)
+            ctx_hw = random.choice([4, 6])
+            ctx_mem = random.choice([3, 4, 6])
+        else:
+            ctx_gpu = random.choice(GPU_COMBOS)
+            ctx_hw = random.choice([4, 8, 12, 16])
+            ctx_mem = random.choice([4, 8, 16])
+
         stealth_js = _build_stealth_scripts(ua=ctx_ua, gpu=ctx_gpu, hw_concurrency=ctx_hw,
                                              device_memory=ctx_mem)
         await context.add_init_script(script=stealth_js)
-        logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
+
+        # Add mobile-specific stealth if emulating phone
+        if is_mobile:
+            mobile_platform = "ios" if device_type.startswith("phone_ios") else "android"
+            mobile_stealth = _build_mobile_stealth_extra(platform=mobile_platform)
+            await context.add_init_script(script=mobile_stealth)
+            logger.debug(f"Mobile stealth: GPU={ctx_gpu[1][:40]}..., sensors+touch+battery")
+        else:
+            logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
 
         # Override language header to match locale
         await context.set_extra_http_headers({

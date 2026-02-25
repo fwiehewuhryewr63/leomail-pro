@@ -8,7 +8,7 @@ export default function Proxies() {
     const { t } = useI18n();
     const [proxies, setProxies] = useState([]);
     const [stats, setStats] = useState({});
-    const [filter, setFilter] = useState(null); // null=all, 'active', 'free', 'dead'
+    const [filter, setFilter] = useState(null); // null=all, 'active', 'dead', 'exhausted'
     const [showUpload, setShowUpload] = useState(false);
     const [uploadText, setUploadText] = useState('');
     const [expiresAt, setExpiresAt] = useState('');
@@ -23,12 +23,12 @@ export default function Proxies() {
     const alive = stats.active || 0;
     const dead = stats.dead || 0;
     const bound = stats.bound || 0;
-    const free = stats.free || 0;
+    const exhausted = stats.exhausted || 0;
 
     const filteredProxies = filter ? proxies.filter(p => {
         if (filter === 'active') return p.status === 'active' && !p.bound_to;
         if (filter === 'bound') return !!p.bound_to;
-        if (filter === 'free') return p.status === 'free';
+        if (filter === 'exhausted') return p.status === 'exhausted';
         if (filter === 'dead') return ['dead', 'expired', 'banned'].includes(p.status);
         return true;
     }) : proxies;
@@ -120,10 +120,11 @@ export default function Proxies() {
         loadProxies();
     };
 
-    const releaseFree = async () => {
-        const res = await fetch(`${API}/proxies/release-free`, { method: 'POST' });
+    const deleteExhausted = async () => {
+        if (!confirm(`Удалить ${exhausted} задроченных прокси?`)) return;
+        const res = await fetch(`${API}/proxies/exhausted`, { method: 'DELETE' });
         const d = await res.json();
-        alert(`Освобождено ${d.released} прокси → Active`);
+        alert(`Удалено ${d.deleted} задроченных прокси` + (d.unbound_accounts ? `, отвязано ${d.unbound_accounts} аккаунтов` : ''));
         loadProxies();
     };
 
@@ -195,7 +196,7 @@ export default function Proxies() {
                     { key: 'active', label: 'ЖИВЫЕ', value: alive, color: 'var(--success)', icon: <CheckCircle size={13} /> },
                     { key: 'dead', label: 'МЁРТВЫЕ', value: dead, color: 'var(--danger)', icon: <XCircle size={13} /> },
                     { key: 'bound', label: 'ПРИВЯЗАНЫ', value: bound, color: 'var(--info)', icon: <Link2 size={13} /> },
-                    { key: 'free', label: 'СВОБОДНЫЕ', value: free, color: 'var(--warning)', icon: <Globe2 size={13} /> },
+                    { key: 'exhausted', label: 'ЗАДРОЧЕННЫЕ', value: exhausted, color: 'var(--warning)', icon: <Clock size={13} /> },
                 ].map(tab => (
                     <div key={tab.label} className="card" onClick={() => setFilter(filter === tab.key ? null : tab.key)}
                         style={{
@@ -246,8 +247,8 @@ export default function Proxies() {
                 }}>
                     <Trash2 size={15} /> Очистить мёртвые {dead > 0 && `(${dead})`}
                 </button>
-                <button className="btn" onClick={releaseFree} disabled={dead === 0} style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}>
-                    <RefreshCw size={15} /> Освободить свободные
+                <button className="btn btn-warning" disabled={exhausted === 0} onClick={deleteExhausted}>
+                    <Trash2 size={15} /> Удалить задроченные {exhausted > 0 && `(${exhausted})`}
                 </button>
                 <input type="file" ref={fileRef} accept=".txt" style={{ display: 'none' }} onChange={handleFile} />
             </div>
@@ -344,8 +345,8 @@ export default function Proxies() {
                                         <td>
                                             {p.status === 'active' ? (
                                                 <span className="badge badge-success"><CheckCircle size={10} /> ALIVE</span>
-                                            ) : p.status === 'free' ? (
-                                                <span className="badge badge-warning"><Globe2 size={10} /> FREE</span>
+                                            ) : p.status === 'exhausted' ? (
+                                                <span className="badge badge-warning"><Clock size={10} /> EXHAUSTED</span>
                                             ) : p.status === 'dead' ? (
                                                 <span className="badge badge-danger"><XCircle size={10} /> DEAD</span>
                                             ) : (
@@ -410,7 +411,7 @@ export default function Proxies() {
                                                         <button className="btn btn-sm" onClick={() => startEdit(p)} title="Edit proxy">
                                                             <Edit3 size={12} />
                                                         </button>
-                                                        {(p.status === 'free' || p.status === 'dead') && (
+                                                        {(p.status === 'exhausted' || p.status === 'dead' || p.status === 'expired' || p.status === 'banned') && (
                                                             <button className="btn btn-sm btn-success" title="→ Active" onClick={async () => {
                                                                 await fetch(`${API}/proxies/${p.id}/move-to-active`, { method: 'POST' });
                                                                 loadProxies();

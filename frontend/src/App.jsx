@@ -5,7 +5,8 @@ import { API } from './api';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Birth from './pages/Birth';
-import Warmup from './pages/Warmup';
+import Campaigns from './pages/Campaigns';
+import CampaignDetail from './pages/CampaignDetail';
 import Work from './pages/Work';
 import Farms from './pages/Farms';
 import Accounts from './pages/Accounts';
@@ -42,8 +43,8 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/birth" element={<Birth />} />
-              <Route path="/warmup" element={<Warmup />} />
-              <Route path="/work" element={<Work />} />
+              <Route path="/campaigns" element={<Campaigns />} />
+              <Route path="/campaigns/:id" element={<CampaignDetail />} />
               <Route path="/proxies" element={<Proxies />} />
               <Route path="/farms" element={<Farms />} />
               <Route path="/accounts" element={<Accounts />} />

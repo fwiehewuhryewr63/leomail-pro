@@ -83,7 +83,6 @@ async def run_birth_task(request: BirthRequest):
             request.quantity,
             device_type=request.device_type,
             provider=request.provider,
-            max_per_provider=3,
         )
         logger.info(f"[Birth] Proxy pool: {len(proxy_pool)} proxies for device={request.device_type}, provider={request.provider}")
 
@@ -286,13 +285,17 @@ async def run_birth_task(request: BirthRequest):
                             name_index[0] += 1
                         worker_name_pool = [name_pair]
 
-                        # Inject SMS country: proxy GEO takes priority
+                        # Thread-safe SMS country: copy values into per-worker attributes
+                        # (avoids race condition with shared sms._sms_countries)
                         if sms:
+                            worker_sms_countries = None
                             if proxy and getattr(proxy, 'geo', None):
-                                sms._sms_countries = [proxy.geo.lower()]
+                                worker_sms_countries = [proxy.geo.lower()]
                             elif request.sms_countries:
-                                sms._sms_countries = request.sms_countries
-                            sms._country_blacklist = country_blacklist
+                                worker_sms_countries = list(request.sms_countries)  # COPY
+                            worker_blacklist = list(country_blacklist) if country_blacklist else []
+                            sms._sms_countries = worker_sms_countries
+                            sms._country_blacklist = worker_blacklist
 
                         account = None
                         if request.provider == "outlook":
@@ -604,40 +607,3 @@ async def get_active_pages():
     """List all thread IDs with active browser pages."""
     return {"active": list(ACTIVE_PAGES.keys())}
 
-
-@router.get("/status")
-async def get_birth_status(db: Session = Depends(get_db)):
-    """Get latest birth task status for frontend polling."""
-    # Check for running tasks first
-    running_task = db.query(Task).filter(
-        Task.type == "birth",
-        Task.status == TaskStatus.RUNNING,
-    ).order_by(Task.id.desc()).first()
-
-    if running_task:
-        return {
-            "running": True,
-            "task_id": running_task.id,
-            "total": running_task.total_items or 0,
-            "completed": running_task.completed_items or 0,
-            "failed": running_task.failed_items or 0,
-            "active_threads": list(ACTIVE_PAGES.keys()),
-        }
-
-    # Get latest completed/failed task
-    latest = db.query(Task).filter(
-        Task.type == "birth",
-    ).order_by(Task.id.desc()).first()
-
-    if latest:
-        return {
-            "running": False,
-            "task_id": latest.id,
-            "status": latest.status.value if latest.status else "unknown",
-            "total": latest.total_items or 0,
-            "completed": latest.completed_items or 0,
-            "failed": latest.failed_items or 0,
-            "error": latest.details,
-        }
-
-    return {"running": False, "task_id": None}

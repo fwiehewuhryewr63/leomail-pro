@@ -22,13 +22,41 @@ BUILTIN_NAMES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "da
 
 # GEO pack labels
 GEO_LABELS = {
-    "us_uk": "🇺🇸 US / UK — English",
-    "latam_es": "🇲🇽 LATAM — Español",
-    "brazil_pt": "🇧🇷 Brazil — Português",
+    # Legacy small packs
+    "us_uk": "🇺🇸 US / UK — English (200)",
+    "latam_es": "🇲🇽 LATAM — Español (200)",
+    "brazil_pt": "🇧🇷 Brazil — Português (200)",
     "ru_cis": "🇷🇺 Россия / СНГ",
     "arab": "🇪🇬 Arab / Middle East",
     "europe_de_fr_it": "🇪🇺 Europe — DE / FR / IT",
     "africa": "🇳🇬 Africa — NG / ZA / ZM",
+    # 5K packs — Tier 1 + LATAM
+    "us_names_5k": "🇺🇸 USA — 5000 (Census)",
+    "canada_5k": "🇨🇦 Canada — 5000 (StatCan)",
+    "brazil_5k": "🇧🇷 Brazil — 5000 (IBGE)",
+    "mexico_5k": "🇲🇽 Mexico — 5000 (INEGI)",
+    "colombia_5k": "🇨🇴 Colombia — 5000 (DANE)",
+    "argentina_5k": "🇦🇷 Argentina — 5000",
+    "peru_5k": "🇵🇪 Peru — 5000",
+    "venezuela_5k": "🇻🇪 Venezuela — 5000",
+    "chile_5k": "🇨🇱 Chile — 5000",
+    "ecuador_5k": "🇪🇨 Ecuador — 5000",
+    "guatemala_5k": "🇬🇹 Guatemala — 5000",
+    "dominican_5k": "🇩🇴 Dominican Rep — 5000",
+    "honduras_5k": "🇭🇳 Honduras — 5000",
+    "paraguay_5k": "🇵🇾 Paraguay — 5000",
+    "el_salvador_5k": "🇸🇻 El Salvador — 5000",
+    "nicaragua_5k": "🇳🇮 Nicaragua — 5000",
+    "costa_rica_5k": "🇨🇷 Costa Rica — 5000",
+    "panama_5k": "🇵🇦 Panama — 5000",
+    "uruguay_5k": "🇺🇾 Uruguay — 5000",
+    "cuba_5k": "🇨🇺 Cuba — 5000",
+    "bolivia_5k": "🇧🇴 Bolivia — 5000",
+    "puerto_rico_5k": "🇵🇷 Puerto Rico — 5000",
+    # Africa
+    "egypt_5k": "🇪🇬 Egypt — 5000",
+    "nigeria_5k": "🇳🇬 Nigeria — 5000",
+    "south_africa_5k": "🇿🇦 South Africa — 5000",
 }
 
 

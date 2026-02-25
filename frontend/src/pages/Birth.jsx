@@ -331,7 +331,7 @@ export default function Birth() {
                     <div className="form-group">
                         <label className="form-label">ПРОВАЙДЕР SMS</label>
                         <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
-                            {['simsms', 'grizzly'].map(sp => (
+                            {['simsms', 'grizzly', '5sim'].map(sp => (
                                 <button key={sp} className={`btn ${smsProvider === sp ? 'btn-primary' : ''}`}
                                     onClick={() => setSmsProvider(sp)}
                                     style={{ flex: 1, fontSize: '0.95em', padding: '10px' }}>

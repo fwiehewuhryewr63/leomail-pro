@@ -12,9 +12,60 @@ from ...config import load_config, get_api_key
 from ...services.captcha_provider import CaptchaProvider
 from ...services.sms_provider import GrizzlySMS
 from ...services.simsms_provider import SimSmsProvider
+from ...services.fivesim_provider import FiveSimProvider
 
 
 DEBUG_SCREENSHOT_DIR = str(Path(__file__).resolve().parent.parent.parent / "user_data" / "debug_screenshots")
+
+# ── Auto-export file for market-format accounts ──
+ACCOUNTS_EXPORT_FILE = Path(__file__).resolve().parent.parent.parent / "user_data" / "accounts_export.txt"
+
+
+def export_account_to_file(account, extra_fields: dict = None):
+    """
+    Append a newly registered account to the market-format export file.
+    Format: email:password:recovery_email:recovery_phone:first_last:birthday:user_agent:birth_ip:profile_path
+    
+    This creates one line per account in a text file that can be sold on
+    account markets or imported into other tools.
+    """
+    try:
+        ACCOUNTS_EXPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        
+        email = account.email or ""
+        password = account.password or ""
+        recovery = account.recovery_email or ""
+        recovery_phone = account.recovery_phone or ""
+        name = f"{account.first_name or ''} {account.last_name or ''}".strip()
+        birthday_str = ""
+        if account.birthday:
+            try:
+                birthday_str = account.birthday.strftime("%d.%m.%Y")
+            except Exception:
+                birthday_str = str(account.birthday)
+        ua = account.user_agent or ""
+        ip = account.birth_ip or ""
+        profile = account.browser_profile_path or ""
+        geo = account.geo or ""
+        provider = account.provider or ""
+
+        # Extra fields from caller (e.g. phone number used for SMS)
+        sms_phone = ""
+        if extra_fields:
+            sms_phone = extra_fields.get("sms_phone", "")
+
+        # Market format: email:pass:recovery:recovery_phone:sms_phone:name:birthday:geo:ua:ip:profile
+        line = ":".join([
+            email, password, recovery, recovery_phone, sms_phone,
+            name, birthday_str, geo, provider,
+        ])
+
+        with open(ACCOUNTS_EXPORT_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+        logger.info(f"📋 Account exported: {email} → {ACCOUNTS_EXPORT_FILE}")
+    except Exception as e:
+        logger.warning(f"📋 Export failed for {getattr(account, 'email', '?')}: {e}")
 
 
 def get_sms_provider(provider_name: str):
@@ -23,9 +74,34 @@ def get_sms_provider(provider_name: str):
     if provider_name == "grizzly":
         key = config.get("sms", {}).get("grizzly", {}).get("api_key", "")
         return GrizzlySMS(key) if key else None
+    elif provider_name == "5sim":
+        key = config.get("sms", {}).get("5sim", {}).get("api_key", "")
+        return FiveSimProvider(key) if key else None
     else:
         key = config.get("sms", {}).get("simsms", {}).get("api_key", "")
         return SimSmsProvider(key) if key else None
+
+
+# SMS provider priority for fallback chain
+SMS_FALLBACK_ORDER = ["simsms", "grizzly", "5sim"]
+
+
+def get_sms_chain(primary: str) -> list:
+    """Return ordered list of SMS providers: primary first, then fallbacks.
+    Only includes providers that have an API key configured."""
+    chain = []
+    # Primary first
+    p = get_sms_provider(primary)
+    if p:
+        chain.append((primary, p))
+    # Then fallbacks in order
+    for name in SMS_FALLBACK_ORDER:
+        if name == primary:
+            continue
+        fb = get_sms_provider(name)
+        if fb:
+            chain.append((name, fb))
+    return chain
 
 
 def get_captcha_provider():
@@ -149,11 +225,17 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
         return False
     
     try:
-        await page.locator(btn).first.click()
+        # Use force=True because Fluent UI labels often overlay the button
+        await page.locator(btn).first.click(force=True)
         await human_delay(0.3, 0.6)
     except Exception as e:
-        _log(f"⚠️ Не удалось кликнуть combobox '{label}': {e}")
-        return False
+        # Fallback: try clicking via JavaScript
+        try:
+            await page.locator(btn).first.evaluate("el => el.click()")
+            await human_delay(0.3, 0.6)
+        except Exception:
+            _log(f"⚠️ Не удалось кликнуть combobox '{label}': {e}")
+            return False
     
     try:
         await page.wait_for_selector('[role="listbox"]', timeout=3000)

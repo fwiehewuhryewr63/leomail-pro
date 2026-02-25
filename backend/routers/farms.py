@@ -5,7 +5,9 @@ from ..models import Farm, Account, farm_accounts
 from ..schemas import FarmCreate, FarmMerge, FarmSplit
 from loguru import logger
 from fastapi.responses import StreamingResponse
-import json, zipfile, io, datetime
+import json, zipfile, io, datetime, random
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/api/farms", tags=["farms"])
 
@@ -198,3 +200,132 @@ async def export_farm(farm_id: int, db: Session = Depends(get_db)):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="farm_{safe_name}.zip"'}
     )
+
+
+# ─── Provider detection from email domain ───
+DOMAIN_PROVIDER = {
+    "gmail.com": "gmail", "googlemail.com": "gmail",
+    "yahoo.com": "yahoo", "yahoo.co.uk": "yahoo", "yahoo.co.jp": "yahoo",
+    "aol.com": "aol",
+    "outlook.com": "outlook", "outlook.de": "outlook", "outlook.fr": "outlook",
+    "hotmail.com": "hotmail", "hotmail.co.uk": "hotmail", "hotmail.fr": "hotmail",
+    "live.com": "outlook", "msn.com": "outlook",
+}
+
+
+def _detect_provider(email: str) -> str:
+    """Detect provider from email domain."""
+    domain = email.split("@")[-1].lower()
+    if domain in DOMAIN_PROVIDER:
+        return DOMAIN_PROVIDER[domain]
+    # Fallback: check partial matches
+    for pattern, prov in DOMAIN_PROVIDER.items():
+        if domain.endswith(pattern.split(".")[-1]) and pattern.split(".")[0] in domain:
+            return prov
+    return "unknown"
+
+
+def _extract_name(email: str) -> tuple[str, str]:
+    """Try to extract first/last name from email prefix."""
+    prefix = email.split("@")[0]
+    # Remove digits and common separators
+    cleaned = ""
+    for c in prefix:
+        if c.isalpha():
+            cleaned += c
+        elif c in "._-":
+            cleaned += " "
+    parts = cleaned.strip().split()
+    if len(parts) >= 2:
+        return parts[0].capitalize(), parts[1].capitalize()
+    elif len(parts) == 1:
+        return parts[0].capitalize(), ""
+    return "", ""
+
+
+class AccountImportRequest(BaseModel):
+    lines: list[str]
+
+
+@router.post("/{farm_id}/import-accounts")
+async def import_accounts(farm_id: int, req: AccountImportRequest, db: Session = Depends(get_db)):
+    """Import accounts from text lines: email:pass or email:pass:recovery:recpass."""
+    farm = db.query(Farm).filter(Farm.id == farm_id).first()
+    if not farm:
+        return {"error": "Ферма не найдена"}
+
+    imported = 0
+    skipped = 0
+    providers = {}
+
+    for line in req.lines:
+        line = line.strip()
+        if not line or "@" not in line:
+            skipped += 1
+            continue
+
+        parts = line.split(":")
+        if len(parts) < 2:
+            skipped += 1
+            continue
+
+        email = parts[0].strip()
+        password = parts[1].strip()
+        recovery_email = parts[2].strip() if len(parts) > 2 else None
+        recovery_pass = parts[3].strip() if len(parts) > 3 else None
+
+        # Skip if already exists
+        existing = db.query(Account).filter(Account.email == email).first()
+        if existing:
+            # If exists but not in this farm, add to farm
+            if existing not in farm.accounts:
+                farm.accounts.append(existing)
+                imported += 1
+                p = existing.provider or "unknown"
+                providers[p] = providers.get(p, 0) + 1
+            else:
+                skipped += 1
+            continue
+
+        provider = _detect_provider(email)
+        first_name, last_name = _extract_name(email)
+
+        # Generate random birthday (18-35 years old)
+        year = random.randint(1990, 2006)
+        month = random.randint(1, 12)
+        day = random.randint(1, 28)
+        birthday = datetime.datetime(year, month, day)
+
+        gender = random.choice(["male", "female"])
+
+        account = Account(
+            email=email,
+            password=password,
+            provider=provider,
+            status="new",
+            first_name=first_name,
+            last_name=last_name,
+            gender=gender,
+            birthday=birthday,
+            recovery_email=recovery_email,
+            geo="US",
+            language="en",
+        )
+        # Store recovery password in metadata
+        if recovery_pass:
+            account.metadata_blob = {"recovery_pass": recovery_pass}
+
+        db.add(account)
+        db.flush()
+        farm.accounts.append(account)
+        imported += 1
+        providers[provider] = providers.get(provider, 0) + 1
+
+    db.commit()
+    logger.info(f"Imported {imported} accounts into farm '{farm.name}' (skipped {skipped})")
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "providers": providers,
+    }
+

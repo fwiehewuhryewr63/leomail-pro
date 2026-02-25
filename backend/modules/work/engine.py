@@ -576,6 +576,7 @@ async def run_work_task(
     delay_max: int = 180,
     max_link_uses: int = 0,
     max_link_cycles: int = 0,
+    same_provider: bool = False,
     threads: int = 10,
 ):
     """Run mass mailing campaign."""
@@ -692,7 +693,22 @@ async def run_work_task(
         links_exhausted = [False]
         exhaustion_reason = [None]
 
-        # Distribute recipients across accounts evenly
+        # Distribute recipients across accounts with cross/same provider filtering
+        def _get_provider(email: str) -> str:
+            """Extract provider from recipient email domain."""
+            domain = email.split("@")[-1].lower()
+            if "gmail" in domain or "googlemail" in domain:
+                return "gmail"
+            elif "yahoo" in domain:
+                return "yahoo"
+            elif "aol" in domain:
+                return "aol"
+            elif "hotmail" in domain:
+                return "hotmail"
+            elif "outlook" in domain or "live.com" in domain or "msn" in domain:
+                return "outlook"
+            return "other"
+
         per_account = max(1, len(all_recipients) // len(accounts))
         account_batches = []
         for i, account in enumerate(accounts):
@@ -700,7 +716,16 @@ async def run_work_task(
             end = start + per_account if i < len(accounts) - 1 else len(all_recipients)
             batch = all_recipients[start:end]
             if batch:
-                account_batches.append((account, batch))
+                # Cross/Same provider filtering per-account
+                acc_provider = (account.provider or "").lower()
+                if same_provider and acc_provider:
+                    # SAME: only send to recipients whose domain matches account provider
+                    batch = [r for r in batch if _get_provider(r['email']) == acc_provider]
+                elif not same_provider and acc_provider:
+                    # CROSS: only send to recipients with DIFFERENT provider
+                    batch = [r for r in batch if _get_provider(r['email']) != acc_provider]
+                if batch:
+                    account_batches.append((account, batch))
 
         if not account_batches:
             task.status = TaskStatus.STOPPED

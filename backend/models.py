@@ -23,10 +23,10 @@ class AccountStatus(str, enum.Enum):
 
 class ProxyStatus(str, enum.Enum):
     ACTIVE = "active"
-    FREE = "free"  # was bound, account died, proxy still alive
     EXPIRED = "expired"
     BANNED = "banned"
     DEAD = "dead"
+    EXHAUSTED = "exhausted"  # all provider limits hit, user should delete from proxy service
 
 class ProxyType(str, enum.Enum):
     SOCKS5 = "socks5"
@@ -369,3 +369,107 @@ class WarmupEmail(Base):
     # Reply tracking
     replied = Column(Boolean, default=False)
     replied_at = Column(DateTime, nullable=True)
+
+
+# ─── CAMPAIGN / BLITZ PIPELINE (v4) ──────────────────────────────────────────
+
+class CampaignStatus(str, enum.Enum):
+    DRAFT = "draft"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    STOPPED = "stopped"      # Resource exhaustion / manual stop
+
+
+class Campaign(Base):
+    """Blitz Pipeline campaign — continuous Birth → Send → Die → Repeat."""
+    __tablename__ = "campaigns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)              # "Brazil Nutra"
+    geo = Column(String, nullable=False)               # "BR"
+    niche = Column(String, default="general")          # nutra / dating / casino
+
+    status = Column(String, default=CampaignStatus.DRAFT)
+    stop_reason = Column(String, nullable=True)        # why it stopped
+
+    # Birth config
+    name_pack = Column(String, default="brazil_5k")    # name pack filename (without .txt)
+    providers = Column(JSON, default=list)              # ["gmail", "yahoo"]
+    gender = Column(String, default="female")           # always female for burn model
+
+    # Thread allocation
+    birth_threads = Column(Integer, default=10)
+    send_threads = Column(Integer, default=20)
+
+    # Link embedding
+    link_mode = Column(String, default="hyperlink")    # hyperlink / raw
+
+    # Live stats (updated by engine)
+    total_sent = Column(Integer, default=0)
+    total_errors = Column(Integer, default=0)
+    accounts_born = Column(Integer, default=0)
+    accounts_dead = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    templates = relationship("CampaignTemplate", back_populates="campaign", cascade="all, delete-orphan")
+    links = relationship("CampaignLink", back_populates="campaign", cascade="all, delete-orphan")
+    recipients = relationship("CampaignRecipient", back_populates="campaign", cascade="all, delete-orphan")
+
+    @property
+    def progress_pct(self):
+        total = len(self.recipients) if self.recipients else 0
+        if total == 0:
+            return 0
+        sent = sum(1 for r in self.recipients if r.sent)
+        return int((sent / total) * 100)
+
+
+class CampaignTemplate(Base):
+    """Email template for a campaign — rotated randomly during send."""
+    __tablename__ = "campaign_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    subject = Column(String, nullable=False)            # may contain {first_name}, {link}
+    body_html = Column(Text, nullable=False)            # HTML with {first_name}, {link}, {date}
+    style = Column(String, nullable=True)               # fomo / professional / casual
+    use_count = Column(Integer, default=0)
+    active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="templates")
+
+
+class CampaignLink(Base):
+    """ESP tracking link for a campaign — rotated with use limits + #hash randomization."""
+    __tablename__ = "campaign_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    esp_url = Column(String, nullable=False)            # ESP tracking URL
+    use_count = Column(Integer, default=0)
+    max_uses = Column(Integer, default=100)             # per-link limit before burning
+    active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="links")
+
+
+class CampaignRecipient(Base):
+    """Target email for a campaign — tracks sent status per recipient."""
+    __tablename__ = "campaign_recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    email = Column(String, nullable=False)
+    sent = Column(Boolean, default=False, index=True)
+    sent_at = Column(DateTime, nullable=True)
+    result = Column(String, nullable=True)              # ok / bounce / error
+
+    campaign = relationship("Campaign", back_populates="recipients")

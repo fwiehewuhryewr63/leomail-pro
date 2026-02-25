@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
 setlocal EnableDelayedExpansion
-title Leomail — UPDATE
+title Leomail v4 — UPDATE
 echo.
 echo ╔══════════════════════════════════════════════════╗
-echo ║          LEOMAIL v3 — ОБНОВЛЕНИЕ                  ║
+echo ║       LEOMAIL v4 — BLITZ PIPELINE UPDATE          ║
 echo ║   Сохраняет user_data/, обновляет код             ║
 echo ╚══════════════════════════════════════════════════╝
 echo.
@@ -12,7 +12,7 @@ echo.
 cd /d "%~dp0"
 
 REM === 1. Stop running services ===
-echo [1/6] Останавливаем сервисы...
+echo [1/7] Останавливаем сервисы...
 taskkill /f /im "python.exe" >nul 2>&1
 taskkill /f /im "node.exe" >nul 2>&1
 ping 127.0.0.1 -n 3 >nul
@@ -20,7 +20,7 @@ echo [OK] Сервисы остановлены
 
 REM === 2. Backup user_data to a FIXED location ===
 echo.
-echo [2/6] Бэкап user_data...
+echo [2/7] Бэкап user_data...
 set "BACKUP_DIR=user_data_backup"
 if exist "user_data" (
     if exist "!BACKUP_DIR!" rd /s /q "!BACKUP_DIR!" >nul 2>&1
@@ -37,7 +37,7 @@ if exist "user_data" (
 
 REM === 3. Pull latest code ===
 echo.
-echo [3/6] Обновление кода...
+echo [3/7] Обновление кода...
 where git >nul 2>&1
 if %errorlevel% equ 0 (
     if not exist ".git" (
@@ -63,7 +63,7 @@ if %errorlevel% equ 0 (
 
 REM === 4. ALWAYS restore user_data from backup ===
 echo.
-echo [4/6] Восстановление user_data...
+echo [4/7] Восстановление user_data...
 if not exist "user_data" mkdir "user_data"
 if exist "!BACKUP_DIR!\leomail.db" (
     xcopy /E /I /Y "!BACKUP_DIR!\*" "user_data\" >nul 2>&1
@@ -93,7 +93,7 @@ echo [OK] Браузеры Playwright обновлены
 
 REM === 6. Update frontend ===
 echo.
-echo [6/6] Обновление frontend...
+echo [6/7] Обновление frontend...
 cd frontend
 call npm install --silent 2>nul
 echo [OK] Зависимости frontend установлены
@@ -107,16 +107,17 @@ if %errorlevel% equ 0 (
 cd ..
 echo [OK] Frontend обновлён
 
-REM === Database migration (add new columns to existing tables) ===
+REM === 7. Database migration (add new columns + tables for v4) ===
 echo.
-echo [+] Миграция БД (добавление новых колонок)...
-python -c "from backend.database import engine, Base; from backend.models import *; Base.metadata.create_all(bind=engine); print('[OK] Таблицы синхронизированы')" 2>nul
+echo [7/7] Миграция БД v4 (Campaign tables + new columns)...
+python -c "from backend.database import engine, Base; from backend.models import *; Base.metadata.create_all(bind=engine); print('[OK] Все таблицы v4 синхронизированы (campaigns, campaign_templates, campaign_links, campaign_recipients)')" 2>nul
 
 echo.
 echo ╔══════════════════════════════════════════════════╗
-echo ║          ОБНОВЛЕНИЕ ЗАВЕРШЕНО!                    ║
+echo ║       ОБНОВЛЕНИЕ v4 ЗАВЕРШЕНО!                    ║
 echo ║                                                   ║
 echo ║   user_data/ восстановлена                        ║
+echo ║   Campaign tables созданы                         ║
 echo ║   Запустите START.bat для запуска                 ║
 echo ╚══════════════════════════════════════════════════╝
 echo.

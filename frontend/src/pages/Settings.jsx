@@ -10,6 +10,7 @@ import { API } from '../api';
 const SERVICE_KEYS = [
     { key: 'simsms_key', configPath: ['sms', 'simsms', 'api_key'], name: 'SimSMS', desc: 'SMS верификация (default)', required: true, service: 'simsms', services: ['Birth (все провайдеры)'] },
     { key: 'grizzly_key', configPath: ['sms', 'grizzly', 'api_key'], name: 'Grizzly SMS', desc: 'SMS верификация (alt)', required: false, service: 'grizzly', services: ['Birth (Gmail)'] },
+    { key: 'fivesim_key', configPath: ['sms', '5sim', 'api_key'], name: '5sim', desc: 'SMS верификация (fallback)', required: false, service: '5sim', services: ['Birth (все провайдеры)'] },
     { key: 'capguru_key', configPath: ['captcha', 'capguru', 'api_key'], name: 'CapGuru', desc: 'reCAPTCHA v2/v3 (Gmail, Yahoo)', required: true, service: 'capguru', services: ['Birth (reCAPTCHA)'] },
     { key: 'twocaptcha_key', configPath: ['captcha', 'twocaptcha', 'api_key'], name: '2Captcha', desc: 'FunCaptcha / Arkose (Outlook, Hotmail)', required: false, service: 'twocaptcha', services: ['Birth (Outlook/Hotmail)'] },
 ];

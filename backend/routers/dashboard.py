@@ -53,12 +53,19 @@ async def health_check():
     config = load_config()
     return {
         "status": "online",
-        "version": "3.0",
+        "version": "4.0",
         "configured": {
             "sms": bool(get_api_key("grizzly") or get_api_key("simsms")),
             "captcha": bool(get_api_key("capguru")),
         }
     }
+
+
+@router.get("/health/resources")
+async def resource_health(db: Session = Depends(get_db)):
+    """Full system resource health check — polled by dashboard."""
+    from ..services.resource_auditor import check_system_health
+    return check_system_health(db)
 
 
 @router.get("/dashboard")

@@ -57,20 +57,17 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
 @router.get("/stats")
 async def proxy_stats(db: Session = Depends(get_db)):
     pm = ProxyManager(db)
-    stats = pm.get_stats()
-    # Add free count
-    stats["free"] = db.query(Proxy).filter(Proxy.status == "free").count()
-    return stats
+    return pm.get_stats()
 
 
 @router.post("/{proxy_id}/move-to-active")
 async def move_to_active(proxy_id: int, db: Session = Depends(get_db)):
-    """Move a free proxy back to active pool."""
+    """Move a dead/exhausted/expired proxy back to active pool."""
     proxy = db.query(Proxy).filter(Proxy.id == proxy_id).first()
     if not proxy:
         return {"error": "Proxy not found"}
-    if proxy.status not in ("free", "dead", "expired", "banned"):
-        return {"error": f"Proxy is already {proxy.status}"}
+    if proxy.status == "active":
+        return {"error": "Proxy is already active"}
     proxy.status = "active"
     proxy.fail_count = 0
     db.commit()
@@ -86,68 +83,171 @@ class ProxyImportSimple(BaseModel):
 
 
 def parse_proxy_line(line: str) -> dict | None:
-    """Auto-parse proxy in any format. Returns {host, port, username, password, protocol, proxy_type}."""
-    line = line.strip()
+    """Auto-parse proxy in ANY format. Returns {host, port, username, password, protocol, proxy_type}.
+    
+    Supported formats:
+        protocol://user:pass@host:port
+        protocol://host:port
+        user:pass@host:port
+        host:port:user:pass
+        user:pass:host:port  (if host looks like IP or hostname)
+        host:port
+    
+    Protocol: http, https, socks4, socks5
+    Host: IP (1.2.3.4) or hostname (proxy.example.com)
+    """
+    line = line.strip().rstrip('/')
     if not line or line.startswith('#'):
         return None
 
     host = port = username = password = None
     detected_protocol = None
 
-    # Format: protocol://user:pass@host:port
-    m = re.match(r'^(https?|socks[45]?)://([^:]+):([^@]+)@([^:]+):(\d+)$', line)
-    if m:
-        detected_protocol = m.group(1).lower()
-        username, password, host, port = m.group(2), m.group(3), m.group(4), int(m.group(5))
-    
-    # Format: user:pass@host:port
-    if not host:
-        m = re.match(r'^([^:@]+):([^@]+)@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)$', line)
-        if m:
-            username, password, host, port = m.group(1), m.group(2), m.group(3), int(m.group(4))
+    # ─── 1. Protocol prefix: protocol://... ───
+    proto_match = re.match(r'^(https?|socks[45]?)://', line, re.IGNORECASE)
+    if proto_match:
+        detected_protocol = proto_match.group(1).lower()
+        line = line[proto_match.end():]  # strip protocol://
 
-    # Format: host:port:user:pass
-    if not host:
-        parts = line.split(':')
-        if len(parts) >= 2:
-            # Check which part is the IP
-            if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', parts[0]):
+    # ─── 2. Auth separator: user:pass@host:port ───
+    if '@' in line:
+        auth_part, server_part = line.rsplit('@', 1)
+        # Parse auth (user:pass)
+        if ':' in auth_part:
+            username, password = auth_part.split(':', 1)
+        else:
+            username = auth_part
+            password = ''
+        # Parse server (host:port)
+        # Handle IPv6 [::1]:port or host:port
+        if server_part.startswith('['):
+            # IPv6: [::1]:port
+            m6 = re.match(r'^\[([^\]]+)\]:(\d+)$', server_part)
+            if m6:
+                host, port = m6.group(1), int(m6.group(2))
+        else:
+            parts = server_part.rsplit(':', 1)
+            if len(parts) == 2:
                 host = parts[0]
                 try:
                     port = int(parts[1])
                 except ValueError:
                     return None
-                username = parts[2] if len(parts) > 2 else None
-                password = parts[3] if len(parts) > 3 else None
-            # Format: user:pass@ip:port already handled above
-            # Check if last part could be IP  
-            elif len(parts) >= 4 and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', parts[2]):
+            else:
+                host = parts[0]
+                port = 1080 if detected_protocol and 'socks' in detected_protocol else 80
+
+    # ─── 3. No @: could be host:port, host:port:user:pass, or user:pass:host:port ───
+    else:
+        parts = line.split(':')
+        
+        if len(parts) == 2:
+            # host:port
+            host = parts[0]
+            try:
+                port = int(parts[1])
+            except ValueError:
+                return None
+
+        elif len(parts) == 4:
+            # Could be host:port:user:pass OR user:pass:host:port
+            # Strategy: check for IP FIRST (strongest signal), then hostname
+            p0_is_ip = bool(re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', parts[0]))
+            p2_is_ip = bool(re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', parts[2]))
+            
+            if p0_is_ip and not p2_is_ip:
+                # IP:port:user:pass
+                host = parts[0]
+                try:
+                    port = int(parts[1])
+                except ValueError:
+                    return None
+                username, password = parts[2], parts[3]
+            elif p2_is_ip and not p0_is_ip:
+                # user:pass:IP:port
                 username, password = parts[0], parts[1]
                 host = parts[2]
                 try:
                     port = int(parts[3])
                 except ValueError:
                     return None
+            elif p0_is_ip and p2_is_ip:
+                # Both IPs — default to host:port:user:pass
+                host = parts[0]
+                try:
+                    port = int(parts[1])
+                except ValueError:
+                    return None
+                username, password = parts[2], parts[3]
+            else:
+                # Neither is IP — check hostnames (with dots like proxy.com)
+                p0_is_host = _looks_like_host(parts[0])
+                p2_is_host = _looks_like_host(parts[2])
+                if p0_is_host:
+                    host = parts[0]
+                    try:
+                        port = int(parts[1])
+                    except ValueError:
+                        return None
+                    username, password = parts[2], parts[3]
+                elif p2_is_host:
+                    username, password = parts[0], parts[1]
+                    host = parts[2]
+                    try:
+                        port = int(parts[3])
+                    except ValueError:
+                        return None
+                else:
+                    return None
+
+        elif len(parts) == 3:
+            # host:port:user (no password) — rare but handle it
+            if _looks_like_host(parts[0]):
+                host = parts[0]
+                try:
+                    port = int(parts[1])
+                except ValueError:
+                    return None
+                username = parts[2]
+            else:
+                return None
+        else:
+            return None
 
     if not host or not port:
         return None
+    
+    # Validate port range
+    if port < 1 or port > 65535:
+        return None
+    
+    # Strip whitespace from all fields
+    host = host.strip()
+    if username:
+        username = username.strip()
+    if password:
+        password = password.strip()
 
-    # Auto-detect type: socks5, http, or mobile
-    proxy_type = "http"  # default (covers residential too)
+    # ─── Auto-detect proxy type ───
+    proxy_type = "http"
     user_lower = (username or "").lower()
 
     if detected_protocol and 'socks' in detected_protocol:
         proxy_type = "socks5"
     elif 'mobile' in user_lower:
-        # Only explicit 'mobile' keyword = mobile proxy
-        # Keywords like 'session', 'hold', 'country', 'rotating' are used by
-        # residential providers (Bright Data, Smartproxy, etc.) — NOT mobile
         proxy_type = "mobile"
-    elif port == 1080 or port == 1081:
+    elif detected_protocol == 'https':
+        proxy_type = "https"
+    elif port in (1080, 1081, 1082):
         proxy_type = "socks5"
 
     # Protocol derived from type
-    protocol = "socks5" if proxy_type == "socks5" else "http"
+    if proxy_type == "socks5":
+        protocol = "socks5"
+    elif proxy_type == "https":
+        protocol = "https"
+    else:
+        protocol = "http"
 
     return {
         "host": host,
@@ -157,6 +257,21 @@ def parse_proxy_line(line: str) -> dict | None:
         "protocol": protocol,
         "proxy_type": proxy_type,
     }
+
+
+def _looks_like_host(s: str) -> bool:
+    """Check if string looks like an IP address or hostname."""
+    s = s.strip()
+    # IPv4: 1.2.3.4
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', s):
+        return True
+    # Hostname: contains dot and letters (proxy.example.com)
+    if '.' in s and re.search(r'[a-zA-Z]', s):
+        return True
+    # Single word hostname (rare but valid: localhost, proxy-server)
+    if re.match(r'^[a-zA-Z][a-zA-Z0-9\-]+$', s):
+        return True
+    return False
 
 
 @router.post("/import")
@@ -218,7 +333,7 @@ async def import_proxies(req: ProxyImportSimple, db: Session = Depends(get_db)):
 
 @router.delete("/dead")
 async def delete_dead_proxies(db: Session = Depends(get_db)):
-    """Delete all dead/expired proxies. Unbind accounts first."""
+    """Delete all dead/expired/banned proxies. Unbind accounts first."""
     dead_proxies = db.query(Proxy).filter(
         Proxy.status.in_(["dead", "expired", "banned"])
     ).all()
@@ -227,7 +342,6 @@ async def delete_dead_proxies(db: Session = Depends(get_db)):
     if not dead_ids:
         return {"deleted": 0}
 
-    # Unbind accounts from dead proxies
     accounts = db.query(Account).filter(Account.proxy_id.in_(dead_ids)).all()
     for acc in accounts:
         acc.proxy_id = None
@@ -236,6 +350,24 @@ async def delete_dead_proxies(db: Session = Depends(get_db)):
     db.commit()
     logger.info(f"Deleted {len(dead_ids)} dead proxies, unbound {len(accounts)} accounts")
     return {"deleted": len(dead_ids), "unbound_accounts": len(accounts)}
+
+
+@router.delete("/exhausted")
+async def delete_exhausted_proxies(db: Session = Depends(get_db)):
+    """Delete all exhausted proxies (all provider limits hit). Unbind accounts first."""
+    exhausted = db.query(Proxy).filter(Proxy.status == "exhausted").all()
+    ids = [p.id for p in exhausted]
+    if not ids:
+        return {"deleted": 0}
+
+    accounts = db.query(Account).filter(Account.proxy_id.in_(ids)).all()
+    for acc in accounts:
+        acc.proxy_id = None
+
+    db.query(Proxy).filter(Proxy.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    logger.info(f"Deleted {len(ids)} exhausted proxies")
+    return {"deleted": len(ids), "unbound_accounts": len(accounts)}
 
 
 @router.delete("/all")
@@ -330,17 +462,18 @@ async def auto_reassign(db: Session = Depends(get_db)):
 
 @router.post("/reset-all")
 async def reset_all_proxies(db: Session = Depends(get_db)):
-    """Reset ALL proxies back to active status. Useful after migration."""
+    """Reset ALL proxies back to active status (including exhausted). Useful after migration."""
     count = db.query(Proxy).filter(
-        Proxy.status.in_([ProxyStatus.DEAD, "dead", ProxyStatus.EXPIRED, "expired", ProxyStatus.BANNED, "banned"])
+        Proxy.status.in_([ProxyStatus.DEAD, "dead", ProxyStatus.EXPIRED, "expired",
+                          ProxyStatus.BANNED, "banned", ProxyStatus.EXHAUSTED, "exhausted"])
     ).count()
-    
+
     db.query(Proxy).update({
         Proxy.status: ProxyStatus.ACTIVE,
         Proxy.fail_count: 0,
     }, synchronize_session=False)
     db.commit()
-    
+
     logger.info(f"Reset {count} proxies to ACTIVE")
     return {"reset": count, "total": db.query(Proxy).count()}
 

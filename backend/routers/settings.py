@@ -18,6 +18,7 @@ class ProxyConfig(BaseModel):
 class SettingsUpdate(BaseModel):
     grizzly_key: Optional[str] = None
     simsms_key: Optional[str] = None
+    fivesim_key: Optional[str] = None
     capguru_key: Optional[str] = None
     twocaptcha_key: Optional[str] = None
     headless: Optional[bool] = None
@@ -35,6 +36,10 @@ async def get_settings():
             "simsms": {
                 "api_key": mask_key(config.get("sms", {}).get("simsms", {}).get("api_key", "")),
                 "enabled": config.get("sms", {}).get("simsms", {}).get("enabled", True)
+            },
+            "5sim": {
+                "api_key": mask_key(config.get("sms", {}).get("5sim", {}).get("api_key", "")),
+                "enabled": config.get("sms", {}).get("5sim", {}).get("enabled", True)
             }
         },
         "captcha": {
@@ -60,6 +65,8 @@ async def update_settings(update: SettingsUpdate):
         config.setdefault("sms", {}).setdefault("grizzly", {})["api_key"] = update.grizzly_key
     if update.simsms_key is not None:
         config.setdefault("sms", {}).setdefault("simsms", {})["api_key"] = update.simsms_key
+    if update.fivesim_key is not None:
+        config.setdefault("sms", {}).setdefault("5sim", {})["api_key"] = update.fivesim_key
     if update.capguru_key is not None:
         config.setdefault("captcha", {}).setdefault("capguru", {})["api_key"] = update.capguru_key
     if update.twocaptcha_key is not None:
@@ -106,6 +113,17 @@ async def test_service(service: str):
             tc = TwoCaptchaProvider(key)
             balance = tc.get_balance()
             return {"status": "ok", "message": f"Connected! Balance: ${balance:.2f}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    elif service == "5sim":
+        try:
+            from ..services.fivesim_provider import FiveSimProvider
+            sms = FiveSimProvider(key)
+            balance = sms.get_balance()
+            if balance <= 0:
+                return {"status": "error", "message": "Неверный API ключ 5sim или нулевой баланс"}
+            return {"status": "ok", "message": f"Connected! Баланс: {balance}₽"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     

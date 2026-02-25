@@ -58,7 +58,7 @@ export default function Dashboard() {
         <div className="page">
             <h2 className="page-title">
                 <LayoutDashboard size={22} /> {t('dashboardTitle')}
-                <span style={{ marginLeft: 'auto', fontSize: '0.42em', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: 2 }}>v3.0</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.42em', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: 2 }}>v4.0 BLITZ</span>
             </h2>
 
             {/* Top stats row */}
@@ -189,7 +189,7 @@ export default function Dashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
                 {[
                     { icon: Zap, label: t('birth'), desc: t('registerAccounts'), to: '/birth' },
-                    { icon: TrendingUp, label: t('warmup'), desc: t('warmupAccounts'), to: '/warmup' },
+                    { icon: TrendingUp, label: 'Кампании', desc: 'Blitz Pipeline', to: '/campaigns' },
                     { icon: Send, label: t('work'), desc: t('startMailing'), to: '/work' },
                     { icon: Shield, label: t('proxies'), desc: t('manageProxies'), to: '/proxies' },
                 ].map((a, i) => (

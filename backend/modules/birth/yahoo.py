@@ -28,6 +28,7 @@ from ._helpers import (
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2,
+    export_account_to_file,
 )
 
 async def register_single_yahoo(
@@ -91,10 +92,12 @@ async def register_single_yahoo(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Pre-registration warmup
-        _log("Прогрев сессии...")
+        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
+        _log("Быстрый прогрев сессии...")
         try:
-            await pre_registration_warmup(page)
+            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(1, 2)
+            await random_mouse_move(page, steps=2)
         except Exception:
             pass
 
@@ -103,7 +106,7 @@ async def register_single_yahoo(
         try:
             await page.goto(
                 "https://login.yahoo.com/account/create",
-                wait_until="networkidle",
+                wait_until="domcontentloaded",
                 timeout=60000,
             )
         except Exception as nav_e:
@@ -165,7 +168,8 @@ async def register_single_yahoo(
 
         # Email / Username
         email_sel = await _wait_for_any(page, [
-            'input[name="yid"]', '#usernamereg-yid', 'input[name="userId"]',
+            'input#reg-userId', 'input[name="userId"]',
+            'input[name="yid"]', '#usernamereg-yid',
             'input[aria-label*="user"]', 'input[aria-label*="email"]',
             'input[placeholder*="email"]', 'input[placeholder*="user"]',
         ], timeout=5000)
@@ -213,46 +217,14 @@ async def register_single_yahoo(
 
         await _human_delay(1.5, 3.0)  # Human reviews form before submitting
 
-        # Scroll to checkbox and Next button
+        # Scroll to Next button (Yahoo no longer has a terms checkbox)
         await page.mouse.wheel(0, random.randint(100, 200))
         await _human_delay(0.8, 1.5)
 
-        # ── CHECK "I agree to these terms" CHECKBOX ──
-        # This is REQUIRED by Yahoo — form won't submit without it!
-        agree_checkbox = await _wait_for_any(page, [
-            'input[type="checkbox"]#consent-agree',
-            'input[type="checkbox"][name*="agree"]',
-            'input[type="checkbox"][name*="consent"]',
-            'label:has-text("I agree") input[type="checkbox"]',
-            'input[type="checkbox"]',
-        ], timeout=5000)
-        if agree_checkbox:
-            try:
-                is_checked = await page.locator(agree_checkbox).first.is_checked()
-                if not is_checked:
-                    await _human_click(page, agree_checkbox)
-                    _log("☑️ Чекбокс 'I agree' — поставлен")
-                    await _human_delay(0.5, 1.0)
-            except Exception:
-                # Fallback: try clicking the label
-                try:
-                    label = await _wait_for_any(page, [
-                        'label:has-text("I agree")', 'label:has-text("agree to")',
-                        'label:has-text("согласен")', 'label:has-text("Принимаю")',
-                    ], timeout=2000)
-                    if label:
-                        await _human_click(page, label)
-                        _log("☑️ Чекбокс 'I agree' — поставлен через label")
-                except Exception:
-                    _log("⚠️ Не удалось поставить чекбокс")
-        else:
-            _log("Чекбокс согласия не найден — возможно не требуется")
-
-        await _human_delay(0.5, 1.0)
-
-        # Click Next / Continue / Submit
+        # Click Next / Continue / Submit — with "Email not available" retry
         _log("Отправка формы (Next)...")
         submit_btn = await _wait_for_any(page, [
+            'button[name="signup"]',
             'button:has-text("Next")', 'button:has-text("Далее")',
             'button[type="submit"]', '#reg-submit-button',
             'button:has-text("Continue")', 'button:has-text("Продолжить")',
@@ -270,6 +242,52 @@ async def register_single_yahoo(
 
         await _human_delay(4, 8)  # Longer wait for page transition
 
+        # ── CRITICAL: Detect "Email not available" and retry with new username ──
+        for email_retry in range(3):
+            try:
+                page_text = await page.locator('body').inner_text()
+                email_taken_phrases = [
+                    "email not available",
+                    "not available",
+                    "already taken",
+                    "уже занят",
+                    "недоступен",
+                ]
+                email_taken = any(p.lower() in page_text.lower() for p in email_taken_phrases)
+            except Exception:
+                email_taken = False
+
+            if email_taken:
+                old_username = username
+                username = generate_username(first_name, last_name)
+                _log(f"⚠️ Email '{old_username}@yahoo.com' занят! Пробуем: {username}")
+                # Re-fill username field
+                email_sel_retry = await _wait_for_any(page, [
+                    'input[name="yid"]', '#usernamereg-yid', 'input[name="userId"]',
+                ], timeout=3000)
+                if email_sel_retry:
+                    await page.locator(email_sel_retry).first.fill("")
+                    await _human_fill(page, email_sel_retry, username)
+                    await _human_delay(1, 2)
+                    # Re-click submit
+                    submit_retry = await _wait_for_any(page, [
+                        'button:has-text("Next")', 'button[type="submit"]',
+                        'button:has-text("Continue")',
+                    ], timeout=3000)
+                    if submit_retry:
+                        await _human_click(page, submit_retry)
+                    else:
+                        await page.keyboard.press("Enter")
+                    await _human_delay(4, 8)
+                else:
+                    _err("Поле email не найдено для повторного ввода")
+                    return None
+            else:
+                break  # No error — proceed
+        else:
+            _err(f"Yahoo отклонил 3 username подряд — пробуйте другие имена")
+            return None
+
         # ── Post-submit: Handle Yahoo's "Add your phone number" page ──
         post_url = page.url
         _log(f"После отправки: {post_url}")
@@ -281,7 +299,7 @@ async def register_single_yahoo(
         # Yahoo shows a separate "Add your phone number" page after registration
         # We need to detect it, ORDER the SMS number, fill phone, and click "Get code by text"
         phone_page_input = await _wait_for_any(page, [
-            'input[name="phone"]', 'input#phone-number',
+            'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
             'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
             'input[data-type="phone"]', 'input[autocomplete="tel"]',
         ], timeout=15000)
@@ -323,10 +341,17 @@ async def register_single_yahoo(
                 "hr": "HR", "si": "SI", "lv": "LV", "lt": "LT", "uy": "UY", "bo": "BO",
             }
             # Reverse: phone prefix → SMS provider country code (e.g. "55" → "br")
+            # Prefer real countries over virtual (us over us_v), and prefer longer prefixes
             PREFIX_TO_SMS_COUNTRY = {}
             for sms_cc, prefix in PHONE_COUNTRY_MAP.items():
-                if sms_cc not in PREFIX_TO_SMS_COUNTRY or len(prefix) > len(PREFIX_TO_SMS_COUNTRY.get(sms_cc, "")):
+                if prefix not in PREFIX_TO_SMS_COUNTRY:
                     PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
+                elif "_v" in PREFIX_TO_SMS_COUNTRY[prefix] and "_v" not in sms_cc:
+                    # Prefer real country ("us") over virtual ("us_v")
+                    PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
+            # Explicit overrides for ambiguous prefixes
+            PREFIX_TO_SMS_COUNTRY["1"] = "us"  # +1 = US (not Canada or US Virtual)
+            PREFIX_TO_SMS_COUNTRY["7"] = "ru"  # +7 = Russia (not Kazakhstan)
 
             # ── STEP 1: Detect Yahoo's displayed country code from the page ──
             yahoo_page_prefix = None
@@ -351,13 +376,16 @@ async def register_single_yahoo(
                             return match[1];
                         }
                     }
-                    // Check select elements for selected country code
-                    const selects = document.querySelectorAll('select');
+                    // Check select elements for selected country code (Yahoo uses select[id^=countryCode])
+                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
                     for (const sel of selects) {
                         const opt = sel.options[sel.selectedIndex];
                         if (opt) {
                             const m = opt.text.match(/\\+(\\d{1,4})/);
                             if (m) return m[1];
+                            // Also check value attribute
+                            const vm = (opt.value || '').match(/(\\d{1,4})/);
+                            if (vm) return vm[1];
                         }
                     }
                     return null;
@@ -533,6 +561,8 @@ async def register_single_yahoo(
                     # Check for phone rejection error on page
                     try:
                         page_text = await page.locator('body').inner_text()
+                        # Only check for SPECIFIC phone rejection phrases
+                        # Removed generic phrases ("oops", "something went wrong") that cause false positives
                         rejection_phrases = [
                             "don't support this number",
                             "doesn't look right",
@@ -540,12 +570,7 @@ async def register_single_yahoo(
                             "invalid phone",
                             "try another number",
                             "provide another one",
-                            "something went wrong",
-                            "oops",
-                            "error occurred",
-                            "can't proceed",
-                            "unable to verify",
-                            "try again later",
+                            "unable to verify this number",
                             "не поддерживается",
                             "неверный номер",
                         ]
@@ -779,7 +804,54 @@ async def register_single_yahoo(
             await _human_delay(3, 5)
 
         email = f"{username}@yahoo.com"
-        _log(f"Финальный URL: {page.url}")
+        final_url = page.url
+        _log(f"Финальный URL: {final_url}")
+
+        # ── CRITICAL: Verify registration actually succeeded ──
+        # Check URL and page content for success indicators
+        registration_success = False
+        try:
+            # Yahoo redirects to mail.yahoo.com, or shows welcome/setup/success pages
+            success_indicators_url = [
+                "mail.yahoo.com",
+                "account/create/success",   # Confirmed via real browser testing
+                "login.yahoo.com/account/verify",
+                "login.yahoo.com/account/challenge",
+                "/welcome",
+                "/myaccount",
+                "/manage_account",
+            ]
+            if any(ind in final_url.lower() for ind in success_indicators_url):
+                registration_success = True
+                _log("✅ URL подтверждает успешную регистрацию")
+
+            # Check if we left the /account/create page (but NOT /account/create/success!)
+            if not registration_success:
+                # Parse: on create page but NOT on success page = still registering
+                on_create = "/account/create" in final_url
+                on_success = "/account/create/success" in final_url
+                if not on_create or on_success:
+                    registration_success = True
+                    _log("✅ Покинули страницу регистрации — считаем успехом")
+
+            # Final check: look for error indicators
+            if registration_success:
+                page_text = await page.locator('body').inner_text()
+                fail_indicators = ["registration failed", "account could not be created", "ошибка регистрации"]
+                if any(fi.lower() in page_text.lower() for fi in fail_indicators):
+                    registration_success = False
+                    _err("❌ Страница содержит индикаторы ошибки регистрации")
+        except Exception as e:
+            _log(f"Проверка успеха: ошибка ({e}), считаем успехом если URL сменился")
+            on_create = "/account/create" in final_url
+            on_success = "/account/create/success" in final_url
+            if not on_create or on_success:
+                registration_success = True
+
+        if not registration_success:
+            _err(f"❌ Регистрация НЕ подтверждена! URL: {final_url}")
+            await _debug_screenshot(page, "yahoo_registration_not_confirmed", _log)
+            return None
 
         # Save session
         try:
@@ -810,6 +882,7 @@ async def register_single_yahoo(
                 pass
 
         logger.info(f"✅ Yahoo registered: {email}")
+        export_account_to_file(account, {"sms_phone": locals().get("display_phone", "")})
         return account
 
     except Exception as e:

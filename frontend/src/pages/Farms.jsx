@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Database, Plus, Download, Trash2, ChevronRight, Users, X,
-    Activity, Calendar, Mail, AlertTriangle, TrendingUp
+    Activity, Calendar, Mail, AlertTriangle, TrendingUp, Merge, Upload
 } from 'lucide-react';
 
 import { API } from '../api';
@@ -14,6 +14,10 @@ export default function Farms() {
     const [farmDetail, setFarmDetail] = useState(null);
     const [detailTab, setDetailTab] = useState('accounts');
     const [selected, setSelected] = useState(new Set());
+    const [showMerge, setShowMerge] = useState(false);
+    const [mergeName, setMergeName] = useState('');
+    const [showImport, setShowImport] = useState(false);
+    const [importText, setImportText] = useState('');
 
     const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
     const toggleAll = () => setSelected(prev => prev.size === farms.length ? new Set() : new Set(farms.map(f => f.id)));
@@ -21,6 +25,31 @@ export default function Farms() {
         if (!confirm(`Удалить ${selected.size} ферм?`)) return;
         await fetch(`${API}/farms/batch-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected] }) });
         setSelected(new Set()); load();
+    };
+
+    const mergeFarms = async () => {
+        if (!mergeName.trim() || selected.size < 2) return;
+        const res = await fetch(`${API}/farms/merge`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source_farm_ids: [...selected], target_name: mergeName })
+        });
+        const d = await res.json();
+        alert(`Объединено ${d.accounts_merged} аккаунтов в ферму "${mergeName}"`);
+        setSelected(new Set()); setShowMerge(false); setMergeName(''); load();
+    };
+
+    const importAccounts = async () => {
+        if (!importText.trim() || !farmDetail) return;
+        const lines = importText.split('\n').filter(l => l.trim());
+        const res = await fetch(`${API}/farms/${farmDetail.id}/import-accounts`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lines })
+        });
+        const d = await res.json();
+        if (d.error) { alert(d.error); return; }
+        alert(`Импортировано ${d.imported} аккаунтов (${Object.entries(d.providers || {}).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
+        setImportText(''); setShowImport(false);
+        viewFarm(farmDetail.id);
     };
 
     const load = () => fetch(`${API}/farms/`).then(r => r.json()).then(setFarms).catch(() => { });
@@ -102,11 +131,16 @@ export default function Farms() {
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-muted)' }}>
                             <input type="checkbox" checked={selected.size === farms.length && farms.length > 0} onChange={toggleAll} /> Выбрать всё
                         </label>
-                        {selected.size > 0 && (
+                        {selected.size > 0 && (<>
                             <button className="btn btn-danger btn-sm" onClick={batchDelete} style={{ marginLeft: 'auto' }}>
                                 <Trash2 size={12} /> Удалить выбранные ({selected.size})
                             </button>
-                        )}
+                            {selected.size >= 2 && (
+                                <button className="btn btn-sm" onClick={() => setShowMerge(true)} style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                                    <Merge size={12} /> Объединить ({selected.size})
+                                </button>
+                            )}
+                        </>)}
                     </div>
                     {farms.map(farm => (
                         <div key={farm.id} className="card card-clickable" onClick={() => viewFarm(farm.id)} style={{ border: selected.has(farm.id) ? '1px solid var(--danger)' : undefined }}>
@@ -155,7 +189,12 @@ export default function Farms() {
                                 <div style={{ fontWeight: 700, fontSize: '1.1em' }}>{farmDetail.name}</div>
                                 <div style={{ fontSize: '0.72em', color: '#006611' }}>{farmDetail.accounts?.length || 0} аккаунтов</div>
                             </div>
-                            <button className="btn btn-sm" onClick={() => setFarmDetail(null)}><X size={14} /></button>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <button className="btn btn-sm" onClick={() => setShowImport(true)} style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                                    <Upload size={12} /> Импорт аккаунтов
+                                </button>
+                                <button className="btn btn-sm" onClick={() => setFarmDetail(null)}><X size={14} /></button>
+                            </div>
                         </div>
 
                         {/* Stats summary */}
@@ -216,10 +255,50 @@ export default function Farms() {
                                 </div>
                             </div>
                         )}
+                        {/* Import accounts modal */}
+                        {showImport && (
+                            <div style={{ marginTop: 12, padding: 16, background: 'rgba(0,255,65,0.03)', borderRadius: 8, border: '1px solid rgba(0,255,65,0.1)' }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.85em', marginBottom: 8 }}>Импорт аккаунтов</div>
+                                <div style={{ fontSize: '0.7em', color: '#006611', marginBottom: 8 }}>
+                                    Форматы: email:pass или email:pass:recovery_email:recovery_pass
+                                </div>
+                                <textarea className="form-input" rows={6} value={importText} onChange={e => setImportText(e.target.value)}
+                                    placeholder={'user@gmail.com:MyPass123\nuser@yahoo.com:Pass456:recovery@mail.com:RecoveryPass'}
+                                    style={{ fontFamily: 'monospace', fontSize: '0.78em' }} />
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <button className="btn btn-primary btn-sm" onClick={importAccounts} disabled={!importText.trim()}>
+                                        <Upload size={12} /> Импортировать {importText.trim() ? `(${importText.split('\n').filter(l => l.trim()).length})` : ''}
+                                    </button>
+                                    <button className="btn btn-sm" onClick={() => setShowImport(false)}>Отмена</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )
             }
+
+            {/* Merge modal */}
+            {showMerge && (
+                <div className="modal-overlay" onClick={() => setShowMerge(false)}>
+                    <div className="card modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 400, padding: 24 }}>
+                        <div style={{ fontWeight: 700, fontSize: '1em', marginBottom: 12 }}>
+                            <Merge size={16} /> Объединить {selected.size} ферм
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Название новой фермы</label>
+                            <input className="form-input" value={mergeName} onChange={e => setMergeName(e.target.value)}
+                                placeholder="Например: Combined Farm" autoFocus />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn btn-primary" onClick={mergeFarms} disabled={!mergeName.trim()}>
+                                <Merge size={14} /> Объединить
+                            </button>
+                            <button className="btn" onClick={() => setShowMerge(false)}>Отмена</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

@@ -46,6 +46,7 @@ async def start_work(request: WorkRequest, background_tasks: BackgroundTasks):
         delay_max=request.delay_max,
         max_link_uses=request.max_link_uses,
         max_link_cycles=request.max_link_cycles,
+        same_provider=request.same_provider,
         threads=request.threads,
     )
     return {

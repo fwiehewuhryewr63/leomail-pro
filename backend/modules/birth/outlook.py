@@ -1,8 +1,10 @@
 """
 Leomail v3 — Outlook/Hotmail Registration Engine
+Upgraded: human_fill, BIRTH_CANCEL_EVENT, better error handling, proxy detection.
 """
 import asyncio
 import random
+import threading
 from loguru import logger
 from sqlalchemy.orm import Session
 
@@ -26,6 +28,7 @@ from ._helpers import (
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
+    export_account_to_file,
 )
 
 
@@ -39,12 +42,15 @@ async def register_single_outlook(
     thread_log: ThreadLog | None = None,
     domain: str = "outlook.com",
     ACTIVE_PAGES: dict = None,
+    BIRTH_CANCEL_EVENT: threading.Event = None,
 ) -> Account | None:
     """Register a single Outlook/Hotmail account with human-like behavior."""
     if ACTIVE_PAGES is None:
         ACTIVE_PAGES = {}
+    if BIRTH_CANCEL_EVENT is None:
+        BIRTH_CANCEL_EVENT = threading.Event()
     if not name_pool:
-        logger.error("[Birth] ❌ Нет имён! Загрузите пакет имён перед регистрацией.")
+        logger.error("[Outlook] ❌ Нет имён! Загрузите пакет имён перед регистрацией.")
         if thread_log:
             thread_log.status = "error"
             thread_log.error_message = "Нет имён! Загрузите пакет имён."
@@ -90,9 +96,12 @@ async def register_single_outlook(
         page = await context.new_page()
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        _log("Прогрев сессии...")
+        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
+        _log("Быстрый прогрев сессии...")
         try:
-            await pre_registration_warmup(page)
+            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(1, 2)
+            await random_mouse_move(page, steps=2)
         except Exception as warmup_e:
             logger.debug(f"Warmup error (proxy may be dead): {warmup_e}")
 
@@ -100,18 +109,20 @@ async def register_single_outlook(
         if "chrome-error" in warmup_url or "about:blank" == warmup_url:
             _log("⚠️ Прокси не работает, прогрев не удался")
 
+        # ── Step 1: Navigate to Outlook signup ──
         _log("Открытие страницы регистрации...")
         try:
             await page.goto(
                 "https://signup.live.com/signup",
-                wait_until="networkidle",
+                wait_until="domcontentloaded",
                 timeout=60000,
             )
         except Exception as nav_e:
-            logger.warning(f"[Birth] Navigation error: {nav_e}")
+            logger.warning(f"[Outlook] Navigation error: {nav_e}")
 
         await _human_delay(2, 4)
 
+        # CRITICAL: Check if proxy is dead
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
             _err(f"🔴 Прокси МЁРТВ — страница не загрузилась (URL: {current_url})")
@@ -125,9 +136,15 @@ async def register_single_outlook(
                     pass
             return None
 
+        # Check for error/block pages
+        if "error" in current_url.split("?")[0].lower() or "blocked" in current_url.lower():
+            _err(f"🔴 MS вернул страницу ошибки (URL: {current_url})")
+            return None
+
         await random_mouse_move(page, steps=3)
         _log(f"Страница: {page.url}")
 
+        # ── Step 2: Handle "Get a new email address" link ──
         new_email_link = page.locator('a#liveSwitch, a[id*="Switch"], a:has-text("new email"), a:has-text("новый"), a:has-text("Get a new")')
         got_new_email_mode = False
         try:
@@ -151,6 +168,7 @@ async def register_single_outlook(
                 got_new_email_mode = False
                 _log("Dropdown домена не виден, используем полный email")
 
+        # ── Step 3: Enter email/username ──
         email_selectors = [
             'input[name="MemberName"]', '#MemberName', '#iMemberName',
             'input[name="Email"]',
@@ -167,15 +185,10 @@ async def register_single_outlook(
         text_to_enter = username if got_new_email_mode else email
         _log(f"Вводим: {text_to_enter}")
 
-        await page.locator(found).first.click()
-        await _human_delay(0.3, 0.8)
-        await page.locator(found).first.fill("")
-        for char in text_to_enter:
-            await page.locator(found).first.type(char, delay=random.randint(50, 110))
-            if random.random() < 0.12:
-                await _human_delay(0.2, 0.5)
+        await _human_fill(page, found, text_to_enter)
         await _human_delay(0.8, 1.5)
 
+        # Select domain if needed
         if got_new_email_mode and domain != "outlook.com":
             domain_sel = await _wait_for_any(page, [
                 'select#LiveDomainBoxList', '#LiveDomainBoxList',
@@ -186,30 +199,43 @@ async def register_single_outlook(
                 await page.locator(domain_sel).first.select_option(domain)
                 await _human_delay(0.5, 1)
 
+        # Click Next
         next_selectors = ['#iSignupAction', 'input[type="submit"]', 'button[type="submit"]']
         next_btn = await _wait_for_any(page, next_selectors, timeout=5000)
         if next_btn:
-            await page.locator(next_btn).first.click()
+            await _human_click(page, next_btn)
         else:
             await page.keyboard.press("Enter")
 
         await _human_delay(3, 6)
 
-        err_text = await _check_error_on_page(page)
-        if err_text:
-            logger.warning(f"[Birth] Email error (retrying): {err_text}")
-            username = generate_username(first_name, last_name)
-            email = f"{username}@outlook.com"
-            found2 = await _wait_for_any(page, email_selectors, timeout=5000)
-            if found2:
-                await page.locator(found2).first.fill(username)
-            await _human_delay(0.5, 1)
-            if next_btn:
-                await page.locator(next_btn).first.click()
+        # ── Email-taken retry (up to 3 attempts) ──
+        for email_retry in range(3):
+            err_text = await _check_error_on_page(page)
+            if err_text:
+                old_username = username
+                username = generate_username(first_name, last_name)
+                email = f"{username}@{domain}"
+                _log(f"⚠️ Email '{old_username}@{domain}' занят: {err_text}. Пробуем: {email}")
+                text_to_enter = username if got_new_email_mode else email
+                found2 = await _wait_for_any(page, email_selectors, timeout=5000)
+                if found2:
+                    await page.locator(found2).first.fill("")
+                    await _human_fill(page, found2, text_to_enter)
+                await _human_delay(0.5, 1)
+                next_retry = await _wait_for_any(page, next_selectors, timeout=3000)
+                if next_retry:
+                    await _human_click(page, next_retry)
+                else:
+                    await page.keyboard.press("Enter")
+                await _human_delay(3, 5)
             else:
-                await page.keyboard.press("Enter")
-            await _human_delay(3, 5)
+                break
+        else:
+            _err(f"MS отклонил 3 email подряд")
+            return None
 
+        # ── Step 4: Password ──
         _log("Ввод пароля...")
         pwd_selectors = [
             'input[name="Password"]', '#PasswordInput', 'input[type="password"]',
@@ -222,21 +248,17 @@ async def register_single_outlook(
         if not found:
             return None
 
-        await page.locator(found).first.click()
-        await _human_delay(0.3, 0.6)
-        for char in password:
-            await page.locator(found).first.type(char, delay=random.randint(40, 90))
-            if random.random() < 0.10:
-                await _human_delay(0.15, 0.4)
+        await _human_fill(page, found, password)
         await _human_delay(0.5, 1.2)
 
         next_btn2 = await _wait_for_any(page, next_selectors, timeout=3000)
         if next_btn2:
-            await page.locator(next_btn2).first.click()
+            await _human_click(page, next_btn2)
         else:
             await page.keyboard.press("Enter")
         await _human_delay(2, 4)
 
+        # ── Step 5: Birthday (Country + Month + Day + Year) ──
         _log("Ввод даты рождения...")
         await _human_delay(1, 2)
         await _step_screenshot(page, "before_birthday", username)
@@ -247,6 +269,7 @@ async def register_single_outlook(
         ]
         month_name = month_names[birthday.month] if 1 <= birthday.month <= 12 else str(birthday.month)
 
+        # Country selection
         country_pool = [
             "United States", "United Kingdom", "Canada", "Australia",
             "Germany", "France", "Netherlands", "Sweden", "Ireland",
@@ -273,6 +296,7 @@ async def register_single_outlook(
                     pass
         await _human_delay(0.5, 1.0)
 
+        # Month
         month_ok = await _fluent_combobox_select(page, [
             '#BirthMonthDropdown',
             'button[name="BirthMonth"]',
@@ -295,6 +319,7 @@ async def register_single_outlook(
             return None
         await _human_delay(0.3, 0.8)
 
+        # Day
         day_ok = await _fluent_combobox_select(page, [
             '#BirthDayDropdown',
             'button[name="BirthDay"]',
@@ -313,6 +338,7 @@ async def register_single_outlook(
                     pass
         await _human_delay(0.3, 0.8)
 
+        # Year
         year_sels = [
             'input[name="BirthYear"]', '#BirthYear',
             'input[aria-label*="irth year"]', 'input[aria-label*="од рожд"]',
@@ -320,19 +346,24 @@ async def register_single_outlook(
         ]
         year_sel = await _wait_for_any(page, year_sels, timeout=5000)
         if year_sel:
-            await page.locator(year_sel).first.fill(str(birthday.year))
+            await _human_fill(page, year_sel, str(birthday.year))
             _log(f"Year: {birthday.year}")
         else:
             _log("⚠️ Year field не найден")
         await _human_delay(0.5, 1)
 
+        # Human scrolls and reviews before submit
+        await page.mouse.wheel(0, random.randint(50, 150))
+        await _human_delay(0.8, 1.5)
+
         next_btn_bday = await _wait_for_any(page, next_selectors, timeout=3000)
         if next_btn_bday:
-            await page.locator(next_btn_bday).first.click()
+            await _human_click(page, next_btn_bday)
         else:
             await page.keyboard.press("Enter")
         await _human_delay(2, 4)
 
+        # ── Step 6: First/Last Name ──
         _log(f"Ввод имени: {first_name} {last_name}")
         fn_selectors = [
             '#firstNameInput',
@@ -344,8 +375,8 @@ async def register_single_outlook(
         name_found = await _wait_for_any(page, fn_selectors, timeout=8000)
         if name_found:
             _log("Обнаружена страница имени")
-            await page.locator(name_found).first.fill(first_name)
-            await _human_delay(0.3, 0.8)
+            await _human_fill(page, name_found, first_name)
+            await _human_delay(0.8, 1.5)
 
             ln_selectors = [
                 '#lastNameInput',
@@ -355,20 +386,29 @@ async def register_single_outlook(
             ]
             found_ln = await _wait_for_any(page, ln_selectors, timeout=5000)
             if found_ln:
-                await page.locator(found_ln).first.fill(last_name)
+                await _human_fill(page, found_ln, last_name)
             await _human_delay(0.5, 1)
+
+            # Human scroll + review
+            await random_mouse_move(page, steps=2)
+            await _human_delay(1.0, 2.0)
 
             next_btn_name = await _wait_for_any(page, next_selectors, timeout=3000)
             if next_btn_name:
-                await page.locator(next_btn_name).first.click()
+                await _human_click(page, next_btn_name)
             else:
                 await page.keyboard.press("Enter")
             await _human_delay(3, 6)
         else:
             _log("⚠️ Страница имени не найдена — возможно уже на CAPTCHA")
 
+        # ── Step 7: FunCaptcha ──
         _log("Проверка CAPTCHA...")
         captcha_frame = page.locator('iframe[title*="captcha"], iframe[title*="Verification"], iframe[title*="Human"], iframe[src*="funcaptcha"], iframe[src*="hsprotect"], #enforcementFrame')
+
+        # Wait a bit for captcha to appear (MS sometimes delays it)
+        await _human_delay(2, 4)
+
         if await captcha_frame.count() > 0:
             from ...services.captcha_provider import get_twocaptcha_provider
             tc_provider = get_twocaptcha_provider()
@@ -398,6 +438,14 @@ async def register_single_outlook(
                         }})()""")
                         await _human_delay(3, 6)
                         _log("Токен вставлен, ожидание...")
+
+                        # After token injection, try clicking any submit/next button
+                        post_captcha_btn = await _wait_for_any(page, [
+                            '#iSignupAction', 'button[type="submit"]', 'input[type="submit"]',
+                        ], timeout=5000)
+                        if post_captcha_btn:
+                            await _human_click(page, post_captcha_btn)
+                            await _human_delay(3, 6)
                     else:
                         _err("❌ 2Captcha не смог решить FunCaptcha")
                         return None
@@ -410,16 +458,81 @@ async def register_single_outlook(
             else:
                 _err("FunCaptcha нужна, но ключ 2Captcha не настроен! Outlook требует 2Captcha для FunCaptcha.")
                 return None
+        else:
+            _log("Капча не обнаружена — продолжаем")
 
+        # ── Step 8: Post-captcha — check for additional prompts ──
+        # MS may show "Stay signed in?" or other prompts
+        await _human_delay(2, 4)
+
+        # Handle "Stay signed in?" prompt
+        stay_signed_in = await _wait_for_any(page, [
+            '#KmsiBanner', '#acceptButton', 'button:has-text("Yes")',
+            'input[value="Yes"]', '#idSIButton9',
+        ], timeout=5000)
+        if stay_signed_in:
+            _log("Нажимаем 'Да' на 'Stay signed in?'")
+            await _human_click(page, stay_signed_in)
+            await _human_delay(3, 5)
+
+        # Handle "Get the Outlook app" or similar promo pages
+        skip_promo = await _wait_for_any(page, [
+            'button:has-text("Skip")', 'a:has-text("Skip")',
+            'button:has-text("Пропустить")', 'a:has-text("Пропустить")',
+            'button:has-text("No thanks")', 'a:has-text("No thanks")',
+            'button:has-text("Maybe later")', '#declineButton',
+        ], timeout=3000)
+        if skip_promo:
+            _log("Пропускаем промо-страницу...")
+            await _human_click(page, skip_promo)
+            await _human_delay(2, 4)
+
+        # ── Step 9: Verify registration succeeded ──
         _log("Проверка результата...")
-        await _human_delay(3, 5)
+        await _human_delay(2, 4)
         final_url = page.url.lower()
         _log(f"Финальный URL: {final_url}")
 
+        registration_success = False
+        try:
+            success_indicators = [
+                "outlook.live.com", "signup.live.com/signup?sru",
+                "/MailSetup", "account.microsoft.com",
+                "outlook.office.com", "outlook.office365.com",
+            ]
+            if any(ind in final_url for ind in success_indicators):
+                registration_success = True
+                _log("✅ URL подтверждает успешную регистрацию")
+            elif "signup.live.com" not in final_url:
+                # Left the signup page = likely success
+                registration_success = True
+                _log("✅ Покинули страницу регистрации")
+            else:
+                # Still on signup — check for specific failure indicators
+                page_text = await page.locator('body').inner_text()
+                fail_indicators = ["something went wrong", "couldn't create", "error", "blocked"]
+                if any(fi.lower() in page_text.lower() for fi in fail_indicators):
+                    _err(f"❌ Страница содержит индикаторы ошибки")
+                    await _debug_screenshot(page, "outlook_error_on_page", _log)
+                else:
+                    # On signup page but no error — probably captcha pending
+                    _log("⚠️ Всё ещё на signup.live.com, но ошибок нет")
+                    await _debug_screenshot(page, "outlook_still_on_signup", _log)
+        except Exception as e:
+            _log(f"Проверка успеха: ошибка ({e}), считаем успехом если URL сменился")
+            if "signup.live.com" not in final_url:
+                registration_success = True
+
+        if not registration_success:
+            _err(f"❌ Регистрация НЕ подтверждена! URL: {final_url}")
+            await _debug_screenshot(page, "outlook_not_confirmed", _log)
+            return None
+
+        # ── Save session and create account ──
         try:
             session_path = await browser_manager.save_session(context, 0)
         except Exception as se:
-            logger.warning(f"[Birth] Session save warning: {se}")
+            logger.warning(f"[Outlook] Session save warning: {se}")
             session_path = None
 
         account = Account(
@@ -444,11 +557,12 @@ async def register_single_outlook(
             except Exception:
                 pass
 
-        logger.info(f"✅ Registered: {email}")
+        logger.info(f"✅ Outlook registered: {email}")
+        export_account_to_file(account)
         return account
 
     except Exception as e:
-        logger.error(f"❌ Registration failed: {e}", exc_info=True)
+        logger.error(f"❌ Outlook registration failed: {e}", exc_info=True)
         _err(str(e)[:500])
         return None
     finally:
