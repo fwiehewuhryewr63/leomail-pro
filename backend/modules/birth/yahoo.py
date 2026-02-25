@@ -475,8 +475,41 @@ async def register_single_yahoo(
                         pass
 
                 if not country_changed:
-                    _log(f"Не удалось сменить код — вводим полный номер +{sms_prefix}{local_number}")
-                    local_number = f"{sms_prefix}{local_number}"
+                    # Country change failed — the page still shows +yahoo_page_prefix
+                    # DO NOT enter a number formatted for +sms_prefix into +yahoo_page_prefix field!
+                    # Instead: cancel current number and re-order one matching the page's country
+                    page_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
+                    if page_country:
+                        _log(f"⚠️ Не удалось сменить +{yahoo_page_prefix}→+{sms_prefix}. "
+                             f"Отменяем номер и заказываем из {page_country} (стран: +{yahoo_page_prefix})")
+                        # Cancel current order
+                        try:
+                            await asyncio.to_thread(sms_provider.cancel_order, order_id)
+                        except Exception:
+                            pass
+                        # Re-order from page's country
+                        new_order = await order_sms_retry(
+                            service="yahoo",
+                            active_provider=sms_provider,
+                            expanded_countries=[page_country] + [c for c in expanded_countries if c != page_country],
+                            used_numbers={phone_number},
+                            _log=_log,
+                        )
+                        if new_order:
+                            phone_number = new_order["number"]
+                            order_id = new_order["id"]
+                            sms_country = new_order.get("country", page_country)
+                            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+                            local_number = phone_number.lstrip("+")
+                            if phone_prefix and local_number.startswith(phone_prefix):
+                                local_number = local_number[len(phone_prefix):]
+                            _log(f"✅ Новый номер для +{yahoo_page_prefix}: {local_number}")
+                        else:
+                            _err(f"Не удалось заказать номер для +{yahoo_page_prefix}")
+                            return None
+                    else:
+                        _log(f"⚠️ Не удалось сменить код, неизвестный prefix +{yahoo_page_prefix} — вводим полный номер")
+                        local_number = f"{sms_prefix}{local_number}"
 
             # Human-like: read the page text first (real person would read instructions)
             await random_mouse_move(page, steps=3)
