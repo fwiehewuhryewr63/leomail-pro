@@ -175,47 +175,53 @@ class BlitzCampaignRunner:
                 ):
                     break
 
-                # Pick provider
+                # Pick provider (hotmail = outlook)
                 providers = campaign.providers or ["yahoo"]
-                provider = random.choice(providers)
+                raw_provider = random.choice(providers)
+                provider = "outlook" if raw_provider == "hotmail" else raw_provider
 
-                # Get proxy
+                # Get proxy (skip ones with too many fails)
                 proxy = db.query(Proxy).filter(
                     Proxy.status == ProxyStatus.ACTIVE,
-                ).first()
-                # TODO: Filter by GEO and per-provider usage limits
+                ).order_by(Proxy.fail_count.asc()).first()
 
                 if not proxy:
                     logger.warning(f"Blitz birth[{worker_id}]: No proxies available")
                     await asyncio.sleep(BIRTH_RETRY_DELAY)
                     continue
 
-                # Pick name from name pack
                 name_pack = campaign.name_pack or "us_names_5k"
 
-                logger.debug(f"Blitz birth[{worker_id}]: birthing {provider} account...")
+                logger.debug(f"Blitz birth[{worker_id}]: birthing {provider} via proxy {proxy.id}...")
 
-                # Run birth (in thread to avoid blocking)
                 account_data = await self._do_birth(
                     provider, name_pack, proxy, campaign.geo, db
                 )
 
                 if account_data:
-                    # Push to send queue (blocks if queue is full — backpressure)
                     await self.send_queue.put(account_data)
 
-                    # Update stats
+                    # Update stats + reset proxy fail counter on success
                     campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
                     if campaign:
                         campaign.accounts_born = (campaign.accounts_born or 0) + 1
-                        db.commit()
+                    proxy.fail_count = 0  # reset on success
+                    db.commit()
 
                     logger.info(
                         f"Blitz birth[{worker_id}]: ✓ {account_data['email']} "
                         f"→ send queue ({self.send_queue.qsize()} waiting)"
                     )
                 else:
-                    logger.warning(f"Blitz birth[{worker_id}]: birth failed, retrying...")
+                    # Birth failed — increment proxy fail counter
+                    proxy.fail_count = (proxy.fail_count or 0) + 1
+                    if proxy.fail_count >= 3:
+                        proxy.status = ProxyStatus.DEAD
+                        logger.warning(
+                            f"Blitz birth[{worker_id}]: proxy {proxy.id} → DEAD (3 consecutive fails)"
+                        )
+                    db.commit()
+                    logger.warning(f"Blitz birth[{worker_id}]: birth failed (proxy fails: {proxy.fail_count})")
                     await asyncio.sleep(BIRTH_RETRY_DELAY)
 
             except asyncio.CancelledError:
@@ -318,8 +324,8 @@ class BlitzCampaignRunner:
                     BIRTH_CANCEL_EVENT=cancel_event,
                 )
 
-            elif provider == "outlook" or provider == "hotmail":
-                domain = "hotmail.com" if provider == "hotmail" else "outlook.com"
+            elif provider == "outlook":
+                domain = "outlook.com"
                 account = await register_single_outlook(
                     browser_manager=bm,
                     proxy=proxy,
@@ -549,15 +555,20 @@ class BlitzCampaignRunner:
                         )
 
                     elif result == SendResult.RATE_LIMIT:
-                        # Temporary — undo recipient lock, DON'T burn link, wait & retry
+                        # Rate limited — undo recipient, SWITCH to new account
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
+                        campaign = db.query(Campaign).filter(
+                            Campaign.id == self.campaign_id
+                        ).first()
+                        if campaign:
+                            campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                         db.commit()
-                        delay = random.uniform(30, 60)
-                        logger.info(f"Blitz send[{worker_id}] rate limited, waiting {delay:.0f}s")
-                        await asyncio.sleep(delay)
-                        consecutive_errors += 1
+                        logger.warning(
+                            f"Blitz send[{worker_id}] {email} RATE LIMITED → switching account"
+                        )
+                        break  # exit inner loop → get NEW account from queue
 
                     elif result in (SendResult.AUTH_FAIL, SendResult.SUSPENDED):
                         # Account is dead — undo recipient, DON'T burn link
@@ -569,6 +580,7 @@ class BlitzCampaignRunner:
                         ).first()
                         if campaign:
                             campaign.total_errors = (campaign.total_errors or 0) + 1
+                            campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                         db.commit()
                         logger.warning(
                             f"Blitz send[{worker_id}] {email} DEAD: {result} — {detail[:80]}"

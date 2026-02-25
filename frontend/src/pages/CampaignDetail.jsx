@@ -17,7 +17,12 @@ export default function CampaignDetail() {
     const [importing, setImporting] = useState(false);
 
     const load = () => fetch(`${API}/campaigns/${id}`).then(r => r.json()).then(setC).catch(() => { });
-    useEffect(() => { load(); const iv = setInterval(load, 8000); return () => clearInterval(iv); }, [id]);
+    useEffect(() => {
+        load();
+        const interval = (c && c.status === 'running') ? 3000 : 10000;
+        const iv = setInterval(load, interval);
+        return () => clearInterval(iv);
+    }, [id, c?.status]);
 
     const loadPreflight = () => fetch(`${API}/campaigns/${id}/preflight`).then(r => r.json()).then(setPreflight).catch(() => { });
     useEffect(() => { loadPreflight(); }, [id]);
