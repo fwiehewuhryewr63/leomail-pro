@@ -468,13 +468,21 @@ async def register_single_yahoo(
                     order = None
 
             if not order:
-                # Fallback: use configured countries
+                # Fallback 1: use configured countries
                 _countries = getattr(sms_provider, '_sms_countries', None)
                 _blacklist = getattr(sms_provider, '_country_blacklist', None)
                 if _countries and hasattr(sms_provider, 'order_number_from_countries'):
                     order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
                 else:
                     order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
+
+            if not order or "error" in order:
+                # Fallback 2: try explicit US (always available on most SMS providers)
+                _log(f"Fallback: заказываем номер US напрямую...")
+                try:
+                    order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "us")
+                except Exception as e:
+                    _log(f"US fallback ошибка: {e}")
 
             if not order or "error" in order:
                 _err(f"SMS ошибка: {order.get('error', 'no order') if order else 'Failed to order'}")
