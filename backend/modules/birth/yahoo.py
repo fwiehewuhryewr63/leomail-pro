@@ -451,12 +451,17 @@ async def register_single_yahoo(
             # Order from Yahoo's detected country FIRST, fallback to configured countries
             order = None
             if yahoo_sms_country:
-                # Try ordering from Yahoo's exact country
+                # Try ordering PREMIUM number from Yahoo's exact country
                 try:
-                    _log(f"Заказываем номер из страны {yahoo_sms_country} (по коду Yahoo)...")
-                    order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
+                    _log(f"Заказываем PREMIUM номер из страны {yahoo_sms_country} (по коду Yahoo)...")
+                    if hasattr(sms_provider, 'order_number_from_countries'):
+                        order = await asyncio.to_thread(
+                            sms_provider.order_number_from_countries, "yahoo", [yahoo_sms_country]
+                        )
+                    else:
+                        order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
                     if "error" in order:
-                        _log(f"Нет номеров в {yahoo_sms_country}: {order.get('error', '')}, пробуем другие страны...")
+                        _log(f"Нет PREMIUM номеров в {yahoo_sms_country}: {order.get('error', '')}, пробуем другие страны...")
                         order = None
                 except Exception as e:
                     _log(f"Ошибка заказа из {yahoo_sms_country}: {e}")
@@ -673,7 +678,13 @@ async def register_single_yahoo(
                     new_order = None
                     if yahoo_sms_country:
                         try:
-                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
+                            _log(f"Заказываем новый PREMIUM номер из {yahoo_sms_country}...")
+                            if hasattr(sms_provider, 'order_number_from_countries'):
+                                new_order = await asyncio.to_thread(
+                                    sms_provider.order_number_from_countries, "yahoo", [yahoo_sms_country]
+                                )
+                            else:
+                                new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
                             if "error" in new_order:
                                 new_order = None
                         except Exception:
