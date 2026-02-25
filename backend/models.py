@@ -405,6 +405,19 @@ class Campaign(Base):
     # Link embedding
     link_mode = Column(String, default="hyperlink")    # hyperlink / raw
 
+    # Send settings (migrated from Work)
+    emails_per_day_min = Column(Integer, default=25)
+    emails_per_day_max = Column(Integer, default=75)
+    delay_min = Column(Integer, default=30)            # seconds between sends
+    delay_max = Column(Integer, default=180)
+    same_provider = Column(Boolean, default=False)     # True = same, False = cross
+    max_link_uses = Column(Integer, default=0)         # 0 = unlimited
+    max_link_cycles = Column(Integer, default=0)       # 0 = unlimited
+
+    # Account source
+    use_existing = Column(Boolean, default=False)      # True = use existing farm accounts
+    farm_ids = Column(JSON, default=list)              # farm IDs when use_existing=True
+
     # Live stats (updated by engine)
     total_sent = Column(Integer, default=0)
     total_errors = Column(Integer, default=0)

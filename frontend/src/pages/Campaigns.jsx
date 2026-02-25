@@ -99,9 +99,22 @@ function DarkSelect({ value, onChange, options, renderOption, renderSelected, st
 export default function Campaigns() {
     const [campaigns, setCampaigns] = useState([]);
     const [showCreate, setShowCreate] = useState(false);
-    const [form, setForm] = useState({ name: '', geo: 'BR', niche: 'nutra', providers: ['yahoo', 'aol'], birth_threads: 10, send_threads: 20, use_existing: false, farm_ids: [] });
+    const [form, setForm] = useState({
+        name: '', geo: 'BR', niche: 'nutra', providers: ['yahoo', 'aol'],
+        birth_threads: 10, send_threads: 20,
+        use_existing: false, farm_ids: [],
+        emails_per_day_min: 25, emails_per_day_max: 75,
+        delay_min: 30, delay_max: 180,
+        same_provider: false, max_link_uses: 0, max_link_cycles: 0,
+    });
     const [loading, setLoading] = useState(false);
     const [farms, setFarms] = useState([]);
+    const [templates, setTemplates] = useState([]);
+    const [databases, setDatabases] = useState([]);
+    const [linkPacks, setLinkPacks] = useState([]);
+    const [selectedTemplates, setSelectedTemplates] = useState([]);
+    const [selectedDBs, setSelectedDBs] = useState([]);
+    const [selectedLinkPacks, setSelectedLinkPacks] = useState([]);
     const navigate = useNavigate();
 
     const load = () => fetch(`${API}/campaigns`).then(r => r.json()).then(setCampaigns).catch(() => { });
@@ -109,13 +122,24 @@ export default function Campaigns() {
         load();
         const iv = setInterval(load, 10000);
         fetch(`${API}/farms/`).then(r => r.json()).then(f => setFarms(Array.isArray(f) ? f : [])).catch(() => { });
+        fetch(`${API}/resources/batch`).then(r => r.json()).then(d => {
+            setTemplates(Array.isArray(d.templates) ? d.templates : []);
+            setDatabases(Array.isArray(d.databases) ? d.databases : []);
+            setLinkPacks(Array.isArray(d.links) ? d.links : []);
+        }).catch(() => { });
         return () => clearInterval(iv);
     }, []);
 
     const create = async () => {
         setLoading(true);
         try {
-            const r = await fetch(`${API}/campaigns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+            const payload = {
+                ...form,
+                template_ids: selectedTemplates,
+                database_ids: selectedDBs,
+                link_pack_ids: selectedLinkPacks,
+            };
+            const r = await fetch(`${API}/campaigns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             const d = await r.json();
             if (d.id) { setShowCreate(false); load(); navigate(`/campaigns/${d.id}`); }
         } finally { setLoading(false); }
@@ -139,6 +163,10 @@ export default function Campaigns() {
                 ? f.providers.filter(x => x !== p)
                 : [...f.providers, p]
         }));
+    };
+
+    const toggleList = (list, setList, id) => {
+        setList(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     };
 
     return (
@@ -314,7 +342,144 @@ export default function Campaigns() {
                         )}
                     </div>
 
-                    {/* Row 5: Threads */}
+                    {/* Row 5: Resources — Templates, Databases, Links */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 24 }}>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
+                            <div style={{ ...lbl, marginBottom: 8 }}>📝 Шаблоны</div>
+                            <div style={{ display: 'grid', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                                {templates.length === 0 && <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>Нет шаблонов</div>}
+                                {templates.map(t => (
+                                    <div key={t.id} onClick={() => toggleList(selectedTemplates, setSelectedTemplates, t.id)}
+                                        style={{
+                                            padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
+                                            background: selectedTemplates.includes(t.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
+                                            border: `1px solid ${selectedTemplates.includes(t.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
+                                            color: selectedTemplates.includes(t.id) ? 'var(--accent)' : 'var(--text-muted)',
+                                            fontWeight: selectedTemplates.includes(t.id) ? 600 : 400,
+                                        }}>
+                                        {t.name}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
+                            <div style={{ ...lbl, marginBottom: 8 }}>📧 Базы получателей</div>
+                            <div style={{ display: 'grid', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                                {databases.length === 0 && <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>Нет баз</div>}
+                                {databases.map(d => (
+                                    <div key={d.id} onClick={() => toggleList(selectedDBs, setSelectedDBs, d.id)}
+                                        style={{
+                                            padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
+                                            background: selectedDBs.includes(d.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
+                                            border: `1px solid ${selectedDBs.includes(d.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
+                                            color: selectedDBs.includes(d.id) ? 'var(--accent)' : 'var(--text-muted)',
+                                            fontWeight: selectedDBs.includes(d.id) ? 600 : 400,
+                                        }}>
+                                        {d.name} ({d.total_count - d.used_count})
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
+                            <div style={{ ...lbl, marginBottom: 8 }}>🔗 Паки ссылок</div>
+                            <div style={{ display: 'grid', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                                {linkPacks.length === 0 && <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>Нет паков</div>}
+                                {linkPacks.map(l => (
+                                    <div key={l.id} onClick={() => toggleList(selectedLinkPacks, setSelectedLinkPacks, l.id)}
+                                        style={{
+                                            padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
+                                            background: selectedLinkPacks.includes(l.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
+                                            border: `1px solid ${selectedLinkPacks.includes(l.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
+                                            color: selectedLinkPacks.includes(l.id) ? 'var(--accent)' : 'var(--text-muted)',
+                                            fontWeight: selectedLinkPacks.includes(l.id) ? 600 : 400,
+                                        }}>
+                                        {l.name} ({l.total_count})
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Row 6: Send settings */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+                        <div>
+                            <label style={lbl}>✉️ Писем/день мин</label>
+                            <input style={inp} type="number" min="1" value={form.emails_per_day_min}
+                                onChange={e => setForm({ ...form, emails_per_day_min: +e.target.value || 25 })} />
+                        </div>
+                        <div>
+                            <label style={lbl}>✉️ Писем/день макс</label>
+                            <input style={inp} type="number" min="1" value={form.emails_per_day_max}
+                                onChange={e => setForm({ ...form, emails_per_day_max: +e.target.value || 75 })} />
+                        </div>
+                        <div>
+                            <label style={lbl}>⏱️ Задержка мин (сек)</label>
+                            <input style={inp} type="number" min="5" value={form.delay_min}
+                                onChange={e => setForm({ ...form, delay_min: +e.target.value || 30 })} />
+                        </div>
+                        <div>
+                            <label style={lbl}>⏱️ Задержка макс (сек)</label>
+                            <input style={inp} type="number" min="10" value={form.delay_max}
+                                onChange={e => setForm({ ...form, delay_max: +e.target.value || 180 })} />
+                        </div>
+                    </div>
+
+                    {/* Row 7: Link controls + Same/Cross */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 24 }}>
+                        <div>
+                            <label style={lbl}>🔗 Циклы ссылок</label>
+                            <input style={inp} type="number" min="0" value={form.max_link_cycles}
+                                onChange={e => setForm({ ...form, max_link_cycles: +e.target.value || 0 })} />
+                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>0 = ∞ кругов</div>
+                        </div>
+                        <div>
+                            <label style={lbl}>🔗 Макс. раз/ссылку</label>
+                            <input style={inp} type="number" min="0" value={form.max_link_uses}
+                                onChange={e => setForm({ ...form, max_link_uses: +e.target.value || 0 })} />
+                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>0 = без лимита</div>
+                        </div>
+                        <div>
+                            <label style={lbl}>Пресеты ссылок</label>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+                                {[
+                                    { label: '∞', c: 0, u: 0 },
+                                    { label: '1×', c: 1, u: 1 },
+                                    { label: '3×', c: 3, u: 0 },
+                                ].map(p => (
+                                    <div key={p.label} onClick={() => setForm({ ...form, max_link_cycles: p.c, max_link_uses: p.u })} style={{
+                                        padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em', fontWeight: 700,
+                                        background: form.max_link_cycles === p.c && form.max_link_uses === p.u ? 'rgba(212,168,38,0.15)' : 'rgba(255,255,255,0.03)',
+                                        border: `1px solid ${form.max_link_cycles === p.c && form.max_link_uses === p.u ? 'var(--accent)' : 'rgba(255,255,255,0.08)'}`,
+                                        color: form.max_link_cycles === p.c && form.max_link_uses === p.u ? 'var(--accent)' : 'var(--text-muted)',
+                                    }}>{p.label}</div>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <label style={lbl}>🔀 Same / Cross</label>
+                            <div onClick={() => setForm({ ...form, same_provider: !form.same_provider })} style={{
+                                display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, cursor: 'pointer',
+                            }}>
+                                <div style={{
+                                    width: 40, height: 22, borderRadius: 11, position: 'relative',
+                                    background: form.same_provider ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
+                                    transition: 'background 0.2s',
+                                }}>
+                                    <div style={{
+                                        width: 16, height: 16, borderRadius: 8, background: '#fff',
+                                        position: 'absolute', top: 3,
+                                        left: form.same_provider ? 21 : 3,
+                                        transition: 'left 0.2s',
+                                    }} />
+                                </div>
+                                <span style={{ fontSize: '0.85em', fontWeight: 600, color: form.same_provider ? 'var(--accent)' : 'var(--text-muted)' }}>
+                                    {form.same_provider ? 'Same' : 'Cross'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Row 8: Threads */}
                     <div style={{ display: 'grid', gridTemplateColumns: form.use_existing ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 24 }}>
                         {!form.use_existing && (
                             <div>

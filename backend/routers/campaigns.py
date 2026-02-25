@@ -29,6 +29,17 @@ class CampaignCreate(BaseModel):
     birth_threads: int = 10
     send_threads: int = 20
     link_mode: str = "hyperlink"
+    # Send settings
+    emails_per_day_min: int = 25
+    emails_per_day_max: int = 75
+    delay_min: int = 30
+    delay_max: int = 180
+    same_provider: bool = False
+    max_link_uses: int = 0
+    max_link_cycles: int = 0
+    # Account source
+    use_existing: bool = False
+    farm_ids: list[int] = []
 
 
 class CampaignUpdate(BaseModel):
@@ -40,6 +51,17 @@ class CampaignUpdate(BaseModel):
     birth_threads: Optional[int] = None
     send_threads: Optional[int] = None
     link_mode: Optional[str] = None
+    # Send settings
+    emails_per_day_min: Optional[int] = None
+    emails_per_day_max: Optional[int] = None
+    delay_min: Optional[int] = None
+    delay_max: Optional[int] = None
+    same_provider: Optional[bool] = None
+    max_link_uses: Optional[int] = None
+    max_link_cycles: Optional[int] = None
+    # Account source
+    use_existing: Optional[bool] = None
+    farm_ids: Optional[list[int]] = None
 
 
 class BulkTextImport(BaseModel):
