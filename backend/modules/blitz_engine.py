@@ -148,6 +148,7 @@ class BlitzCampaignRunner:
                             "first_name": acc.first_name or "",
                             "account_id": acc.id,
                             "is_existing": True,
+                            "prior_sends": acc.total_emails_sent or 0,
                         })
                         existing_count += 1
                     logger.info(
@@ -526,7 +527,8 @@ class BlitzCampaignRunner:
                 logger.info(f"Blitz send[{worker_id}]: starting with {email}")
 
                 consecutive_errors = 0
-                emails_sent = 0
+                # Existing farm accounts skip warmup — use their prior send count
+                emails_sent = account_data.get("prior_sends", 0)
 
                 while (
                     not self._stop_event.is_set()

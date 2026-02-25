@@ -103,9 +103,7 @@ export default function Campaigns() {
         name: '', geo: 'BR', niche: 'nutra', providers: ['yahoo', 'aol'],
         birth_threads: 10, send_threads: 20,
         use_existing: false, farm_ids: [],
-        emails_per_day_min: 25, emails_per_day_max: 75,
-        delay_min: 30, delay_max: 180,
-        same_provider: false, max_link_uses: 0, max_link_cycles: 0,
+        max_link_uses: 0, max_link_cycles: 0,
     });
     const [loading, setLoading] = useState(false);
     const [farms, setFarms] = useState([]);
