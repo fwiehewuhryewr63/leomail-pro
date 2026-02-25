@@ -276,31 +276,35 @@ export default function Campaigns() {
                     {/* Row 4: Account source */}
                     <div style={{ marginBottom: 24 }}>
                         <label style={lbl}>Источник аккаунтов</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: form.use_existing ? 12 : 0 }}>
-                            <div onClick={() => setForm({ ...form, use_existing: false, farm_ids: [] })} style={{
-                                padding: '14px 16px', borderRadius: 8, cursor: 'pointer',
-                                background: !form.use_existing ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.02)',
-                                border: `2px solid ${!form.use_existing ? 'var(--success)' : 'rgba(255,255,255,0.06)'}`,
-                                transition: 'all 0.2s',
-                            }}>
-                                <div style={{ fontWeight: 700, fontSize: '0.95em', color: !form.use_existing ? 'var(--success)' : 'var(--text-muted)', marginBottom: 4 }}>
-                                    🚀 Создать новые
-                                </div>
-                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>
-                                    Birth Engine зарегистрирует акки с нуля
-                                </div>
+                        <div style={{ padding: '12px 16px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', marginBottom: 10 }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.9em', color: 'var(--success)', marginBottom: 2 }}>
+                                🚀 Birth Engine — всегда регит новые акки
                             </div>
-                            <div onClick={() => setForm({ ...form, use_existing: true })} style={{
-                                padding: '14px 16px', borderRadius: 8, cursor: 'pointer',
-                                background: form.use_existing ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)',
-                                border: `2px solid ${form.use_existing ? 'var(--info)' : 'rgba(255,255,255,0.06)'}`,
-                                transition: 'all 0.2s',
-                            }}>
-                                <div style={{ fontWeight: 700, fontSize: '0.95em', color: form.use_existing ? 'var(--info)' : 'var(--text-muted)', marginBottom: 4 }}>
-                                    📦 Из существующих ферм
+                            <div style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>
+                                Авторег работает параллельно с отправкой
+                            </div>
+                        </div>
+                        {/* Optional: also use existing */}
+                        <div onClick={() => setForm(prev => ({ ...prev, use_existing: !prev.use_existing, farm_ids: !prev.use_existing ? prev.farm_ids : [] }))} style={{
+                            padding: '12px 16px', borderRadius: 8, cursor: 'pointer',
+                            background: form.use_existing ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${form.use_existing ? 'var(--info)' : 'rgba(255,255,255,0.06)'}`,
+                            transition: 'all 0.2s', marginBottom: form.use_existing && farms.length > 0 ? 10 : 0,
+                            display: 'flex', alignItems: 'center', gap: 10,
+                        }}>
+                            <div style={{
+                                width: 18, height: 18, borderRadius: 4,
+                                background: form.use_existing ? 'var(--info)' : 'transparent',
+                                border: `2px solid ${form.use_existing ? 'var(--info)' : 'rgba(255,255,255,0.2)'}`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '11px', color: '#fff', fontWeight: 900, flexShrink: 0,
+                            }}>{form.use_existing && '✓'}</div>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '0.9em', color: form.use_existing ? 'var(--info)' : 'var(--text-muted)', marginBottom: 2 }}>
+                                    📦 + Подключить существующие аккаунты
                                 </div>
-                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>
-                                    Использовать уже живые аккаунты
+                                <div style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>
+                                    Выжившие акки из ферм сразу пойдут в рассылку
                                 </div>
                             </div>
                         </div>
@@ -334,7 +338,6 @@ export default function Campaigns() {
                                                             fontSize: '10px', color: '#fff', fontWeight: 900,
                                                         }}>{selected && '✓'}</div>
                                                         <span style={{ fontWeight: 600, fontSize: '0.88em', color: selected ? 'var(--text-primary)' : 'var(--text-muted)' }}>{f.name}</span>
-                                                        <span style={{ fontSize: '0.65em', color: 'var(--info)', fontWeight: 400 }}>♀</span>
                                                     </div>
                                                     <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4, marginLeft: 24, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                                                         <span>{f.account_count || 0} акк.</span>

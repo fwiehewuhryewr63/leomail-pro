@@ -124,9 +124,41 @@ class BlitzCampaignRunner:
             birth_threads = campaign.birth_threads or 10
             send_threads = campaign.send_threads or 20
 
+            # ── Pre-load existing farm accounts into send queue ──
+            existing_count = 0
+            if campaign.use_existing and campaign.farm_ids:
+                from ..models import Account, Farm, farm_accounts
+                farm_id_list = campaign.farm_ids if isinstance(campaign.farm_ids, list) else []
+                if farm_id_list:
+                    # Get all alive accounts from selected farms
+                    accs = (
+                        db.query(Account)
+                        .join(farm_accounts)
+                        .filter(
+                            farm_accounts.c.farm_id.in_(farm_id_list),
+                            Account.status.notin_(["dead", "banned"]),
+                        )
+                        .all()
+                    )
+                    for acc in accs:
+                        await self.send_queue.put({
+                            "email": acc.email,
+                            "password": acc.password,
+                            "provider": acc.provider,
+                            "first_name": acc.first_name or "",
+                            "account_id": acc.id,
+                            "is_existing": True,
+                        })
+                        existing_count += 1
+                    logger.info(
+                        f"Blitz START: loaded {existing_count} existing accounts "
+                        f"from farms {farm_id_list}"
+                    )
+
             logger.info(
                 f"Blitz START: campaign={campaign.name} "
-                f"birth={birth_threads} send={send_threads}"
+                f"birth={birth_threads} send={send_threads} "
+                f"existing={existing_count}"
             )
 
             # Start birth pool
