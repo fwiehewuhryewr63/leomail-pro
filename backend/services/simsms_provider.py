@@ -114,34 +114,57 @@ class SimSmsProvider:
     def get_prices(self, service: str = "gmail") -> dict:
         """
         Get prices for a service across all countries.
-        API: getPrices — returns {country_code: {service_code: {cost, count}}}
+        Uses priemnik.php endpoint (correct SimSMS API).
+        Falls back to handler_api.php if priemnik fails.
         """
+        import json
         service_code = SERVICE_CODES.get(service, "go")
-        text = self._request("getPrices", service=service_code)
-        try:
-            import json
-            data = json.loads(text)
-            # data = {"0": {"go": {"cost": "10.00", "count": 500}}, "1": {"go": {...}}, ...}
-            prices = []
-            country_name_map = {v: k for k, v in COUNTRY_CODES.items()}
-            for country_code, services in data.items():
-                if service_code in services:
-                    info = services[service_code]
-                    cost = float(info.get("cost", 9999))
-                    count = int(info.get("count", 0))
-                    if count > 0:
-                        prices.append({
-                            "country_code": country_code,
-                            "country": country_name_map.get(country_code, country_code),
-                            "cost": cost,
-                            "count": count,
-                        })
-            # Sort by cost ascending
-            prices.sort(key=lambda x: x["cost"])
-            return {"prices": prices}
-        except Exception as e:
-            logger.error(f"SimSMS getPrices error: {e}")
-            return {"prices": [], "error": str(e)}
+        country_name_map = {v: k for k, v in COUNTRY_CODES.items()}
+        prices = []
+
+        # Method 1: priemnik.php per-country price check (official API)
+        for cc_name, cc_num in COUNTRY_CODES.items():
+            try:
+                resp = requests.get(
+                    "https://simsms.org/priemnik.php",
+                    params={"metod": "get_service_price", "country": cc_name.upper(), "service": service_code, "apikey": self.api_key},
+                    timeout=10,
+                )
+                data = resp.json()
+                if data.get("response") == "1" and data.get("price"):
+                    prices.append({
+                        "country_code": cc_num,
+                        "country": cc_name,
+                        "cost": float(data["price"]),
+                        "count": 100,  # priemnik doesn't return count
+                    })
+            except Exception:
+                continue
+            if len(prices) >= 10:  # enough to sort
+                break
+
+        # Method 2: fallback to handler_api.php (may work sometimes)
+        if not prices:
+            text = self._request("getPrices", service=service_code)
+            try:
+                data = json.loads(text)
+                for country_code, services_data in data.items():
+                    if service_code in services_data:
+                        info = services_data[service_code]
+                        cost = float(info.get("cost", 9999))
+                        count = int(info.get("count", 0))
+                        if count > 0:
+                            prices.append({
+                                "country_code": country_code,
+                                "country": country_name_map.get(country_code, country_code),
+                                "cost": cost,
+                                "count": count,
+                            })
+            except Exception as e:
+                logger.warning(f"SimSMS getPrices fallback also failed: {e}")
+
+        prices.sort(key=lambda x: x["cost"])
+        return {"prices": prices}
 
     def order_number_from_countries(self, service: str = "gmail", countries: list = None, blacklist: set = None) -> dict:
         """
@@ -202,32 +225,33 @@ class SimSmsProvider:
 
         return {"error": f"Нет номеров ни в одной из {len(available)} стран"}
 
+    # Countries known to have real SIM numbers (ordered by quality)
+    FALLBACK_COUNTRIES = ["us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr", "es", "ru"]
+
     def order_best_number(self, service: str = "gmail") -> dict:
         """
         Auto-select MOST EXPENSIVE country for best quality real numbers.
         Sorts by price descending — premium providers first.
+        Falls back to hardcoded premium country list if prices unavailable.
         """
         service_code = SERVICE_CODES.get(service, "go")
-
-        # Get prices and sort by MOST EXPENSIVE first
         VIRTUAL_CODES = {"17"}
+
+        # Try price-based selection first
         price_data = self.get_prices(service)
         all_countries = price_data.get("prices", [])
-        # Filter out virtual country codes
         all_countries = [c for c in all_countries if str(c.get("country_code", "")) not in VIRTUAL_CODES]
 
         if all_countries:
-            # Sort descending by cost — most expensive = best quality
             all_countries.sort(key=lambda x: x["cost"], reverse=True)
-            # Try top 5 most expensive countries
             for entry in all_countries[:5]:
                 country_code = entry["country_code"]
-                logger.info(f"SimSMS: trying PREMIUM {entry['country']} ({country_code}) — ${entry['cost']} ({entry['count']} avail)")
+                logger.info(f"SimSMS: trying PREMIUM {entry['country']} ({country_code}) — ${entry['cost']}")
                 result = self._request("getNumber", service=service_code, country=country_code)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
                     if len(parts) >= 3:
-                        logger.info(f"SimSMS: got PREMIUM number from {entry['country']} (${entry['cost']})")
+                        logger.info(f"SimSMS: ✅ PREMIUM {entry['country']} (${entry['cost']})")
                         return {
                             "id": parts[1],
                             "number": parts[2],
@@ -235,9 +259,29 @@ class SimSmsProvider:
                             "cost": entry["cost"],
                             "service": service,
                         }
-                logger.info(f"SimSMS: {entry['country']} failed: {result}")
+                logger.info(f"SimSMS: {entry['country']} → {result}")
 
-        return {"error": "Нет доступных premium номеров"}
+        # Fallback: try hardcoded premium countries directly
+        logger.info(f"SimSMS: prices unavailable, trying FALLBACK countries...")
+        for country in self.FALLBACK_COUNTRIES:
+            country_code = COUNTRY_CODES.get(country, country)
+            if country_code in VIRTUAL_CODES:
+                continue
+            result = self._request("getNumber", service=service_code, country=country_code)
+            if result.startswith("ACCESS_NUMBER:"):
+                parts = result.split(":")
+                if len(parts) >= 3:
+                    logger.info(f"SimSMS: ✅ FALLBACK {country} — {parts[2]}")
+                    self._last_country = country
+                    return {
+                        "id": parts[1],
+                        "number": parts[2],
+                        "country": country,
+                        "service": service,
+                    }
+            logger.debug(f"SimSMS fallback: {country} → {result}")
+
+        return {"error": "Нет доступных номеров (ни по ценам, ни по fallback)"}
 
     def order_number(self, service: str = "gmail", country: str = "auto") -> dict:
         """

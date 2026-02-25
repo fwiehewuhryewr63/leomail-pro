@@ -465,49 +465,47 @@ async def register_single_yahoo(
             order = None
             active_sms_provider = sms_provider  # will be updated to whichever works
 
-            for provider_name, provider in sms_chain:
-                _log(f"📱 Пробуем SMS: {provider_name}")
+            # Expanded country list: Yahoo's country first, then popular SMS countries
+            SMS_FALLBACK_COUNTRIES = ["us", "uk", "br", "de", "nl", "se", "pl", "ru", "ca", "fr"]
+            expanded_countries = []
+            if yahoo_sms_country:
+                expanded_countries.append(yahoo_sms_country)
+            for c in SMS_FALLBACK_COUNTRIES:
+                if c not in expanded_countries:
+                    expanded_countries.append(c)
 
-                # Try 1: Yahoo's detected country
-                if yahoo_sms_country:
+            for provider_name, provider in sms_chain:
+                _log(f"📱 Пробуем SMS: {provider_name} (страны: {expanded_countries[:5]}...)")
+
+                # Try order_number_from_countries with expanded list
+                if hasattr(provider, 'order_number_from_countries'):
                     try:
-                        if hasattr(provider, 'order_number_from_countries'):
-                            order = await asyncio.to_thread(
-                                provider.order_number_from_countries, "yahoo", [yahoo_sms_country]
-                            )
-                        else:
-                            order = await asyncio.to_thread(provider.order_number, "yahoo", yahoo_sms_country)
+                        order = await asyncio.to_thread(
+                            provider.order_number_from_countries, "yahoo", expanded_countries
+                        )
                         if order and "error" not in order:
                             active_sms_provider = provider
-                            _log(f"✅ {provider_name}: номер из {yahoo_sms_country}")
+                            _log(f"✅ {provider_name}: номер из {order.get('country', '?')}")
                             break
-                        _log(f"{provider_name}: нет номеров в {yahoo_sms_country}: {order.get('error', '') if order else ''}")
+                        _log(f"{provider_name}: order_from_countries failed: {order.get('error', '') if order else ''}")
                         order = None
                     except Exception as e:
-                        _log(f"{provider_name}: ошибка {yahoo_sms_country}: {e}")
+                        _log(f"{provider_name}: ошибка: {e}")
                         order = None
-
-                # Try 2: auto/best
-                try:
-                    order = await asyncio.to_thread(provider.order_number, "yahoo", "auto")
+                else:
+                    # Fallback: try auto then each country manually
+                    for country in expanded_countries[:5]:
+                        try:
+                            order = await asyncio.to_thread(provider.order_number, "yahoo", country)
+                            if order and "error" not in order:
+                                active_sms_provider = provider
+                                _log(f"✅ {provider_name}: номер из {country}")
+                                break
+                            order = None
+                        except Exception:
+                            order = None
                     if order and "error" not in order:
-                        active_sms_provider = provider
-                        _log(f"✅ {provider_name}: номер auto")
                         break
-                    order = None
-                except Exception:
-                    order = None
-
-                # Try 3: explicit US
-                try:
-                    order = await asyncio.to_thread(provider.order_number, "yahoo", "us")
-                    if order and "error" not in order:
-                        active_sms_provider = provider
-                        _log(f"✅ {provider_name}: номер US")
-                        break
-                    order = None
-                except Exception:
-                    order = None
 
                 _log(f"❌ {provider_name}: не удалось, пробуем следующий...")
 
@@ -541,28 +539,55 @@ async def register_single_yahoo(
 
             if country_needs_change:
                 _log(f"Yahoo показывает +{yahoo_page_prefix}, SMS номер +{sms_prefix} — нужна смена")
+
+                # Method 1: select_option on <select> elements (Yahoo uses <select> for country)
                 try:
-                    # Try JS to change the country code input value
-                    changed = await page.evaluate(f"""() => {{
-                        const inputs = document.querySelectorAll('input');
-                        for (const inp of inputs) {{
-                            const val = inp.value.trim();
-                            if (val.startsWith('+') && val.length <= 5) {{
-                                const setter = Object.getOwnPropertyDescriptor(
-                                    window.HTMLInputElement.prototype, 'value').set;
-                                setter.call(inp, '+{sms_prefix}');
-                                inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                return true;
-                            }}
-                        }}
-                        return false;
-                    }}""")
-                    if changed:
-                        country_changed = True
-                        _log(f"Код страны сменён через JS: +{sms_prefix}")
+                    selects = await page.locator('select').all()
+                    for sel in selects:
+                        try:
+                            # Find option matching our prefix
+                            changed_via_select = await page.evaluate(f"""(sel) => {{
+                                for (const opt of sel.options) {{
+                                    if (opt.text.includes('+{sms_prefix}') || opt.value === '{sms_prefix}' || opt.value === '{target_iso}') {{
+                                        sel.value = opt.value;
+                                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                        return true;
+                                    }}
+                                }}
+                                return false;
+                            }}""", sel)
+                            if changed_via_select:
+                                country_changed = True
+                                _log(f"Код страны сменён через <select>: +{sms_prefix}")
+                                break
+                        except Exception:
+                            continue
                 except Exception:
                     pass
+
+                # Method 2: JS setter on input elements
+                if not country_changed:
+                    try:
+                        changed = await page.evaluate(f"""() => {{
+                            const inputs = document.querySelectorAll('input');
+                            for (const inp of inputs) {{
+                                const val = inp.value.trim();
+                                if (val.startsWith('+') && val.length <= 5) {{
+                                    const setter = Object.getOwnPropertyDescriptor(
+                                        window.HTMLInputElement.prototype, 'value').set;
+                                    setter.call(inp, '+{sms_prefix}');
+                                    inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                    inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                    return true;
+                                }}
+                            }}
+                            return false;
+                        }}""")
+                        if changed:
+                            country_changed = True
+                            _log(f"Код страны сменён через JS input: +{sms_prefix}")
+                    except Exception:
+                        pass
 
                 if not country_changed:
                     _log(f"Не удалось сменить код — вводим полный номер +{sms_prefix}{local_number}")
@@ -710,32 +735,21 @@ async def register_single_yahoo(
                     except Exception:
                         pass
 
-                    # Order new number — prefer Yahoo's detected country, fallback to configured
-                    _countries = getattr(sms_provider, '_sms_countries', None)
-                    _blacklist = getattr(sms_provider, '_country_blacklist', None)
+                    # Order new number using expanded countries (same as initial)
                     new_order = None
-                    if yahoo_sms_country:
+                    _log(f"Заказываем новый номер (страны: {expanded_countries[:5]}...)")
+                    if hasattr(sms_provider, 'order_number_from_countries'):
                         try:
-                            _log(f"Заказываем новый PREMIUM номер из {yahoo_sms_country}...")
-                            if hasattr(sms_provider, 'order_number_from_countries'):
-                                new_order = await asyncio.to_thread(
-                                    sms_provider.order_number_from_countries, "yahoo", [yahoo_sms_country]
-                                )
-                            else:
-                                new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", yahoo_sms_country)
-                            if "error" in new_order:
+                            new_order = await asyncio.to_thread(
+                                sms_provider.order_number_from_countries, "yahoo", expanded_countries
+                            )
+                            if new_order and "error" in new_order:
                                 new_order = None
                         except Exception:
                             new_order = None
                     if not new_order:
-                        if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                            new_order = await asyncio.to_thread(sms_provider.order_number_from_countries, "yahoo", _countries, _blacklist)
-                        else:
-                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
-                    if not new_order or "error" in new_order:
-                        # Last resort: try US
                         try:
-                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "us")
+                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
                         except Exception:
                             pass
                     if not new_order or "error" in new_order:
