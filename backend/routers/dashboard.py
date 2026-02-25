@@ -137,6 +137,7 @@ async def dashboard_stats(db: Session = Depends(get_db)):
     
     running_tasks = db.query(Task).filter(Task.status == "running").count()
     databases_count = db.query(RecipientDatabase).count()
+    links_count = db.query(Link).count()
 
     # Per-provider breakdown
     provider_rows = db.query(Account.provider, func.count()).group_by(Account.provider).all()
@@ -209,6 +210,7 @@ async def dashboard_stats(db: Session = Depends(get_db)):
         "total_proxies": total_proxies,
         "total_templates": total_templates,
         "total_databases": databases_count,
+        "total_links": links_count,
         "status_new": status_new,
         "status_warmup": status_warmup,
         "status_warmed": status_warmed,
