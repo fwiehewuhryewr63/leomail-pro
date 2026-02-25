@@ -28,7 +28,8 @@ from ._helpers import (
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
-    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2,
+    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
+    order_sms_with_chain, order_sms_retry,
     export_account_to_file,
 )
 
@@ -326,128 +327,24 @@ async def register_single_aol(
                 _err("AOL требует SMS, но SMS провайдер не настроен")
                 return None
 
-            # ── PHONE_COUNTRY_MAP and reverse map ──
-            _PHONE_COUNTRY_MAP = {
-                "ru": "7", "ua": "380", "kz": "7", "cn": "86", "ph": "63", "id": "62",
-                "my": "60", "ke": "254", "tz": "255", "br": "55", "us": "1", "us_v": "1",
-                "il": "972", "hk": "852", "pl": "48", "uk": "44", "ng": "234", "eg": "20",
-                "in": "91", "ie": "353", "za": "27", "ro": "40", "co": "57", "ee": "372",
-                "ca": "1", "de": "49", "nl": "31", "at": "43", "th": "66", "mx": "52",
-                "es": "34", "tr": "90", "cz": "420", "pe": "51", "nz": "64", "se": "46",
-                "fr": "33", "ar": "54", "vn": "84", "bd": "880", "pk": "92", "cl": "56",
-                "be": "32", "bg": "359", "hu": "36", "it": "39", "pt": "351", "gr": "30",
-                "fi": "358", "dk": "45", "no": "47", "ch": "41", "au": "61", "jp": "81",
-                "ge": "995", "ae": "971", "sa": "966", "cr": "506", "gt": "502", "sk": "421",
-                "am": "374", "az": "994", "by": "375", "md": "373", "al": "355", "rs": "381",
-                "hr": "385", "si": "386", "lv": "371", "lt": "370", "uy": "598", "bo": "591",
-            }
-            _COUNTRY_TO_ISO2 = {
-                "ru": "RU", "ua": "UA", "kz": "KZ", "cn": "CN", "ph": "PH", "id": "ID",
-                "my": "MY", "ke": "KE", "tz": "TZ", "br": "BR", "us": "US", "us_v": "US",
-                "il": "IL", "hk": "HK", "pl": "PL", "uk": "GB", "ng": "NG", "eg": "EG",
-                "in": "IN", "ie": "IE", "za": "ZA", "ro": "RO", "co": "CO", "ee": "EE",
-                "ca": "CA", "de": "DE", "nl": "NL", "at": "AT", "th": "TH", "mx": "MX",
-                "es": "ES", "tr": "TR", "cz": "CZ", "pe": "PE", "nz": "NZ", "se": "SE",
-                "fr": "FR", "ar": "AR", "vn": "VN", "bd": "BD", "pk": "PK", "cl": "CL",
-                "be": "BE", "bg": "BG", "hu": "HU", "it": "IT", "pt": "PT", "gr": "GR",
-                "fi": "FI", "dk": "DK", "no": "NO", "ch": "CH", "au": "AU", "jp": "JP",
-                "ge": "GE", "ae": "AE", "sa": "SA", "cr": "CR", "gt": "GT", "sk": "SK",
-                "am": "AM", "az": "AZ", "by": "BY", "md": "MD", "al": "AL", "rs": "RS",
-                "hr": "HR", "si": "SI", "lv": "LV", "lt": "LT", "uy": "UY", "bo": "BO",
-            }
-            PREFIX_TO_SMS_COUNTRY = {}
-            for sms_cc, prefix in _PHONE_COUNTRY_MAP.items():
-                if prefix not in PREFIX_TO_SMS_COUNTRY:
-                    PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
-                elif "_v" in PREFIX_TO_SMS_COUNTRY[prefix] and "_v" not in sms_cc:
-                    PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
-            PREFIX_TO_SMS_COUNTRY["1"] = "us"
-            PREFIX_TO_SMS_COUNTRY["7"] = "ru"
-
-            # ── STEP 1: Detect AOL's displayed country code from the page ──
-            aol_page_prefix = None
-            try:
-                detected = await page.evaluate("""() => {
-                    // Check all inputs for a value like "+55"
-                    const inputs = document.querySelectorAll('input');
-                    for (const inp of inputs) {
-                        const val = inp.value.trim();
-                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
-                            return val.replace('+', '');
-                        }
-                    }
-                    // Check spans/divs that show country code text
-                    const els = document.querySelectorAll('span, div, button, label');
-                    for (const el of els) {
-                        const text = el.textContent.trim();
-                        const match = text.match(/^\\+?(\\d{1,4})$/);
-                        if (match && el.getBoundingClientRect().width < 100) {
-                            return match[1];
-                        }
-                    }
-                    // Check select elements for selected country code
-                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
-                    for (const sel of selects) {
-                        const opt = sel.options[sel.selectedIndex];
-                        if (opt) {
-                            const m = opt.text.match(/\\+(\\d{1,4})/);
-                            if (m) return m[1];
-                            const vm = (opt.value || '').match(/(\\d{1,4})/);
-                            if (vm) return vm[1];
-                        }
-                    }
-                    return null;
-                }""")
-                if detected:
-                    aol_page_prefix = str(detected).strip()
-                    _log(f"AOL показывает код страны: +{aol_page_prefix}")
-            except Exception as e:
-                _log(f"Не удалось определить код страны AOL: {e}")
-
-            # ── STEP 2: Order SMS number from AOL's country (or fallback to configured) ──
+            # ── STEP 1: Order SMS via shared auto-intelligence ──
+            proxy_geo = getattr(proxy, 'geo', None) if proxy else None
             _log("Заказ номера для AOL SMS...")
 
-            aol_sms_country = None
-            if aol_page_prefix:
-                aol_sms_country = PREFIX_TO_SMS_COUNTRY.get(aol_page_prefix)
-                if aol_sms_country:
-                    _log(f"AOL требует страну +{aol_page_prefix} → SMS код: {aol_sms_country}")
-                else:
-                    _log(f"Код +{aol_page_prefix} не найден в маппинге, берём по конфигу")
-
-            order = None
-            if aol_sms_country:
-                try:
-                    _log(f"Заказываем номер из страны {aol_sms_country} (по коду AOL)...")
-                    order = await asyncio.to_thread(sms_provider.order_number, "aol", aol_sms_country)
-                    if "error" in order:
-                        _log(f"Нет номеров в {aol_sms_country}: {order.get('error', '')}, пробуем другие страны...")
-                        order = None
-                except Exception as e:
-                    _log(f"Ошибка заказа из {aol_sms_country}: {e}")
-                    order = None
+            order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+                service="aol",
+                sms_provider=sms_provider,
+                proxy_geo=proxy_geo,
+                page=page,
+                scrape_dropdown=True,
+                _log=_log,
+                _err=_err,
+            )
 
             if not order:
-                _countries = getattr(sms_provider, '_sms_countries', None)
-                _blacklist = getattr(sms_provider, '_country_blacklist', None)
-                if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                    order = await asyncio.to_thread(sms_provider.order_number_from_countries, "aol", _countries, _blacklist)
-                else:
-                    order = await asyncio.to_thread(sms_provider.order_number, "aol", "auto")
-
-            if not order or "error" in order:
-                # Fallback: try as "any" service
-                _log("Пробую заказать номер как 'any'...")
-                _countries = getattr(sms_provider, '_sms_countries', None)
-                _blacklist = getattr(sms_provider, '_country_blacklist', None)
-                if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                    order = await asyncio.to_thread(sms_provider.order_number_from_countries, "any", _countries, _blacklist)
-                else:
-                    order = await asyncio.to_thread(sms_provider.order_number, "any", "auto")
-
-            if not order or "error" in order:
-                _err(f"SMS ошибка: {order.get('error', 'no order') if order else 'Failed to order'}")
                 return None
+
+            sms_provider = active_sms_provider
 
             phone_number = order["number"]
             order_id = order["id"]
@@ -456,7 +353,7 @@ async def register_single_aol(
             _log(f"Номер: {display_phone} (страна: {sms_country})")
 
             # ── STEP 3: Strip phone prefix to get local number ──
-            phone_prefix = _PHONE_COUNTRY_MAP.get(sms_country)
+            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
             local_number = phone_number.lstrip("+")
             if phone_prefix and local_number.startswith(phone_prefix):
                 local_number = local_number[len(phone_prefix):]
@@ -465,7 +362,33 @@ async def register_single_aol(
                 _log(f"Вводим как есть: {local_number}")
 
             # ── STEP 4: Change AOL's country code IF it doesn't match ──
-            target_iso = _COUNTRY_TO_ISO2.get(sms_country, "").upper()
+            # Detect what country AOL is currently showing on the page
+            aol_page_prefix = None
+            try:
+                aol_page_prefix = await page.evaluate("""() => {
+                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
+                    for (const sel of selects) {
+                        const opt = sel.options[sel.selectedIndex];
+                        if (opt) {
+                            const m = opt.text.match(/\\+(\\d{1,4})/);
+                            if (m) return m[1];
+                        }
+                    }
+                    const inputs = document.querySelectorAll('input');
+                    for (const inp of inputs) {
+                        const val = inp.value.trim();
+                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                            return val.replace('+', '');
+                        }
+                    }
+                    return null;
+                }""")
+                if aol_page_prefix:
+                    aol_page_prefix = str(aol_page_prefix).strip()
+            except Exception:
+                pass
+
+            target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
             sms_prefix = phone_prefix or ""
             country_needs_change = aol_page_prefix and sms_prefix and aol_page_prefix != sms_prefix
             country_changed = not country_needs_change
@@ -631,24 +554,16 @@ async def register_single_aol(
                     except Exception:
                         pass
 
-                    # Order new number
-                    _countries = getattr(sms_provider, '_sms_countries', None)
-                    _blacklist = getattr(sms_provider, '_country_blacklist', None)
-                    new_order = None
-                    if aol_sms_country:
-                        try:
-                            new_order = await asyncio.to_thread(sms_provider.order_number, "aol", aol_sms_country)
-                            if "error" in new_order:
-                                new_order = None
-                        except Exception:
-                            new_order = None
+                    # Order new number via shared retry function
+                    new_order = await order_sms_retry(
+                        service="aol",
+                        active_provider=sms_provider,
+                        expanded_countries=expanded_countries,
+                        used_numbers={phone_number},
+                        _log=_log,
+                    )
                     if not new_order:
-                        if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                            new_order = await asyncio.to_thread(sms_provider.order_number_from_countries, "aol", _countries, _blacklist)
-                        else:
-                            new_order = await asyncio.to_thread(sms_provider.order_number, "aol", "auto")
-                    if not new_order or "error" in new_order:
-                        _err(f"SMS ошибка при получении нового номера: {new_order.get('error', '') if new_order else 'no order'}")
+                        _err("SMS ошибка при получении нового номера")
                         return None
 
                     phone_number = new_order["number"]
@@ -658,7 +573,7 @@ async def register_single_aol(
                     _log(f"Новый номер: {display_phone} (страна: {sms_country})")
 
                     # Recalculate local number
-                    phone_prefix = _PHONE_COUNTRY_MAP.get(sms_country, phone_prefix)
+                    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country, phone_prefix)
                     local_number = phone_number.lstrip("+")
                     if phone_prefix and local_number.startswith(phone_prefix):
                         local_number = local_number[len(phone_prefix):]

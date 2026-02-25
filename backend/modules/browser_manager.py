@@ -342,7 +342,8 @@ def _build_mobile_stealth_extra(platform: str = "android") -> str:
 
 
 def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int = 8,
-                           device_memory: int = 8, langs: list = None) -> str:
+                           device_memory: int = 8, langs: list = None,
+                           timezone_id: str = "") -> str:
     """
     Build comprehensive antidetect stealth JS to inject into each browser context.
     Dynamically adapts to UA (platform matching) and rotates GPU per context.
@@ -552,7 +553,23 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
             }})
         }});
     }}
-    """
+
+    // 14. Intl.DateTimeFormat timezone consistency (prevents tz mismatch detection)
+    {'// timezone_id was provided — override Intl to match' if timezone_id else '// no timezone_id — skip Intl override'}
+    """ + (f"""
+    (function() {{
+        const _origDTF = Intl.DateTimeFormat;
+        const _targetTZ = '{timezone_id}';
+        Intl.DateTimeFormat = function(locales, options) {{
+            if (!options) options = {{}};
+            if (!options.timeZone) options.timeZone = _targetTZ;
+            return new _origDTF(locales, options);
+        }};
+        Intl.DateTimeFormat.prototype = _origDTF.prototype;
+        Intl.DateTimeFormat.supportedLocalesOf = _origDTF.supportedLocalesOf;
+        Object.defineProperty(Intl.DateTimeFormat, 'name', {{ value: 'DateTimeFormat' }});
+    }})();
+    """ if timezone_id else "")
 
 
 PROFILES_DIR = Path("user_data/profiles")
@@ -736,8 +753,23 @@ class BrowserManager:
             ctx_hw = random.choice([4, 8, 12, 16])
             ctx_mem = random.choice([4, 8, 16])
 
-        stealth_js = _build_stealth_scripts(ua=ctx_ua, gpu=ctx_gpu, hw_concurrency=ctx_hw,
-                                             device_memory=ctx_mem)
+        # Build GEO-matched language list for stealth scripts
+        # This ensures navigator.languages matches Accept-Language and locale
+        # Real Chrome always shows 2+ entries, e.g. ["pt-BR", "pt", "en"]
+        ctx_langs = [locale_str]  # e.g. "pt-BR"
+        # Add bare language tag if not redundant (e.g. "pt" from "pt-BR")
+        bare_lang = locale_str.split("-")[0]
+        if bare_lang != locale_str:
+            ctx_langs.append(bare_lang)  # "pt-BR" → also add "pt"
+        # Always include English as fallback (natural for most multilingual users)
+        if "en" not in ctx_langs:
+            ctx_langs.append("en")
+
+        stealth_js = _build_stealth_scripts(
+            ua=ctx_ua, gpu=ctx_gpu, hw_concurrency=ctx_hw,
+            device_memory=ctx_mem, langs=ctx_langs,
+            timezone_id=timezone_id,
+        )
         await context.add_init_script(script=stealth_js)
 
         # Add mobile-specific stealth if emulating phone

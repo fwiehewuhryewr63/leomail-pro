@@ -28,6 +28,7 @@ from ._helpers import (
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2,
+    order_sms_with_chain,
     export_account_to_file,
 )
 
@@ -318,16 +319,22 @@ async def register_single_gmail(
                 _err("Google требует SMS, но SMS провайдер не настроен (SimSMS/GrizzlySMS)")
                 return None
 
-            _log("Заказ номера для SMS...")
-            _countries = getattr(sms_provider, '_sms_countries', None)
-            _blacklist = getattr(sms_provider, '_country_blacklist', None)
-            if _countries and hasattr(sms_provider, 'order_number_from_countries'):
-                order = await asyncio.to_thread(sms_provider.order_number_from_countries, "gmail", _countries, _blacklist)
-            else:
-                order = await asyncio.to_thread(sms_provider.order_number, "gmail", "auto")
-            if "error" in order:
-                _err(f"SMS ошибка: {order['error']}")
+            _log("Заказ номера для Gmail SMS...")
+            proxy_geo = getattr(proxy, 'geo', None) if proxy else None
+
+            order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+                service="gmail",
+                sms_provider=sms_provider,
+                proxy_geo=proxy_geo,
+                page=None,  # Gmail has no country dropdown
+                scrape_dropdown=False,
+                _log=_log,
+                _err=_err,
+            )
+            if not order:
                 return None
+
+            sms_provider = active_sms_provider
 
             phone_number = order["number"]
             order_id = order["id"]

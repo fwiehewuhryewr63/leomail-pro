@@ -27,7 +27,8 @@ from ._helpers import (
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
-    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2,
+    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
+    order_sms_with_chain, order_sms_retry,
     export_account_to_file,
 )
 
@@ -351,218 +352,26 @@ async def register_single_yahoo(
                 _err("Yahoo требует SMS, но SMS провайдер не настроен")
                 return None
 
-            # ── PHONE_COUNTRY_MAP and reverse map ──
-            PHONE_COUNTRY_MAP = {
-                "ru": "7", "ua": "380", "kz": "7", "cn": "86", "ph": "63", "id": "62",
-                "my": "60", "ke": "254", "tz": "255", "br": "55", "us": "1", "us_v": "1",
-                "il": "972", "hk": "852", "pl": "48", "uk": "44", "ng": "234", "eg": "20",
-                "in": "91", "ie": "353", "za": "27", "ro": "40", "co": "57", "ee": "372",
-                "ca": "1", "de": "49", "nl": "31", "at": "43", "th": "66", "mx": "52",
-                "es": "34", "tr": "90", "cz": "420", "pe": "51", "nz": "64", "se": "46",
-                "fr": "33", "ar": "54", "vn": "84", "bd": "880", "pk": "92", "cl": "56",
-                "be": "32", "bg": "359", "hu": "36", "it": "39", "pt": "351", "gr": "30",
-                "fi": "358", "dk": "45", "no": "47", "ch": "41", "au": "61", "jp": "81",
-                "ge": "995", "ae": "971", "sa": "966", "cr": "506", "gt": "502", "sk": "421",
-                "am": "374", "az": "994", "by": "375", "md": "373", "al": "355", "rs": "381",
-                "hr": "385", "si": "386", "lv": "371", "lt": "370", "uy": "598", "bo": "591",
-            }
-            COUNTRY_TO_ISO2 = {
-                "ru": "RU", "ua": "UA", "kz": "KZ", "cn": "CN", "ph": "PH", "id": "ID",
-                "my": "MY", "ke": "KE", "tz": "TZ", "br": "BR", "us": "US", "us_v": "US",
-                "il": "IL", "hk": "HK", "pl": "PL", "uk": "GB", "ng": "NG", "eg": "EG",
-                "in": "IN", "ie": "IE", "za": "ZA", "ro": "RO", "co": "CO", "ee": "EE",
-                "ca": "CA", "de": "DE", "nl": "NL", "at": "AT", "th": "TH", "mx": "MX",
-                "es": "ES", "tr": "TR", "cz": "CZ", "pe": "PE", "nz": "NZ", "se": "SE",
-                "fr": "FR", "ar": "AR", "vn": "VN", "bd": "BD", "pk": "PK", "cl": "CL",
-                "be": "BE", "bg": "BG", "hu": "HU", "it": "IT", "pt": "PT", "gr": "GR",
-                "fi": "FI", "dk": "DK", "no": "NO", "ch": "CH", "au": "AU", "jp": "JP",
-                "ge": "GE", "ae": "AE", "sa": "SA", "cr": "CR", "gt": "GT", "sk": "SK",
-                "am": "AM", "az": "AZ", "by": "BY", "md": "MD", "al": "AL", "rs": "RS",
-                "hr": "HR", "si": "SI", "lv": "LV", "lt": "LT", "uy": "UY", "bo": "BO",
-            }
-            # Reverse: phone prefix → SMS provider country code (e.g. "55" → "br")
-            # Prefer real countries over virtual (us over us_v), and prefer longer prefixes
-            PREFIX_TO_SMS_COUNTRY = {}
-            for sms_cc, prefix in PHONE_COUNTRY_MAP.items():
-                if prefix not in PREFIX_TO_SMS_COUNTRY:
-                    PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
-                elif "_v" in PREFIX_TO_SMS_COUNTRY[prefix] and "_v" not in sms_cc:
-                    # Prefer real country ("us") over virtual ("us_v")
-                    PREFIX_TO_SMS_COUNTRY[prefix] = sms_cc
-            # Explicit overrides for ambiguous prefixes
-            PREFIX_TO_SMS_COUNTRY["1"] = "us"  # +1 = US (not Canada or US Virtual)
-            PREFIX_TO_SMS_COUNTRY["7"] = "ru"  # +7 = Russia (not Kazakhstan)
-
-            # ── STEP 1: Detect Yahoo's displayed country code from the page ──
-            yahoo_page_prefix = None
-            try:
-                # Strategy A: Find input/element showing "+XX"
-                detected = await page.evaluate("""() => {
-                    // Check all inputs for a value like "+55"
-                    const inputs = document.querySelectorAll('input');
-                    for (const inp of inputs) {
-                        const val = inp.value.trim();
-                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
-                            return val.replace('+', '');
-                        }
-                    }
-                    // Check spans/divs that show country code text
-                    const els = document.querySelectorAll('span, div, button, label');
-                    for (const el of els) {
-                        const text = el.textContent.trim();
-                        // Match patterns like "+55" or "+381"
-                        const match = text.match(/^\\+?(\\d{1,4})$/);
-                        if (match && el.getBoundingClientRect().width < 100) {
-                            return match[1];
-                        }
-                    }
-                    // Check select elements for selected country code (Yahoo uses select[id^=countryCode])
-                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
-                    for (const sel of selects) {
-                        const opt = sel.options[sel.selectedIndex];
-                        if (opt) {
-                            const m = opt.text.match(/\\+(\\d{1,4})/);
-                            if (m) return m[1];
-                            // Also check value attribute
-                            const vm = (opt.value || '').match(/(\\d{1,4})/);
-                            if (vm) return vm[1];
-                        }
-                    }
-                    return null;
-                }""")
-                if detected:
-                    yahoo_page_prefix = str(detected).strip()
-                    _log(f"Yahoo показывает код страны: +{yahoo_page_prefix}")
-            except Exception as e:
-                _log(f"Не удалось определить код страны Yahoo: {e}")
-
-            # ── STEP 2: Order SMS number from Yahoo's country (or fallback to configured) ──
+            # ── STEP 1: Order SMS via shared auto-intelligence ──
+            # Uses proxy geo + page dropdown to pick country, tries all providers
+            proxy_geo = getattr(proxy, 'geo', None) if proxy else None
             _log("Заказ номера для Yahoo SMS...")
 
-            # Determine which country to order from
-            yahoo_sms_country = None
-            if yahoo_page_prefix:
-                yahoo_sms_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
-                if yahoo_sms_country:
-                    _log(f"Yahoo требует страну +{yahoo_page_prefix} → SMS код: {yahoo_sms_country}")
-                else:
-                    _log(f"Код +{yahoo_page_prefix} не найден в маппинге, берём по конфигу")
+            order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+                service="yahoo",
+                sms_provider=sms_provider,
+                proxy_geo=proxy_geo,
+                page=page,
+                scrape_dropdown=True,
+                _log=_log,
+                _err=_err,
+            )
 
-            # ── SMS Provider Chain: try each provider until one works ──
-            from ._helpers import get_sms_chain
-            # Detect primary provider name from class type
-            _cls = type(sms_provider).__name__.lower()
-            if 'grizzly' in _cls:
-                _primary = 'grizzly'
-            elif 'fivesim' in _cls or '5sim' in _cls:
-                _primary = '5sim'
-            else:
-                _primary = 'simsms'
-            sms_chain = get_sms_chain(_primary)
-            if not sms_chain:
-                sms_chain = [("primary", sms_provider)]
-
-            order = None
-            active_sms_provider = sms_provider  # will be updated to whichever works
-
-            # ── Read Yahoo's country dropdown to know which countries are available ──
-            yahoo_available_prefixes = []
-            try:
-                yahoo_available_prefixes = await page.evaluate("""() => {
-                    const prefixes = [];
-                    // Method 1: <select> options with country codes
-                    const selects = document.querySelectorAll('select');
-                    for (const sel of selects) {
-                        for (const opt of sel.options) {
-                            const m = opt.text.match(/\\+(\\d{1,4})/);
-                            if (m) prefixes.push(m[1]);
-                            // Also check value
-                            const vm = (opt.value || '').match(/^(\\d{1,4})$/);
-                            if (vm) prefixes.push(vm[1]);
-                        }
-                    }
-                    // Method 2: data attributes or list items
-                    if (prefixes.length === 0) {
-                        const items = document.querySelectorAll('[data-code], [data-country-code], li[role="option"]');
-                        for (const el of items) {
-                            const code = el.getAttribute('data-code') || el.getAttribute('data-country-code') || '';
-                            if (code) prefixes.push(code);
-                            const m = el.textContent.match(/\\+(\\d{1,4})/);
-                            if (m) prefixes.push(m[1]);
-                        }
-                    }
-                    return [...new Set(prefixes)];
-                }""")
-                if yahoo_available_prefixes:
-                    _log(f"Yahoo dropdown: {len(yahoo_available_prefixes)} стран доступно (примеры: +{', +'.join(yahoo_available_prefixes[:5])})")
-            except Exception as e:
-                _log(f"Не удалось прочитать dropdown Yahoo: {e}")
-
-            # Convert Yahoo prefixes to SMS country codes
-            yahoo_dropdown_countries = []
-            if yahoo_available_prefixes:
-                for prefix in yahoo_available_prefixes:
-                    cc = PREFIX_TO_SMS_COUNTRY.get(prefix)
-                    if cc and cc not in yahoo_dropdown_countries:
-                        yahoo_dropdown_countries.append(cc)
-                _log(f"Yahoo поддерживает: {yahoo_dropdown_countries[:10]}...")
-
-            # Build final country list: detected first, then Yahoo dropdown, then fallback
-            FALLBACK_PRIORITY = ["us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr", "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il"]
-            expanded_countries = []
-            if yahoo_sms_country:
-                expanded_countries.append(yahoo_sms_country)
-            # Add countries from Yahoo's dropdown (these are guaranteed to work)
-            for c in yahoo_dropdown_countries:
-                if c not in expanded_countries:
-                    expanded_countries.append(c)
-            # Fallback if dropdown scraping failed
-            if len(expanded_countries) < 3:
-                for c in FALLBACK_PRIORITY:
-                    if c not in expanded_countries:
-                        expanded_countries.append(c)
-
-            for provider_name, provider in sms_chain:
-                _log(f"📱 Пробуем SMS: {provider_name} (страны: {expanded_countries[:5]}...)")
-
-                # Try order_number_from_countries with expanded list
-                if hasattr(provider, 'order_number_from_countries'):
-                    try:
-                        order = await asyncio.to_thread(
-                            provider.order_number_from_countries, "yahoo", expanded_countries
-                        )
-                        if order and "error" not in order:
-                            active_sms_provider = provider
-                            _log(f"✅ {provider_name}: номер из {order.get('country', '?')}")
-                            break
-                        _log(f"{provider_name}: order_from_countries failed: {order.get('error', '') if order else ''}")
-                        order = None
-                    except Exception as e:
-                        _log(f"{provider_name}: ошибка: {e}")
-                        order = None
-                else:
-                    # Fallback: try auto then each country manually
-                    for country in expanded_countries[:5]:
-                        try:
-                            order = await asyncio.to_thread(provider.order_number, "yahoo", country)
-                            if order and "error" not in order:
-                                active_sms_provider = provider
-                                _log(f"✅ {provider_name}: номер из {country}")
-                                break
-                            order = None
-                        except Exception:
-                            order = None
-                    if order and "error" not in order:
-                        break
-
-                _log(f"❌ {provider_name}: не удалось, пробуем следующий...")
+            if not order:
+                return None
 
             # Update sms_provider to whichever worked
             sms_provider = active_sms_provider
-
-            if not order or "error" in order:
-                _err(f"SMS ошибка: все провайдеры исчерпаны")
-                return None
 
             phone_number = order["number"]
             order_id = order["id"]
@@ -580,6 +389,34 @@ async def register_single_yahoo(
                 _log(f"Вводим как есть: {local_number}")
 
             # ── STEP 4: Change Yahoo's country code IF it doesn't match ──
+            # Detect what country Yahoo is currently showing on the page
+            yahoo_page_prefix = None
+            try:
+                yahoo_page_prefix = await page.evaluate("""() => {
+                    // Check select elements for current country code
+                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
+                    for (const sel of selects) {
+                        const opt = sel.options[sel.selectedIndex];
+                        if (opt) {
+                            const m = opt.text.match(/\\+(\\d{1,4})/);
+                            if (m) return m[1];
+                        }
+                    }
+                    // Check inputs showing "+XX"
+                    const inputs = document.querySelectorAll('input');
+                    for (const inp of inputs) {
+                        const val = inp.value.trim();
+                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                            return val.replace('+', '');
+                        }
+                    }
+                    return null;
+                }""")
+                if yahoo_page_prefix:
+                    yahoo_page_prefix = str(yahoo_page_prefix).strip()
+            except Exception:
+                pass
+
             target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
             sms_prefix = phone_prefix or ""
             country_needs_change = yahoo_page_prefix and sms_prefix and yahoo_page_prefix != sms_prefix
@@ -783,25 +620,16 @@ async def register_single_yahoo(
                     except Exception:
                         pass
 
-                    # Order new number using expanded countries (same as initial)
-                    new_order = None
-                    _log(f"Заказываем новый номер (страны: {expanded_countries[:5]}...)")
-                    if hasattr(sms_provider, 'order_number_from_countries'):
-                        try:
-                            new_order = await asyncio.to_thread(
-                                sms_provider.order_number_from_countries, "yahoo", expanded_countries
-                            )
-                            if new_order and "error" in new_order:
-                                new_order = None
-                        except Exception:
-                            new_order = None
+                    # Order new number via shared retry function
+                    new_order = await order_sms_retry(
+                        service="yahoo",
+                        active_provider=sms_provider,
+                        expanded_countries=expanded_countries,
+                        used_numbers={phone_number},
+                        _log=_log,
+                    )
                     if not new_order:
-                        try:
-                            new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", "auto")
-                        except Exception:
-                            pass
-                    if not new_order or "error" in new_order:
-                        _err(f"SMS ошибка при получении нового номера: {new_order.get('error', 'no number') if new_order else 'Failed'}")
+                        _err("SMS ошибка при получении нового номера")
                         return None
 
                     phone_number = new_order["number"]

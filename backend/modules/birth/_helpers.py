@@ -104,6 +104,272 @@ def get_sms_chain(primary: str) -> list:
     return chain
 
 
+# ── Shared Phone ↔ Country Mappings (used by Yahoo, AOL, Gmail) ──
+
+# SMS provider country code → phone prefix (e.g. "us" → "1", "br" → "55")
+PHONE_COUNTRY_MAP = {
+    "ru": "7", "ua": "380", "kz": "7", "cn": "86", "ph": "63", "id": "62",
+    "my": "60", "ke": "254", "tz": "255", "br": "55", "us": "1", "us_v": "1",
+    "il": "972", "hk": "852", "pl": "48", "uk": "44", "ng": "234", "eg": "20",
+    "in": "91", "ie": "353", "za": "27", "ro": "40", "co": "57", "ee": "372",
+    "ca": "1", "de": "49", "nl": "31", "at": "43", "th": "66", "mx": "52",
+    "es": "34", "tr": "90", "cz": "420", "pe": "51", "nz": "64", "se": "46",
+    "fr": "33", "ar": "54", "vn": "84", "bd": "880", "pk": "92", "cl": "56",
+    "be": "32", "bg": "359", "hu": "36", "it": "39", "pt": "351", "gr": "30",
+    "fi": "358", "dk": "45", "no": "47", "ch": "41", "au": "61", "jp": "81",
+    "ge": "995", "ae": "971", "sa": "966", "cr": "506", "gt": "502", "sk": "421",
+    "am": "374", "az": "994", "by": "375", "md": "373", "al": "355", "rs": "381",
+    "hr": "385", "si": "386", "lv": "371", "lt": "370", "uy": "598", "bo": "591",
+}
+
+# Reverse: phone prefix → SMS provider country code (e.g. "55" → "br", "1" → "us")
+PREFIX_TO_SMS_COUNTRY = {}
+for _sms_cc, _prefix in PHONE_COUNTRY_MAP.items():
+    if _prefix not in PREFIX_TO_SMS_COUNTRY:
+        PREFIX_TO_SMS_COUNTRY[_prefix] = _sms_cc
+    elif "_v" in PREFIX_TO_SMS_COUNTRY[_prefix] and "_v" not in _sms_cc:
+        PREFIX_TO_SMS_COUNTRY[_prefix] = _sms_cc  # prefer real over virtual
+PREFIX_TO_SMS_COUNTRY["1"] = "us"   # +1 = US (not Canada or US Virtual)
+PREFIX_TO_SMS_COUNTRY["7"] = "ru"   # +7 = Russia (not Kazakhstan)
+
+# ISO2 → SMS provider country code (e.g. "BR" → "br", "US" → "us")
+ISO2_TO_SMS_COUNTRY = {
+    "RU": "ru", "UA": "ua", "KZ": "kz", "CN": "cn", "PH": "ph", "ID": "id",
+    "MY": "my", "KE": "ke", "TZ": "tz", "BR": "br", "US": "us",
+    "IL": "il", "HK": "hk", "PL": "pl", "GB": "uk", "NG": "ng", "EG": "eg",
+    "IN": "in", "IE": "ie", "ZA": "za", "RO": "ro", "CO": "co", "EE": "ee",
+    "CA": "ca", "DE": "de", "NL": "nl", "AT": "at", "TH": "th", "MX": "mx",
+    "ES": "es", "TR": "tr", "CZ": "cz", "PE": "pe", "NZ": "nz", "SE": "se",
+    "FR": "fr", "AR": "ar", "VN": "vn", "BD": "bd", "PK": "pk", "CL": "cl",
+    "BE": "be", "BG": "bg", "HU": "hu", "IT": "it", "PT": "pt", "GR": "gr",
+    "FI": "fi", "DK": "dk", "NO": "no", "CH": "ch", "AU": "au", "JP": "jp",
+    "GE": "ge", "AE": "ae", "SA": "sa", "CR": "cr", "GT": "gt", "SK": "sk",
+    "AM": "am", "AZ": "az", "BY": "by", "MD": "md", "AL": "al", "RS": "rs",
+    "HR": "hr", "SI": "si", "LV": "lv", "LT": "lt", "UY": "uy", "BO": "bo",
+}
+
+# Reverse: SMS provider country code → ISO2 (e.g. "br" → "BR", "uk" → "GB")
+COUNTRY_TO_ISO2 = {v: k for k, v in ISO2_TO_SMS_COUNTRY.items()}
+
+# Priority order when no specific country detected
+COUNTRY_FALLBACK_PRIORITY = [
+    "us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr",
+    "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il",
+]
+
+
+async def scrape_phone_dropdown(page, _log=None) -> list[str]:
+    """
+    Scrape Yahoo/AOL phone country dropdown to get available phone prefixes.
+    Returns list of phone prefixes (e.g. ["1", "44", "55"]).
+    """
+    try:
+        prefixes = await page.evaluate("""() => {
+            const prefixes = [];
+            // Method 1: <select> options with country codes
+            const selects = document.querySelectorAll('select');
+            for (const sel of selects) {
+                for (const opt of sel.options) {
+                    const m = opt.text.match(/\\+(\\d{1,4})/);
+                    if (m) prefixes.push(m[1]);
+                    const vm = (opt.value || '').match(/^(\\d{1,4})$/);
+                    if (vm) prefixes.push(vm[1]);
+                }
+            }
+            // Method 2: data attributes or list items
+            if (prefixes.length === 0) {
+                const items = document.querySelectorAll('[data-code], [data-country-code], li[role="option"]');
+                for (const el of items) {
+                    const code = el.getAttribute('data-code') || el.getAttribute('data-country-code') || '';
+                    if (code) prefixes.push(code);
+                    const m = el.textContent.match(/\\+(\\d{1,4})/);
+                    if (m) prefixes.push(m[1]);
+                }
+            }
+            return [...new Set(prefixes)];
+        }""")
+        if prefixes and _log:
+            _log(f"Dropdown: {len(prefixes)} стран (примеры: +{', +'.join(prefixes[:5])})")
+        return prefixes or []
+    except Exception as e:
+        if _log:
+            _log(f"Dropdown scraping failed: {e}")
+        return []
+
+
+async def order_sms_with_chain(
+    service: str,
+    sms_provider,
+    proxy_geo: str = None,
+    page=None,
+    scrape_dropdown: bool = True,
+    _log=None,
+    _err=None,
+) -> tuple:
+    """
+    Universal SMS ordering with auto-intelligence:
+    1. Auto-detect country from proxy geo / page dropdown / fallback priority
+    2. Try all configured SMS providers in chain order
+    3. Zero user input required
+
+    Args:
+        service: "yahoo", "aol", "gmail", "outlook"
+        sms_provider: primary SMS provider instance
+        proxy_geo: ISO2 country code from proxy (e.g. "BR", "US")
+        page: Playwright page for dropdown scraping (Yahoo/AOL only)
+        scrape_dropdown: whether to scrape phone country dropdown (False for Gmail)
+        _log: logging function
+        _err: error logging function
+
+    Returns:
+        (order_dict, active_provider, expanded_countries) or (None, None, [])
+        order_dict: {"id": ..., "number": ..., "country": ..., "service": ...}
+    """
+    if not _log:
+        _log = lambda msg: logger.info(msg)
+    if not _err:
+        _err = lambda msg: logger.error(msg)
+
+    if not sms_provider:
+        _err(f"{service.upper()} требует SMS, но SMS провайдер не настроен")
+        return None, None, []
+
+    # ── Step 1: Build ordered country list ──
+    detected_country = None  # from page dropdown
+    expanded_countries = []
+
+    # Priority 1: proxy GEO (MUST match for Gmail, should match for Yahoo/AOL)
+    if proxy_geo:
+        proxy_sms = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
+        if proxy_sms:
+            expanded_countries.append(proxy_sms)
+            _log(f"Proxy geo {proxy_geo} → SMS country: {proxy_sms}")
+
+    # Priority 2: dropdown scraping (Yahoo/AOL — detect page's displayed country)
+    dropdown_countries = []
+    if scrape_dropdown and page:
+        prefixes = await scrape_phone_dropdown(page, _log)
+        if prefixes:
+            # Find which prefix the page currently shows (first in dropdown = current)
+            for prefix in prefixes[:3]:
+                cc = PREFIX_TO_SMS_COUNTRY.get(prefix)
+                if cc:
+                    if not detected_country:
+                        detected_country = cc
+                    if cc not in dropdown_countries:
+                        dropdown_countries.append(cc)
+            # Add all dropdown countries
+            for prefix in prefixes:
+                cc = PREFIX_TO_SMS_COUNTRY.get(prefix)
+                if cc and cc not in dropdown_countries:
+                    dropdown_countries.append(cc)
+            _log(f"Dropdown countries: {dropdown_countries[:10]}...")
+
+    # Merge: detected first (if matches proxy), then proxy, then dropdown, then fallback
+    if detected_country and detected_country not in expanded_countries:
+        expanded_countries.insert(0, detected_country)
+
+    for c in dropdown_countries:
+        if c not in expanded_countries:
+            expanded_countries.append(c)
+
+    # Priority 3: fallback countries (if we have < 3 options)
+    if len(expanded_countries) < 3:
+        for c in COUNTRY_FALLBACK_PRIORITY:
+            if c not in expanded_countries:
+                expanded_countries.append(c)
+
+    _log(f"SMS страны (приоритет): {expanded_countries[:8]}...")
+
+    # ── Step 2: Build provider chain ──
+    _cls = type(sms_provider).__name__.lower()
+    if 'grizzly' in _cls:
+        _primary = 'grizzly'
+    elif 'fivesim' in _cls or '5sim' in _cls:
+        _primary = '5sim'
+    else:
+        _primary = 'simsms'
+
+    sms_chain = get_sms_chain(_primary)
+    if not sms_chain:
+        sms_chain = [("primary", sms_provider)]
+
+    # ── Step 3: Try each provider with expanded country list ──
+    for provider_name, provider in sms_chain:
+        _log(f"📱 Пробуем SMS: {provider_name}")
+
+        # Method 1: order_number_from_countries (tries all countries internally)
+        if hasattr(provider, 'order_number_from_countries'):
+            try:
+                order = await asyncio.to_thread(
+                    provider.order_number_from_countries, service, expanded_countries
+                )
+                if order and "error" not in order:
+                    _log(f"✅ {provider_name}: номер из {order.get('country', '?')} — {order.get('number', '')}")
+                    return order, provider, expanded_countries
+                _log(f"{provider_name} from_countries: {order.get('error', '') if order else 'empty'}")
+            except Exception as e:
+                _log(f"{provider_name} from_countries error: {e}")
+
+        # Method 2: try countries one by one
+        for country in expanded_countries[:5]:
+            try:
+                order = await asyncio.to_thread(provider.order_number, service, country)
+                if order and "error" not in order:
+                    _log(f"✅ {provider_name}: номер из {country} — {order.get('number', '')}")
+                    return order, provider, expanded_countries
+            except Exception as e:
+                _log(f"{provider_name}/{country}: {e}")
+
+        _log(f"❌ {provider_name}: все страны исчерпаны")
+
+    _err(f"Не удалось заказать SMS ни через одного провайдера для {service}")
+    return None, None, expanded_countries
+
+
+async def order_sms_retry(
+    service: str,
+    active_provider,
+    expanded_countries: list,
+    used_numbers: set = None,
+    _log=None,
+) -> dict | None:
+    """
+    Retry SMS order after rejection (wrong code, number rejected by provider).
+    Uses the same provider and expanded country list, skipping already-used numbers.
+
+    Returns order_dict or None.
+    """
+    if not _log:
+        _log = lambda msg: logger.info(msg)
+
+    if not active_provider:
+        _log("Retry: нет активного SMS провайдера")
+        return None
+
+    if not used_numbers:
+        used_numbers = set()
+
+    _log(f"🔄 Повторный заказ SMS для {service}...")
+
+    # Try from expanded countries
+    for country in expanded_countries[:8]:
+        try:
+            order = await asyncio.to_thread(active_provider.order_number, service, country)
+            if order and "error" not in order:
+                number = order.get("number", "")
+                if number in used_numbers:
+                    _log(f"Номер {number} уже использовался, пропуск")
+                    continue
+                _log(f"✅ Retry: номер из {country} — {number}")
+                return order
+        except Exception as e:
+            _log(f"Retry {country}: {e}")
+
+    _log("❌ Retry: все страны исчерпаны")
+    return None
+
+
 def get_captcha_provider():
     key = get_api_key("capguru") or ""
     return CaptchaProvider(api_key=key) if key else None

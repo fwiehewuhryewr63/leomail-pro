@@ -303,6 +303,7 @@ async def run_birth_task(request: BirthRequest):
                                 browser_manager, proxy, request.device_type,
                                 worker_name_pool, captcha, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
+                                BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "hotmail":
                             account = await register_single_outlook(
@@ -310,6 +311,7 @@ async def run_birth_task(request: BirthRequest):
                                 worker_name_pool, captcha, db, thread_log,
                                 domain="hotmail.com",
                                 ACTIVE_PAGES=ACTIVE_PAGES,
+                                BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "gmail":
                             if not sms:
