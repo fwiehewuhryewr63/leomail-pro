@@ -84,6 +84,7 @@ async def startup_event():
                 "content_type": "VARCHAR DEFAULT 'html'",
                 "language": "VARCHAR DEFAULT 'en'",
                 "updated_at": "DATETIME",
+                "niche": "VARCHAR",
             }
             for col, col_type in migrations.items():
                 if col not in tmpl_cols:
@@ -122,6 +123,63 @@ async def startup_event():
                     conn.execute(text(f"ALTER TABLE proxies ADD COLUMN {col} {col_type}"))
                     conn.commit()
                     logger.info(f"Migrated: added {col} column to proxies")
+        except Exception:
+            pass
+
+        # campaigns — send settings + account source columns
+        try:
+            camp_cols = [c["name"] for c in inspector.get_columns("campaigns")]
+            camp_migrations = {
+                "emails_per_day_min": "INTEGER DEFAULT 25",
+                "emails_per_day_max": "INTEGER DEFAULT 75",
+                "delay_min": "INTEGER DEFAULT 30",
+                "delay_max": "INTEGER DEFAULT 180",
+                "same_provider": "BOOLEAN DEFAULT 0",
+                "max_link_uses": "INTEGER DEFAULT 0",
+                "max_link_cycles": "INTEGER DEFAULT 0",
+                "use_existing": "BOOLEAN DEFAULT 0",
+                "farm_ids": "JSON",
+                "stop_reason": "VARCHAR",
+                "accounts_born": "INTEGER DEFAULT 0",
+                "accounts_dead": "INTEGER DEFAULT 0",
+                "total_sent": "INTEGER DEFAULT 0",
+                "total_errors": "INTEGER DEFAULT 0",
+            }
+            for col, col_type in camp_migrations.items():
+                if col not in camp_cols:
+                    conn.execute(text(f"ALTER TABLE campaigns ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Migrated: added {col} column to campaigns")
+        except Exception:
+            pass
+
+        # campaign_recipients — first_name for VIP
+        try:
+            cr_cols = [c["name"] for c in inspector.get_columns("campaign_recipients")]
+            if "first_name" not in cr_cols:
+                conn.execute(text("ALTER TABLE campaign_recipients ADD COLUMN first_name VARCHAR"))
+                conn.commit()
+                logger.info("Migrated: added first_name column to campaign_recipients")
+        except Exception:
+            pass
+
+        # link_databases — niche column
+        try:
+            lp_cols = [c["name"] for c in inspector.get_columns("link_databases")]
+            if "niche" not in lp_cols:
+                conn.execute(text("ALTER TABLE link_databases ADD COLUMN niche VARCHAR"))
+                conn.commit()
+                logger.info("Migrated: added niche column to link_databases")
+        except Exception:
+            pass
+
+        # recipient_databases — with_name column
+        try:
+            rd_cols = [c["name"] for c in inspector.get_columns("recipient_databases")]
+            if "with_name" not in rd_cols:
+                conn.execute(text("ALTER TABLE recipient_databases ADD COLUMN with_name BOOLEAN DEFAULT 0"))
+                conn.commit()
+                logger.info("Migrated: added with_name column to recipient_databases")
         except Exception:
             pass
 
