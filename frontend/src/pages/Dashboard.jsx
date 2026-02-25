@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     LayoutDashboard, Users, Shield, FileText, Zap, Send, Activity,
-    Database, StopCircle, Flame, Link2, UserPlus, TrendingUp, Cpu
+    Database, StopCircle, Flame, Link2, UserPlus, TrendingUp, Cpu, AlertTriangle
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useNavigate } from 'react-router-dom';
@@ -49,14 +49,24 @@ export default function Dashboard() {
         </div>
     );
 
-    /* ── computed ── */
-    const proxyAlive = s.proxies_alive || 0;
-    const proxyDead = s.proxies_dead || 0;
-    const proxyTotal = s.total_proxies || 0;
-    const proxyFree = Math.max(0, proxyAlive - (s.total_accounts || 0));
-    const linksCount = s.total_links || 0;
-    const dbCount = s.total_databases || 0;
+    const SectionHeader = ({ icon: Icon, label, badge, badgeColor }) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Icon size={14} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{label}</span>
+            {badge && (
+                <span style={{
+                    marginLeft: 'auto', fontSize: '0.7em', fontWeight: 700, padding: '2px 10px', borderRadius: 4,
+                    background: `${badgeColor || 'var(--success)'}22`,
+                    color: badgeColor || 'var(--success)',
+                }}>{badge}</span>
+            )}
+        </div>
+    );
 
+    /* helper: statusColor for resource health */
+    const sc = (status) => status === 'ok' ? 'var(--success)' : status === 'warning' ? 'var(--warning)' : 'var(--danger)';
+
+    /* ── computed ── */
     const ms = s.mailing_stats || {};
     const ts = s.task_stats || {};
     const ths = s.thread_stats || {};
@@ -68,103 +78,7 @@ export default function Dashboard() {
                 <span style={{ marginLeft: 'auto', fontSize: '0.42em', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: 2 }}>v4.0 BLITZ</span>
             </h2>
 
-            {/* ═══ TOP STATS ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
-                <StatCard icon={Users} label="Аккаунты" value={s.total_accounts || 0}
-                    sub={`${s.status_warmed || 0} warmed · ${s.status_dead || 0} мёртв.`}
-                    onClick={() => navigate('/farms')} />
-                <StatCard icon={Shield} label="Прокси" value={proxyTotal}
-                    sub={`${proxyAlive} живых · ${proxyDead} мёртв.`}
-                    color={proxyDead > proxyAlive ? 'var(--danger)' : 'var(--success)'}
-                    onClick={() => navigate('/proxies')} />
-                <StatCard icon={FileText} label="Шаблоны" value={s.total_templates || 0}
-                    onClick={() => navigate('/templates')} />
-                <StatCard icon={Link2} label="Ссылки" value={linksCount}
-                    onClick={() => navigate('/links')} />
-                <StatCard icon={Database} label="Базы" value={dbCount}
-                    onClick={() => navigate('/databases')} />
-            </div>
-
-            {/* ═══ RESOURCE ANALYZER ═══ */}
-            {health && (
-                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <Cpu size={14} style={{ color: health.overall === 'ok' ? 'var(--success)' : health.overall === 'warning' ? 'var(--warning)' : 'var(--danger)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Анализатор ресурсов</span>
-                        <span style={{
-                            marginLeft: 'auto', fontSize: '0.7em', fontWeight: 700, padding: '2px 10px', borderRadius: 4,
-                            background: health.overall === 'ok' ? 'rgba(16,185,129,0.15)' : health.overall === 'warning' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                            color: health.overall === 'ok' ? 'var(--success)' : health.overall === 'warning' ? 'var(--warning)' : 'var(--danger)',
-                        }}>
-                            {health.overall === 'ok' ? 'OK' : health.overall === 'warning' ? 'WARNING' : 'CRITICAL'}
-                        </span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                        {/* SMS */}
-                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${health.sms?.status === 'ok' ? 'var(--success)' : health.sms?.status === 'warning' ? 'var(--warning)' : 'var(--danger)'}` }}>
-                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>SMS</div>
-                            {health.sms?.providers?.length > 0 ? health.sms.providers.map(p => (
-                                <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
-                                    <span style={{ fontWeight: 600 }}>{p.name}</span>
-                                    <span style={{ fontWeight: 700, color: p.error ? 'var(--danger)' : p.balance > 1 ? 'var(--success)' : 'var(--warning)' }}>
-                                        {p.error ? 'err' : `$${p.balance}`}
-                                    </span>
-                                </div>
-                            )) : <div style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>Не настроено</div>}
-                        </div>
-                        {/* Captcha */}
-                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${health.captcha?.status === 'ok' ? 'var(--success)' : 'var(--danger)'}` }}>
-                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Captcha</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
-                                <span style={{ fontWeight: 600 }}>Баланс</span>
-                                <span style={{ fontWeight: 700, color: (health.captcha?.balance || 0) > 0.5 ? 'var(--success)' : 'var(--danger)' }}>
-                                    ${health.captcha?.balance || 0}
-                                </span>
-                            </div>
-                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4 }}>~{health.captcha?.estimated_solves || 0} решений</div>
-                        </div>
-                        {/* Proxies */}
-                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${health.proxies?.status === 'ok' ? 'var(--success)' : health.proxies?.status === 'warning' ? 'var(--warning)' : 'var(--danger)'}` }}>
-                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Прокси</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
-                                <span style={{ fontWeight: 600 }}>Живые</span>
-                                <span style={{ fontWeight: 700, color: 'var(--success)' }}>{health.proxies?.alive ?? 0}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
-                                <span style={{ fontWeight: 600 }}>Мёртвые</span>
-                                <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{health.proxies?.dead ?? 0}</span>
-                            </div>
-                        </div>
-                    </div>
-                    {/* Per-campaign health */}
-                    {health.campaigns?.length > 0 && (
-                        <div style={{ marginTop: 12 }}>
-                            <div style={{ fontSize: '0.7em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Кампании</div>
-                            <div style={{ display: 'grid', gap: 6 }}>
-                                {health.campaigns.map(c => (
-                                    <div key={c.id} style={{
-                                        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px',
-                                        background: 'rgba(255,255,255,0.02)', borderRadius: 6,
-                                        borderLeft: `3px solid ${c.resource_status === 'ok' ? 'var(--success)' : c.resource_status === 'warning' ? 'var(--warning)' : 'var(--danger)'}`,
-                                    }}>
-                                        <span style={{ fontSize: '0.82em', fontWeight: 600, flex: 1 }}>{c.name}</span>
-                                        {c.issues?.length > 0 && (
-                                            <span style={{ fontSize: '0.72em', color: 'var(--warning)' }}>{c.issues.join(' · ')}</span>
-                                        )}
-                                        <span style={{
-                                            fontSize: '0.68em', fontWeight: 700, padding: '2px 6px', borderRadius: 3,
-                                            background: c.resource_status === 'ok' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                                            color: c.resource_status === 'ok' ? 'var(--success)' : 'var(--danger)',
-                                        }}>{c.resource_status?.toUpperCase()}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ═══ ACTIVE TASKS — always visible ═══ */}
+            {/* ═══ 1. ACTIVE TASKS BANNER ═══ */}
             {(s.active_tasks || 0) > 0 && (
                 <div className="card" style={{
                     marginBottom: 16, padding: '12px 18px',
@@ -194,27 +108,109 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* ═══ PROXY BAR ═══ */}
-            {proxyTotal > 0 && (
-                <div className="card" style={{ marginBottom: 16, padding: '14px 18px', cursor: 'pointer' }} onClick={() => navigate('/proxies')}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Shield size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Прокси пул</span>
+            {/* ═══ 2. TOP STATS — inventory counts only, no proxy ═══ */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <StatCard icon={Users} label="Аккаунты" value={s.total_accounts || 0}
+                    sub={`${s.status_warmed || 0} warmed · ${s.status_dead || 0} мёртв.`}
+                    onClick={() => navigate('/farms')} />
+                <StatCard icon={Flame} label="Фермы" value={s.total_farms || 0}
+                    onClick={() => navigate('/farms')} />
+                <StatCard icon={FileText} label="Шаблоны" value={s.total_templates || 0}
+                    onClick={() => navigate('/templates')} />
+                <StatCard icon={Link2} label="Ссылки" value={s.total_links || 0}
+                    onClick={() => navigate('/links')} />
+                <StatCard icon={Database} label="Базы" value={s.total_databases || 0}
+                    onClick={() => navigate('/databases')} />
+            </div>
+
+            {/* ═══ 3. RESOURCE ANALYZER — SMS + Captcha + Proxies (ONE place) ═══ */}
+            {health && (
+                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <SectionHeader icon={Cpu} label="Анализатор ресурсов"
+                        badge={health.overall === 'ok' ? 'OK' : health.overall === 'warning' ? 'WARNING' : 'CRITICAL'}
+                        badgeColor={sc(health.overall)} />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                        {/* SMS */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${sc(health.sms?.status)}` }}>
+                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>SMS</div>
+                            {health.sms?.providers?.length > 0 ? (
+                                <>
+                                    {health.sms.providers.map(p => (
+                                        <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
+                                            <span style={{ fontWeight: 600 }}>{p.name}</span>
+                                            <span style={{ fontWeight: 700, color: p.error ? 'var(--danger)' : p.balance > 1 ? 'var(--success)' : 'var(--warning)' }}>
+                                                {p.error ? 'err' : `$${p.balance}`}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 4 }}>
+                                        ~{health.sms?.estimated_accounts || 0} регистраций
+                                    </div>
+                                </>
+                            ) : <div style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>Не настроено</div>}
+                        </div>
+                        {/* Captcha */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${sc(health.captcha?.status)}` }}>
+                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Captcha</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
+                                <span style={{ fontWeight: 600 }}>Баланс</span>
+                                <span style={{ fontWeight: 700, color: (health.captcha?.balance || 0) > 0.5 ? 'var(--success)' : 'var(--danger)' }}>
+                                    ${health.captcha?.balance || 0}
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4 }}>~{health.captcha?.estimated_solves || 0} решений</div>
+                        </div>
+                        {/* Proxies — единственное место */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${sc(health.proxies?.status)}`, cursor: 'pointer' }} onClick={() => navigate('/proxies')}>
+                            <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Прокси</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
+                                <span style={{ fontWeight: 600 }}>Всего</span>
+                                <span style={{ fontWeight: 700 }}>{health.proxies?.total ?? 0}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
+                                <span style={{ fontWeight: 600 }}>Живые</span>
+                                <span style={{ fontWeight: 700, color: 'var(--success)' }}>{health.proxies?.alive ?? 0}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
+                                <span style={{ fontWeight: 600 }}>Мёртвые</span>
+                                <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{health.proxies?.dead ?? 0}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 10, background: 'rgba(255,255,255,0.03)' }}>
-                        {proxyAlive > 0 && <div style={{ width: `${(proxyAlive / proxyTotal) * 100}%`, background: 'var(--success)', transition: 'width 0.6s' }} />}
-                        {proxyDead > 0 && <div style={{ width: `${(proxyDead / proxyTotal) * 100}%`, background: 'var(--danger)', transition: 'width 0.6s' }} />}
-                    </div>
-                    <div style={{ display: 'flex', gap: 0 }}>
-                        <MiniStat label="Всего" value={proxyTotal} />
-                        <MiniStat label="Живые" value={proxyAlive} color="var(--success)" />
-                        <MiniStat label="Мёртвые" value={proxyDead} color="var(--danger)" />
-                        <MiniStat label="Свободные" value={proxyFree} color="var(--info)" />
-                    </div>
+                    {/* Per-campaign resource health */}
+                    {health.campaigns?.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                            <div style={{ fontSize: '0.7em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Ресурсы кампаний</div>
+                            <div style={{ display: 'grid', gap: 6 }}>
+                                {health.campaigns.map(c => (
+                                    <div key={c.id} onClick={() => navigate(`/campaigns/${c.id}`)} style={{
+                                        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
+                                        background: 'rgba(255,255,255,0.02)', borderRadius: 6,
+                                        borderLeft: `3px solid ${sc(c.resource_status)}`,
+                                    }}>
+                                        <span style={{ fontSize: '0.82em', fontWeight: 600, flex: 1 }}>{c.name}</span>
+                                        <span style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>
+                                            📝{c.templates} · 🔗{c.links} · 📫{c.recipients_remaining}
+                                        </span>
+                                        {c.issues?.length > 0 && (
+                                            <span style={{ fontSize: '0.72em', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                <AlertTriangle size={12} /> {c.issues.join(' · ')}
+                                            </span>
+                                        )}
+                                        <span style={{
+                                            fontSize: '0.68em', fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+                                            background: c.resource_status === 'ok' ? 'rgba(16,185,129,0.15)' : c.resource_status === 'warning' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                                            color: sc(c.resource_status),
+                                        }}>{c.resource_status?.toUpperCase()}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* ═══ ACCOUNT LIFECYCLE ═══ */}
+            {/* ═══ 4. ACCOUNT LIFECYCLE ═══ */}
             {(s.total_accounts || 0) > 0 && (() => {
                 const lifecycle = [
                     { label: 'Новые', count: s.status_new || 0, color: 'var(--info)' },
@@ -227,10 +223,7 @@ export default function Dashboard() {
                 const totalLife = lifecycle.reduce((a, l) => a + l.count, 0) || 1;
                 return (
                     <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                            <Users size={14} style={{ color: 'var(--accent)' }} />
-                            <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Жизненный цикл аккаунтов</span>
-                        </div>
+                        <SectionHeader icon={Users} label="Жизненный цикл аккаунтов" />
                         <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 10, background: 'rgba(255,255,255,0.03)' }}>
                             {lifecycle.map((l, i) => l.count > 0 ? (
                                 <div key={i} style={{ width: `${(l.count / totalLife) * 100}%`, background: l.color, transition: 'width 0.6s' }} />
@@ -245,13 +238,10 @@ export default function Dashboard() {
                 );
             })()}
 
-            {/* ═══ PER-PROVIDER BREAKDOWN ═══ */}
+            {/* ═══ 5. PER-PROVIDER BREAKDOWN ═══ */}
             {(s.total_accounts || 0) > 0 && (
                 <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Activity size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Аккаунты по провайдерам</span>
-                    </div>
+                    <SectionHeader icon={Activity} label="Аккаунты по провайдерам" />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
                         {[
                             { id: 'gmail', name: 'Gmail', color: '#EA4335' },
@@ -287,48 +277,37 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* ═══ MAILING STATS ═══ */}
-            {ms.total_sent > 0 && (
-                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <Send size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Статистика рассылок</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 0 }}>
-                        <MiniStat label="Отправлено" value={ms.total_sent || 0} color="var(--success)" />
-                        <MiniStat label="Ошибки" value={ms.total_errors || 0} color="var(--danger)" />
-                        <MiniStat label="Bounce" value={ms.total_bounced || 0} color="var(--warning)" />
-                        <MiniStat label="Лимит" value={ms.total_limited || 0} color="var(--info)" />
-                        <MiniStat label="Inbox %" value={`${ms.inbox_rate || 0}%`}
-                            color={(ms.inbox_rate || 0) >= 80 ? 'var(--success)' : (ms.inbox_rate || 0) >= 50 ? 'var(--warning)' : 'var(--danger)'} />
-                    </div>
+            {/* ═══ 6. MAILING STATS — always show if any data ═══ */}
+            <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                <SectionHeader icon={Send} label="Рассылка" />
+                <div style={{ display: 'flex', gap: 0 }}>
+                    <MiniStat label="Отправлено" value={ms.total_sent || 0} color="var(--success)" />
+                    <MiniStat label="Ошибки" value={ms.total_errors || 0} color="var(--danger)" />
+                    <MiniStat label="Bounce" value={ms.total_bounced || 0} color="var(--warning)" />
+                    <MiniStat label="Лимит" value={ms.total_limited || 0} color="var(--info)" />
+                    <MiniStat label="Inbox %"
+                        value={`${ms.inbox_rate || 0}%`}
+                        color={(ms.inbox_rate || 0) >= 80 ? 'var(--success)' : (ms.inbox_rate || 0) >= 50 ? 'var(--warning)' : 'var(--danger)'} />
                 </div>
-            )}
-
-            {/* ═══ QUICK ACTIONS ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-                {[
-                    { icon: UserPlus, label: t('birth'), desc: 'Пакетная регистрация', to: '/birth' },
-                    { icon: TrendingUp, label: 'Кампании', desc: 'Blitz Pipeline', to: '/campaigns' },
-                    { icon: Shield, label: t('proxies'), desc: 'Управление прокси', to: '/proxies' },
-                    { icon: Flame, label: 'Фермы', desc: 'Организация акков', to: '/farms' },
-                ].map((a, i) => (
-                    <div key={i} className="card card-clickable" onClick={() => navigate(a.to)}
-                        style={{ textAlign: 'center', padding: '20px 14px', cursor: 'pointer' }}>
-                        <a.icon size={24} style={{ color: 'var(--accent)', marginBottom: 8 }} />
-                        <div style={{ fontWeight: 700, fontSize: '0.95em', marginBottom: 4, color: 'var(--text-primary)' }}>{a.label}</div>
-                        <div style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>{a.desc}</div>
-                    </div>
-                ))}
             </div>
 
-            {/* ═══ DATABASE PROGRESS ═══ */}
+            {/* ═══ 7. THREAD & TASK STATS — always show ═══ */}
+            <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                <SectionHeader icon={Zap} label="Потоки и задачи" />
+                <div style={{ display: 'flex', gap: 0 }}>
+                    <MiniStat label="Потоки ✅" value={ths.completed_ok || 0} color="var(--success)" />
+                    <MiniStat label="Потоки ❌" value={ths.completed_err || 0} color="var(--danger)" />
+                    <MiniStat label="Активные" value={ths.running || 0} color="var(--info)" />
+                    <MiniStat label="Задачи ✅" value={ts.completed || 0} color="var(--success)" />
+                    <MiniStat label="Задачи ❌" value={ts.failed || 0} color="var(--danger)" />
+                    <MiniStat label="Запущено" value={ts.running || 0} color="var(--accent)" />
+                </div>
+            </div>
+
+            {/* ═══ 8. DATABASE PROGRESS ═══ */}
             {s.database_progress && s.database_progress.length > 0 && (
                 <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <Database size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Базы получателей</span>
-                    </div>
+                    <SectionHeader icon={Database} label="Базы получателей" />
                     <div style={{ display: 'grid', gap: 8 }}>
                         {s.database_progress.map(d => {
                             const pct = d.total > 0 ? Math.round(d.used / d.total * 100) : 0;
@@ -348,13 +327,10 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* ═══ FARM HEALTH ═══ */}
+            {/* ═══ 9. FARM HEALTH ═══ */}
             {s.farm_health && s.farm_health.length > 0 && (
                 <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <Flame size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Здоровье ферм</span>
-                    </div>
+                    <SectionHeader icon={Flame} label="Здоровье ферм" />
                     <div style={{ display: 'grid', gap: 8 }}>
                         {s.farm_health.map(f => (
                             <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
@@ -379,22 +355,24 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* ═══ THREAD & TASK STATS ═══ */}
-            {(ths.completed_ok > 0 || ths.completed_err > 0 || ts.completed > 0) && (
-                <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Zap size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.75em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Потоки и задачи</span>
+            {/* ═══ 10. QUICK ACTIONS ═══ */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+                {[
+                    { icon: UserPlus, label: t('birth'), desc: 'Авторег', to: '/birth' },
+                    { icon: TrendingUp, label: 'Кампании', desc: 'Blitz Pipeline', to: '/campaigns' },
+                    { icon: Shield, label: t('proxies'), desc: 'Прокси', to: '/proxies' },
+                    { icon: Flame, label: 'Фермы', desc: 'Аккаунты', to: '/farms' },
+                    { icon: FileText, label: 'Шаблоны', desc: 'Писем', to: '/templates' },
+                    { icon: Link2, label: 'Ссылки', desc: 'Для писем', to: '/links' },
+                ].map((a, i) => (
+                    <div key={i} className="card card-clickable" onClick={() => navigate(a.to)}
+                        style={{ textAlign: 'center', padding: '16px 10px', cursor: 'pointer' }}>
+                        <a.icon size={20} style={{ color: 'var(--accent)', marginBottom: 6 }} />
+                        <div style={{ fontWeight: 700, fontSize: '0.88em', color: 'var(--text-primary)' }}>{a.label}</div>
+                        <div style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>{a.desc}</div>
                     </div>
-                    <div style={{ display: 'flex', gap: 0 }}>
-                        <MiniStat label="Успешно" value={ths.completed_ok || 0} color="var(--success)" />
-                        <MiniStat label="Ошибки" value={ths.completed_err || 0} color="var(--danger)" />
-                        <MiniStat label="Активные" value={ths.running || 0} color="var(--info)" />
-                        <MiniStat label="Задачи ✅" value={ts.completed || 0} color="var(--success)" />
-                        <MiniStat label="Задачи ❌" value={ts.failed || 0} color="var(--danger)" />
-                    </div>
-                </div>
-            )}
+                ))}
+            </div>
         </div>
     );
 }
