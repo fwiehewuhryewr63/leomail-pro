@@ -2,11 +2,47 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Rocket, Plus, Play, Pause, Square, Trash2, ChevronRight,
-    Globe, Mail, Shield, Link2, FileText, Users
+    Mail, Link2, FileText, Users
 } from 'lucide-react';
 import { API } from '../api';
 
-const FLAG = { BR: '🇧🇷', MX: '🇲🇽', CO: '🇨🇴', AR: '🇦🇷', PE: '🇵🇪', EG: '🇪🇬', NG: '🇳🇬', ZA: '🇿🇦', US: '🇺🇸', DE: '🇩🇪', GB: '🇬🇧', FR: '🇫🇷', ES: '🇪🇸', IT: '🇮🇹', RU: '🇷🇺', IN: '🇮🇳', PH: '🇵🇭', ID: '🇮🇩' };
+const GEOS = [
+    { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
+    { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
+    { code: 'CO', name: 'Colombia', flag: '🇨🇴' },
+    { code: 'AR', name: 'Argentina', flag: '🇦🇷' },
+    { code: 'PE', name: 'Peru', flag: '🇵🇪' },
+    { code: 'EG', name: 'Egypt', flag: '🇪🇬' },
+    { code: 'NG', name: 'Nigeria', flag: '🇳🇬' },
+    { code: 'ZA', name: 'South Africa', flag: '🇿🇦' },
+    { code: 'US', name: 'USA', flag: '🇺🇸' },
+    { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+    { code: 'GB', name: 'UK', flag: '🇬🇧' },
+    { code: 'FR', name: 'France', flag: '🇫🇷' },
+    { code: 'ES', name: 'Spain', flag: '🇪🇸' },
+    { code: 'IT', name: 'Italy', flag: '🇮🇹' },
+    { code: 'RU', name: 'Russia', flag: '🇷🇺' },
+    { code: 'IN', name: 'India', flag: '🇮🇳' },
+    { code: 'PH', name: 'Philippines', flag: '🇵🇭' },
+    { code: 'ID', name: 'Indonesia', flag: '🇮🇩' },
+];
+const FLAG = Object.fromEntries(GEOS.map(g => [g.code, g.flag]));
+
+const NICHES = [
+    { value: 'nutra', label: 'Nutra', icon: '💊' },
+    { value: 'dating', label: 'Dating', icon: '❤️' },
+    { value: 'casino', label: 'Casino', icon: '🎰' },
+    { value: 'general', label: 'General', icon: '📧' },
+];
+
+const PROVIDERS = [
+    { id: 'gmail', name: 'Gmail', color: '#EA4335' },
+    { id: 'yahoo', name: 'Yahoo', color: '#6001D2' },
+    { id: 'aol', name: 'AOL', color: '#FF6B00' },
+    { id: 'outlook', name: 'Outlook', color: '#0078D4' },
+    { id: 'hotmail', name: 'Hotmail', color: '#0078D4' },
+];
+
 const STATUS_COLOR = { draft: 'var(--text-muted)', running: 'var(--success)', paused: 'var(--warning)', completed: 'var(--info)', stopped: 'var(--danger)' };
 const STATUS_LABEL = { draft: 'Черновик', running: 'Запущена', paused: 'Пауза', completed: 'Завершена', stopped: 'Остановлена' };
 
@@ -25,7 +61,7 @@ export default function Campaigns() {
         try {
             const r = await fetch(`${API}/campaigns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
             const d = await r.json();
-            if (d.id) { setShowCreate(false); navigate(`/campaigns/${d.id}`); }
+            if (d.id) { setShowCreate(false); load(); navigate(`/campaigns/${d.id}`); }
         } finally { setLoading(false); }
     };
 
@@ -40,6 +76,15 @@ export default function Campaigns() {
         load();
     };
 
+    const toggleProvider = (p) => {
+        setForm(f => ({
+            ...f,
+            providers: f.providers.includes(p)
+                ? f.providers.filter(x => x !== p)
+                : [...f.providers, p]
+        }));
+    };
+
     return (
         <div className="page">
             <h2 className="page-title">
@@ -48,106 +93,149 @@ export default function Campaigns() {
             </h2>
 
             {/* Create button */}
-            <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
-                <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', fontWeight: 700, fontSize: '0.9em', border: 'none', borderRadius: 8, cursor: 'pointer', background: 'var(--accent)', color: '#000' }}>
+            <div style={{ marginBottom: 16 }}>
+                <button onClick={() => setShowCreate(!showCreate)} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '10px 22px',
+                    fontWeight: 700, fontSize: '0.9em', border: 'none', borderRadius: 8,
+                    cursor: 'pointer', background: 'var(--accent)', color: '#000',
+                    transition: 'all 0.2s',
+                }}>
                     <Plus size={16} /> Новая кампания
                 </button>
             </div>
 
             {/* Create form */}
             {showCreate && (
-                <div className="card" style={{ marginBottom: 16, padding: '20px' }}>
-                    <div style={{ fontSize: '0.85em', fontWeight: 700, marginBottom: 12, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1 }}>Создать кампанию</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div className="card" style={{ marginBottom: 16, padding: '22px 24px' }}>
+                    <div style={{ fontSize: '0.82em', fontWeight: 700, marginBottom: 16, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
+                        Создать кампанию
+                    </div>
+
+                    {/* Row 1: Name, GEO, Niche */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
                         <div>
                             <label style={lbl}>Название</label>
-                            <input style={inp} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Brazil Nutra" />
+                            <input style={inp} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Brazil Nutra Q1" />
                         </div>
                         <div>
                             <label style={lbl}>GEO</label>
-                            <select style={inp} value={form.geo} onChange={e => setForm({ ...form, geo: e.target.value })}>
-                                {['BR', 'MX', 'CO', 'AR', 'PE', 'EG', 'NG', 'ZA', 'US', 'DE', 'GB', 'FR', 'ES', 'IT', 'RU', 'IN', 'PH', 'ID'].map(g =>
-                                    <option key={g} value={g}>{FLAG[g] || ''} {g}</option>)}
+                            <select style={sel} value={form.geo} onChange={e => setForm({ ...form, geo: e.target.value })}>
+                                {GEOS.map(g => <option key={g.code} value={g.code}>{g.flag} {g.code} — {g.name}</option>)}
                             </select>
                         </div>
                         <div>
                             <label style={lbl}>Ниша</label>
-                            <select style={inp} value={form.niche} onChange={e => setForm({ ...form, niche: e.target.value })}>
-                                <option value="nutra">💊 Nutra</option>
-                                <option value="dating">❤️ Dating</option>
-                                <option value="casino">🎰 Casino</option>
-                                <option value="general">📧 General</option>
+                            <select style={sel} value={form.niche} onChange={e => setForm({ ...form, niche: e.target.value })}>
+                                {NICHES.map(n => <option key={n.value} value={n.value}>{n.icon} {n.label}</option>)}
                             </select>
                         </div>
-                        <div>
-                            <label style={lbl}>Провайдеры</label>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                {['gmail', 'yahoo', 'aol', 'outlook', 'hotmail'].map(p => (
-                                    <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85em', cursor: 'pointer', color: form.providers.includes(p) ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                                        <input type="checkbox" checked={form.providers.includes(p)}
-                                            onChange={e => setForm({ ...form, providers: e.target.checked ? [...form.providers, p] : form.providers.filter(x => x !== p) })} />
-                                        {p}
-                                    </label>
-                                ))}
-                            </div>
+                    </div>
+
+                    {/* Row 2: Providers */}
+                    <div style={{ marginBottom: 16 }}>
+                        <label style={lbl}>Провайдеры</label>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {PROVIDERS.map(p => {
+                                const active = form.providers.includes(p.id);
+                                return (
+                                    <div key={p.id} onClick={() => toggleProvider(p.id)} style={{
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
+                                        background: active ? `${p.color}22` : 'rgba(255,255,255,0.03)',
+                                        border: `1px solid ${active ? p.color : 'rgba(255,255,255,0.08)'}`,
+                                        transition: 'all 0.2s',
+                                    }}>
+                                        <div style={{
+                                            width: 14, height: 14, borderRadius: 3,
+                                            background: active ? p.color : 'transparent',
+                                            border: `2px solid ${active ? p.color : 'rgba(255,255,255,0.2)'}`,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: '10px', color: '#fff', fontWeight: 900,
+                                            transition: 'all 0.2s',
+                                        }}>
+                                            {active && '✓'}
+                                        </div>
+                                        <span style={{
+                                            fontSize: '0.85em', fontWeight: 600,
+                                            color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                                        }}>{p.name}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
+                    </div>
+
+                    {/* Row 3: Threads */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 14, marginBottom: 16 }}>
                         <div>
                             <label style={lbl}>Birth потоков</label>
-                            <input style={inp} type="number" value={form.birth_threads} onChange={e => setForm({ ...form, birth_threads: +e.target.value })} />
+                            <input style={inp} type="number" min="1" max="50" value={form.birth_threads}
+                                onChange={e => setForm({ ...form, birth_threads: +e.target.value })} />
                         </div>
                         <div>
                             <label style={lbl}>Send потоков</label>
-                            <input style={inp} type="number" value={form.send_threads} onChange={e => setForm({ ...form, send_threads: +e.target.value })} />
+                            <input style={inp} type="number" min="1" max="100" value={form.send_threads}
+                                onChange={e => setForm({ ...form, send_threads: +e.target.value })} />
                         </div>
+                        <div />
                     </div>
-                    <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-                        <button style={{ ...btnStyle, background: 'var(--accent)', color: '#000' }} onClick={create} disabled={loading || !form.name}>
-                            {loading ? '...' : 'Создать'}
+
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: 10 }}>
+                        <button onClick={create} disabled={loading || !form.name} style={{
+                            padding: '10px 28px', fontWeight: 700, fontSize: '0.9em', border: 'none',
+                            borderRadius: 6, cursor: loading || !form.name ? 'not-allowed' : 'pointer',
+                            background: loading || !form.name ? 'rgba(255,255,255,0.06)' : 'var(--accent)',
+                            color: loading || !form.name ? 'var(--text-muted)' : '#000',
+                            transition: 'all 0.2s',
+                        }}>
+                            {loading ? '⏳ Создание...' : '🚀 Создать'}
                         </button>
-                        <button style={{ ...btnStyle, background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }} onClick={() => setShowCreate(false)}>
+                        <button onClick={() => setShowCreate(false)} style={{
+                            padding: '10px 22px', fontWeight: 600, fontSize: '0.9em', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--text-secondary)',
+                        }}>
                             Отмена
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Campaign cards */}
+            {/* Empty state */}
             {campaigns.length === 0 && !showCreate && (
-                <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                    <Rocket size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
-                    <div style={{ fontSize: '1.1em', fontWeight: 600 }}>Нет кампаний</div>
-                    <div style={{ fontSize: '0.85em', marginTop: 6 }}>Создайте первую кампанию для запуска Blitz Pipeline</div>
+                <div className="card" style={{ padding: 50, textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <Rocket size={44} style={{ opacity: 0.2, marginBottom: 12 }} />
+                    <div style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: 6 }}>Нет кампаний</div>
+                    <div style={{ fontSize: '0.85em' }}>Создайте первую кампанию для запуска Blitz Pipeline</div>
                 </div>
             )}
 
+            {/* Campaign cards */}
             <div style={{ display: 'grid', gap: 12 }}>
                 {campaigns.map(c => {
                     const pct = c.recipients_total > 0 ? Math.round(c.recipients_sent / c.recipients_total * 100) : 0;
                     return (
                         <div key={c.id} className="card card-clickable" style={{ padding: '16px 20px', borderLeft: `3px solid ${STATUS_COLOR[c.status] || 'var(--text-muted)'}` }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                {/* Left: info */}
                                 <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => navigate(`/campaigns/${c.id}`)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                         <span style={{ fontSize: '1.3em' }}>{FLAG[c.geo] || '🌍'}</span>
                                         <span style={{ fontSize: '1.1em', fontWeight: 800, color: 'var(--text-primary)' }}>{c.name}</span>
-                                        <span style={{ fontSize: '0.72em', fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: `${STATUS_COLOR[c.status]}22`, color: STATUS_COLOR[c.status] }}>
+                                        <span style={{
+                                            fontSize: '0.72em', fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                                            background: `${STATUS_COLOR[c.status]}22`, color: STATUS_COLOR[c.status],
+                                        }}>
                                             {STATUS_LABEL[c.status] || c.status}
                                         </span>
                                         {c.stop_reason && <span style={{ fontSize: '0.72em', color: 'var(--danger)' }}>⚠️ {c.stop_reason}</span>}
                                     </div>
-
-                                    {/* Stats row */}
-                                    <div style={{ display: 'flex', gap: 16, fontSize: '0.8em', color: 'var(--text-secondary)' }}>
+                                    <div style={{ display: 'flex', gap: 16, fontSize: '0.8em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
                                         <span><Mail size={12} /> Sent: <b style={{ color: 'var(--success)' }}>{c.total_sent || 0}</b></span>
                                         <span>Errors: <b style={{ color: 'var(--danger)' }}>{c.total_errors || 0}</b></span>
                                         <span><Users size={12} /> Акки: <b>{c.accounts_born || 0}</b> / <b style={{ color: 'var(--danger)' }}>{c.accounts_dead || 0}</b> мёрт.</span>
                                         <span><Link2 size={12} /> Линки: <b>{c.links_active || 0}</b>/{c.links_total || 0}</span>
                                         <span><FileText size={12} /> Шаблоны: <b>{c.templates_active || 0}</b></span>
                                     </div>
-
-                                    {/* Progress bar */}
                                     {c.recipients_total > 0 && (
                                         <div style={{ marginTop: 8 }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72em', color: 'var(--text-muted)', marginBottom: 3 }}>
@@ -158,15 +246,13 @@ export default function Campaigns() {
                                         </div>
                                     )}
                                 </div>
-
-                                {/* Right: actions */}
                                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                    {c.status === 'draft' && <button style={actBtn('#10b981')} onClick={() => action(c.id, 'start')} title="Запуск"><Play size={16} /></button>}
-                                    {c.status === 'running' && <button style={actBtn('#f59e0b')} onClick={() => action(c.id, 'pause')} title="Пауза"><Pause size={16} /></button>}
-                                    {c.status === 'paused' && <button style={actBtn('#10b981')} onClick={() => action(c.id, 'start')} title="Возобновить"><Play size={16} /></button>}
-                                    {['running', 'paused'].includes(c.status) && <button style={actBtn('#ef4444')} onClick={() => action(c.id, 'stop')} title="Стоп"><Square size={16} /></button>}
-                                    {['draft', 'stopped', 'completed'].includes(c.status) && <button style={actBtn('#ef4444')} onClick={() => del(c.id)} title="Удалить"><Trash2 size={16} /></button>}
-                                    <button style={actBtn('var(--accent)')} onClick={() => navigate(`/campaigns/${c.id}`)} title="Детали"><ChevronRight size={16} /></button>
+                                    {c.status === 'draft' && <ActionBtn color="#10b981" icon={Play} onClick={() => action(c.id, 'start')} title="Запуск" />}
+                                    {c.status === 'running' && <ActionBtn color="#f59e0b" icon={Pause} onClick={() => action(c.id, 'pause')} title="Пауза" />}
+                                    {c.status === 'paused' && <ActionBtn color="#10b981" icon={Play} onClick={() => action(c.id, 'start')} title="Возобновить" />}
+                                    {['running', 'paused'].includes(c.status) && <ActionBtn color="#ef4444" icon={Square} onClick={() => action(c.id, 'stop')} title="Стоп" />}
+                                    {['draft', 'stopped', 'completed'].includes(c.status) && <ActionBtn color="#ef4444" icon={Trash2} onClick={() => del(c.id)} title="Удалить" />}
+                                    <ActionBtn color="var(--accent)" icon={ChevronRight} onClick={() => navigate(`/campaigns/${c.id}`)} title="Детали" />
                                 </div>
                             </div>
                         </div>
@@ -177,7 +263,26 @@ export default function Campaigns() {
     );
 }
 
-const lbl = { fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 4, display: 'block' };
-const inp = { width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.9em' };
-const btnStyle = { padding: '8px 20px', fontWeight: 700, fontSize: '0.9em', border: 'none', borderRadius: 6, cursor: 'pointer' };
-const actBtn = (c) => ({ background: 'none', border: 'none', cursor: 'pointer', color: c, padding: 6, borderRadius: 6, display: 'flex' });
+const ActionBtn = ({ color, icon: Icon, onClick, title }) => (
+    <button onClick={onClick} title={title} style={{
+        background: `${color}15`, border: `1px solid ${color}33`, cursor: 'pointer',
+        color, padding: 7, borderRadius: 6, display: 'flex', transition: 'all 0.2s',
+    }}>
+        <Icon size={15} />
+    </button>
+);
+
+const lbl = { fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 6, display: 'block' };
+const inp = {
+    width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
+    color: 'var(--text-primary)', fontSize: '0.9em', outline: 'none',
+    transition: 'border-color 0.2s',
+};
+const sel = {
+    ...inp,
+    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
+    paddingRight: '30px', cursor: 'pointer',
+};

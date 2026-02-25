@@ -206,6 +206,22 @@ const PFItem = ({ label, status, detail }) => (
     </div>
 );
 
-const btn = (c) => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 700, fontSize: '0.85em', border: 'none', borderRadius: 6, cursor: 'pointer', background: c, color: c === 'var(--accent)' || c === 'var(--success)' ? '#000' : '#fff' });
-const inp = { padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.85em' };
-const ta = { width: '100%', minHeight: 120, padding: '10px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.85em', fontFamily: 'monospace', resize: 'vertical' };
+const btn = (c) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px',
+    fontWeight: 700, fontSize: '0.85em', borderRadius: 6, cursor: 'pointer',
+    background: `${c}20`, border: `1px solid ${c}55`, color: c,
+    transition: 'all 0.2s',
+});
+const inp = {
+    padding: '8px 12px', background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
+    color: 'var(--text-primary)', fontSize: '0.85em', outline: 'none',
+};
+const ta = {
+    width: '100%', minHeight: 120, padding: '12px 14px',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.85em',
+    fontFamily: 'monospace', resize: 'vertical', outline: 'none',
+    lineHeight: 1.5,
+};
+
