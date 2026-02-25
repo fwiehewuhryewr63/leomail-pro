@@ -61,8 +61,8 @@ def _check_sms() -> dict:
                     from ..services.simsms_provider import SimSmsProvider
                     bal = SimSmsProvider(key).get_balance()
                 elif name == "grizzly":
-                    from ..services.sms_provider import GrizzlySmsProvider
-                    bal = GrizzlySmsProvider(key).get_balance()
+                    from ..services.sms_provider import GrizzlySMS
+                    bal = GrizzlySMS(key).get_balance()
                 elif name == "5sim":
                     from ..services.fivesim_provider import FiveSimProvider
                     bal = FiveSimProvider(key).get_balance()
@@ -92,29 +92,49 @@ def _check_sms() -> dict:
 
 
 def _check_captcha() -> dict:
-    """Check captcha provider balance."""
-    balance = 0.0
+    """Check captcha provider balances (CapGuru + 2Captcha)."""
+    total = 0.0
+    providers = []
     try:
         from ..config import load_config
         config = load_config()
-        cap_key = config.get("captcha", {}).get("capguru", {}).get("api_key", "")
+        cap_cfg = config.get("captcha", {})
+
+        # CapGuru (reCAPTCHA v2/v3)
+        cap_key = cap_cfg.get("capguru", {}).get("api_key", "")
         if cap_key:
-            from ..services.captcha_provider import CaptchaProvider
-            provider = CaptchaProvider(cap_key)
-            balance = provider.get_balance()
+            try:
+                from ..services.captcha_provider import CaptchaProvider
+                bal = CaptchaProvider(cap_key).get_balance()
+                total += bal
+                providers.append({"name": "capguru", "balance": round(bal, 2)})
+            except Exception as e:
+                providers.append({"name": "capguru", "balance": 0, "error": str(e)[:80]})
+
+        # 2Captcha (FunCaptcha / Arkose Labs)
+        two_key = cap_cfg.get("twocaptcha", {}).get("api_key", "")
+        if two_key:
+            try:
+                from ..services.captcha_provider import TwoCaptchaProvider
+                bal = TwoCaptchaProvider(two_key).get_balance()
+                total += bal
+                providers.append({"name": "2captcha", "balance": round(bal, 2)})
+            except Exception as e:
+                providers.append({"name": "2captcha", "balance": 0, "error": str(e)[:80]})
     except Exception:
         pass
 
-    if balance >= 3:
+    if total >= 3:
         status = "ok"
-    elif balance >= 0.5:
+    elif total >= 0.5:
         status = "warning"
     else:
         status = "critical"
 
     return {
-        "balance": round(balance, 2),
-        "estimated_solves": int(balance / 0.003) if balance > 0 else 0,
+        "balance": round(total, 2),
+        "estimated_solves": int(total / 0.003) if total > 0 else 0,
+        "providers": providers,
         "status": status,
     }
 

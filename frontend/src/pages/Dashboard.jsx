@@ -152,13 +152,31 @@ export default function Dashboard() {
                         {/* Captcha */}
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${sc(health.captcha?.status)}` }}>
                             <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Captcha</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
-                                <span style={{ fontWeight: 600 }}>Баланс</span>
-                                <span style={{ fontWeight: 700, color: (health.captcha?.balance || 0) > 0.5 ? 'var(--success)' : 'var(--danger)' }}>
-                                    ${health.captcha?.balance || 0}
-                                </span>
-                            </div>
-                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4 }}>~{health.captcha?.estimated_solves || 0} решений</div>
+                            {health.captcha?.providers?.length > 0 ? (
+                                <>
+                                    {health.captcha.providers.map(p => (
+                                        <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em', marginBottom: 3 }}>
+                                            <span style={{ fontWeight: 600 }}>{p.name}</span>
+                                            <span style={{ fontWeight: 700, color: p.error ? 'var(--danger)' : p.balance > 0.5 ? 'var(--success)' : 'var(--warning)' }}>
+                                                {p.error ? 'err' : `$${p.balance}`}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 4 }}>
+                                        ~{health.captcha?.estimated_solves || 0} решений
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82em' }}>
+                                        <span style={{ fontWeight: 600 }}>Баланс</span>
+                                        <span style={{ fontWeight: 700, color: (health.captcha?.balance || 0) > 0.5 ? 'var(--success)' : 'var(--danger)' }}>
+                                            ${health.captcha?.balance || 0}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4 }}>~{health.captcha?.estimated_solves || 0} решений</div>
+                                </>
+                            )}
                         </div>
                         {/* Proxies — единственное место */}
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${sc(health.proxies?.status)}`, cursor: 'pointer' }} onClick={() => navigate('/proxies')}>

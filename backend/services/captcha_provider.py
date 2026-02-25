@@ -16,6 +16,18 @@ class CaptchaProvider:
         self.api_key = api_key
         self.base_url = "http://api.cap.guru"
 
+    def get_balance(self) -> float:
+        """Check CapGuru balance."""
+        try:
+            res = requests.get(
+                f"{self.base_url}/res.php",
+                params={"key": self.api_key, "action": "getbalance"},
+                timeout=10,
+            )
+            return float(res.text.strip())
+        except Exception:
+            return 0.0
+
     def solve_recaptcha_v2(self, site_key, page_url):
         logger.info(f"Solving ReCaptcha v2 for {page_url}")
         try:
