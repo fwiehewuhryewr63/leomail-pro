@@ -387,8 +387,8 @@ export default function Campaigns() {
                             {selectedTemplates.some(id => templates.find(t => t.id === id)?.needs_names) &&
                                 selectedDBs.length > 0 &&
                                 selectedDBs.every(id => !databases.find(d => d.id === id)?.with_name) && (
-                                    <div style={{ fontSize: '0.72em', color: 'var(--danger)', fontWeight: 600, marginTop: 6, padding: '4px 8px', background: 'rgba(239,68,68,0.08)', borderRadius: 4 }}>
-                                        ⚠️ VIP шаблон требует имена — выберите VIP базу!
+                                    <div style={{ fontSize: '0.72em', color: 'var(--info)', fontWeight: 600, marginTop: 6, padding: '4px 8px', background: 'rgba(59,130,246,0.08)', borderRadius: 4 }}>
+                                        ℹ️ VIP шаблон + BASIC база → {'{{NAME}}'} = username
                                     </div>
                                 )}
                         </div>
@@ -437,29 +437,7 @@ export default function Campaigns() {
                         </div>
                     </div>
 
-                    {/* Row 6: Send settings */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
-                        <div>
-                            <label style={lbl}>✉️ Писем/день мин</label>
-                            <input style={inp} type="number" min="1" value={form.emails_per_day_min}
-                                onChange={e => setForm({ ...form, emails_per_day_min: +e.target.value || 25 })} />
-                        </div>
-                        <div>
-                            <label style={lbl}>✉️ Писем/день макс</label>
-                            <input style={inp} type="number" min="1" value={form.emails_per_day_max}
-                                onChange={e => setForm({ ...form, emails_per_day_max: +e.target.value || 75 })} />
-                        </div>
-                        <div>
-                            <label style={lbl}>⏱️ Задержка мин (сек)</label>
-                            <input style={inp} type="number" min="5" value={form.delay_min}
-                                onChange={e => setForm({ ...form, delay_min: +e.target.value || 30 })} />
-                        </div>
-                        <div>
-                            <label style={lbl}>⏱️ Задержка макс (сек)</label>
-                            <input style={inp} type="number" min="10" value={form.delay_max}
-                                onChange={e => setForm({ ...form, delay_max: +e.target.value || 180 })} />
-                        </div>
-                    </div>
+
 
                     {/* Row 7: Link controls + Same/Cross */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 24 }}>
@@ -492,45 +470,23 @@ export default function Campaigns() {
                                 ))}
                             </div>
                         </div>
-                        <div>
-                            <label style={lbl}>🔀 Same / Cross</label>
-                            <div onClick={() => setForm({ ...form, same_provider: !form.same_provider })} style={{
-                                display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, cursor: 'pointer',
-                            }}>
-                                <div style={{
-                                    width: 40, height: 22, borderRadius: 11, position: 'relative',
-                                    background: form.same_provider ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
-                                    transition: 'background 0.2s',
-                                }}>
-                                    <div style={{
-                                        width: 16, height: 16, borderRadius: 8, background: '#fff',
-                                        position: 'absolute', top: 3,
-                                        left: form.same_provider ? 21 : 3,
-                                        transition: 'left 0.2s',
-                                    }} />
-                                </div>
-                                <span style={{ fontSize: '0.85em', fontWeight: 600, color: form.same_provider ? 'var(--accent)' : 'var(--text-muted)' }}>
-                                    {form.same_provider ? 'Same' : 'Cross'}
-                                </span>
-                            </div>
-                        </div>
                     </div>
 
                     {/* Row 8: Threads */}
                     <div style={{ display: 'grid', gridTemplateColumns: form.use_existing ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 24 }}>
                         {!form.use_existing && (
                             <div>
-                                <label style={lbl}>Birth потоков (регистрация)</label>
+                                <label style={lbl}>Потоков регистрации</label>
                                 <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="50" value={form.birth_threads}
                                     onChange={e => setForm({ ...form, birth_threads: +e.target.value })} />
                                 <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>~300MB RAM / поток</div>
                             </div>
                         )}
                         <div>
-                            <label style={lbl}>Send потоков (рассылка)</label>
+                            <label style={lbl}>Потоков отправки</label>
                             <input style={{ ...inp, fontSize: '1.05em', padding: '12px 16px' }} type="number" min="1" max="100" value={form.send_threads}
                                 onChange={e => setForm({ ...form, send_threads: +e.target.value })} />
-                            <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>SMTP отправка параллельно</div>
+                            <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 4 }}>SMTP параллельно</div>
                         </div>
                     </div>
 
@@ -587,10 +543,10 @@ export default function Campaigns() {
                                         {c.stop_reason && <span style={{ fontSize: '0.72em', color: 'var(--danger)' }}>⚠️ {c.stop_reason}</span>}
                                     </div>
                                     <div style={{ display: 'flex', gap: 16, fontSize: '0.8em', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                                        <span><Mail size={12} /> Sent: <b style={{ color: 'var(--success)' }}>{c.total_sent || 0}</b></span>
-                                        <span>Errors: <b style={{ color: 'var(--danger)' }}>{c.total_errors || 0}</b></span>
+                                        <span><Mail size={12} /> Отпр: <b style={{ color: 'var(--success)' }}>{c.total_sent || 0}</b></span>
+                                        <span>Ошибки: <b style={{ color: 'var(--danger)' }}>{c.total_errors || 0}</b></span>
                                         <span><Users size={12} /> Акки: <b>{c.accounts_born || 0}</b> / <b style={{ color: 'var(--danger)' }}>{c.accounts_dead || 0}</b> мёрт.</span>
-                                        <span><Link2 size={12} /> Линки: <b>{c.links_active || 0}</b>/{c.links_total || 0}</span>
+                                        <span><Link2 size={12} /> Ссылки: <b>{c.links_active || 0}</b>/{c.links_total || 0}</span>
                                         <span><FileText size={12} /> Шаблоны: <b>{c.templates_active || 0}</b></span>
                                     </div>
                                     {c.recipients_total > 0 && (
