@@ -111,7 +111,7 @@ export default function Dashboard() {
             {/* ═══ 2. TOP STATS — inventory counts only, no proxy ═══ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <StatCard icon={Users} label="Аккаунты" value={s.total_accounts || 0}
-                    sub={`${s.status_warmed || 0} warmed · ${s.status_dead || 0} мёртв.`}
+                    sub={`${s.status_warmed || 0} прогрет. · ${s.status_dead || 0} мёртв.`}
                     onClick={() => navigate('/farms')} />
                 <StatCard icon={Flame} label="Фермы" value={s.total_farms || 0}
                     onClick={() => navigate('/farms')} />
@@ -127,7 +127,7 @@ export default function Dashboard() {
             {health && (
                 <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
                     <SectionHeader icon={Cpu} label="Анализатор ресурсов"
-                        badge={health.overall === 'ok' ? 'OK' : health.overall === 'warning' ? 'WARNING' : 'CRITICAL'}
+                        badge={health.overall === 'ok' ? 'ОК' : health.overall === 'warning' ? 'ВНИМАНИЕ' : 'КРИТИЧНО'}
                         badgeColor={sc(health.overall)} />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
                         {/* SMS */}
@@ -233,7 +233,7 @@ export default function Dashboard() {
                 const lifecycle = [
                     { label: 'Новые', count: s.status_new || 0, color: 'var(--info)' },
                     { label: 'Прогрев', count: s.status_warmup || 0, color: 'var(--warning)' },
-                    { label: 'Warmed', count: s.status_warmed || 0, color: 'var(--success)' },
+                    { label: 'Прогретые', count: s.status_warmed || 0, color: 'var(--success)' },
                     { label: 'Работают', count: s.status_working || 0, color: 'var(--accent)' },
                     { label: 'Пауза', count: s.status_paused || 0, color: 'var(--text-muted)' },
                     { label: 'Мёртвые', count: s.status_dead || 0, color: 'var(--danger)' },
@@ -282,10 +282,10 @@ export default function Dashboard() {
                                     </div>
                                     {total > 0 && (
                                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
-                                            {(st.new || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>new {st.new}</span>}
-                                            {(st.warmed || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(16,185,129,0.15)', color: '#34d399' }}>warm {st.warmed}</span>}
-                                            {(st.sending || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa' }}>send {st.sending}</span>}
-                                            {((st.dead || 0) + (st.banned || 0)) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>dead {(st.dead || 0) + (st.banned || 0)}</span>}
+                                            {(st.new || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>нов {st.new}</span>}
+                                            {(st.warmed || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(16,185,129,0.15)', color: '#34d399' }}>прогр {st.warmed}</span>}
+                                            {(st.sending || 0) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(139,92,246,0.15)', color: '#a78bfa' }}>отпр {st.sending}</span>}
+                                            {((st.dead || 0) + (st.banned || 0)) > 0 && <span className="badge" style={{ fontSize: '0.65em', padding: '1px 6px', background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>мёртв {(st.dead || 0) + (st.banned || 0)}</span>}
                                         </div>
                                     )}
                                 </div>
@@ -356,8 +356,8 @@ export default function Dashboard() {
                                     <div style={{ fontSize: '0.85em', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
                                     <div style={{ display: 'flex', gap: 6, marginTop: 4, fontSize: '0.72em' }}>
                                         <span style={{ color: 'var(--success)' }}>✅{f.active}</span>
-                                        <span style={{ color: 'var(--accent)' }}>{f.warmed} warm</span>
-                                        <span style={{ color: 'var(--info)' }}>{f.sending} send</span>
+                                        <span style={{ color: 'var(--accent)' }}>{f.warmed} прогр</span>
+                                        <span style={{ color: 'var(--info)' }}>{f.sending} отпр</span>
                                         {f.banned > 0 && <span style={{ color: 'var(--danger)' }}>💀{f.banned}</span>}
                                     </div>
                                 </div>

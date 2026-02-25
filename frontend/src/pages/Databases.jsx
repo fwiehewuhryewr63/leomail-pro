@@ -106,7 +106,7 @@ export default function Databases() {
             icon: '⭐',
             example: 'jessica.smith92@gmail.com,Jessica\njohn.doe@yahoo.com,John\nmaria.santos@aol.com,Maria',
             vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из кампании'],
-            rules: '{{NAME}} работает ТОЛЬКО с VIP базой!',
+            rules: '{{NAME}} = имя, либо username если BASIC',
         },
         // email_first_last detected → treat as VIP
         email_first_last: {
@@ -116,7 +116,7 @@ export default function Databases() {
             icon: '⭐',
             example: 'jessica@gmail.com,Jessica,Smith\njohn@yahoo.com,John,Doe',
             vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из кампании'],
-            rules: '{{NAME}} работает ТОЛЬКО с VIP базой!',
+            rules: '{{NAME}} = имя, либо username если BASIC',
         },
     };
 
@@ -210,7 +210,7 @@ export default function Databases() {
                             <span>{detectedCount > 0 ? `${detectedCount} ${t('recipientsDetected')}` : t('supportedFormats')}</span>
                             {detectedCount > 0 && (
                                 <span style={{ color: fmt.color, fontWeight: 600 }}>
-                                    Format: {FORMAT_INFO[detectedFormat].desc}
+                                    Формат: {FORMAT_INFO[detectedFormat].desc}
                                 </span>
                             )}
                         </div>
@@ -257,7 +257,7 @@ export default function Databases() {
                                                 padding: '1px 8px', borderRadius: 4, fontSize: '0.6em',
                                                 fontWeight: 800, letterSpacing: '0.05em'
                                             }}>
-                                                {d.with_name ? '👑 VIP' : '📧 BASIC'}
+                                                {d.with_name ? '⭐ VIP' : '📧 BASIC'}
                                             </span>
                                         </div>
                                         <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>
@@ -320,7 +320,7 @@ export default function Databases() {
                             <button className="btn btn-sm" onClick={() => setPreview(null)}><X size={14} /></button>
                         </div>
                         <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginBottom: 12 }}>
-                            {t('first') || 'First'} {preview.preview?.length} {t('of') || 'of'} {preview.total_count}
+                            Первые {preview.preview?.length} из {preview.total_count}
                         </div>
                         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78em', maxHeight: 320, overflow: 'auto' }}>
                             {preview.preview?.map((e, i) => (
