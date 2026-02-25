@@ -146,7 +146,12 @@ export default function Campaigns() {
     };
 
     const action = async (id, act) => {
-        await fetch(`${API}/campaigns/${id}/${act}`, { method: 'POST' });
+        const r = await fetch(`${API}/campaigns/${id}/${act}`, { method: 'POST' });
+        const d = await r.json();
+        if (act === 'start' && d.ok === false && d.issues) {
+            alert('❌ Нельзя запустить кампанию:\n\n' + d.issues.map(i => '• ' + i).join('\n'));
+            return;
+        }
         load();
     };
 

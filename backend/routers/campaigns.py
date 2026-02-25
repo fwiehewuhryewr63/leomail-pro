@@ -40,6 +40,10 @@ class CampaignCreate(BaseModel):
     # Account source
     use_existing: bool = False
     farm_ids: list[int] = []
+    # Resource selection (IDs from global pools)
+    template_ids: list[int] = []
+    database_ids: list[int] = []
+    link_pack_ids: list[int] = []
 
 
 class CampaignUpdate(BaseModel):
@@ -125,23 +129,111 @@ async def list_campaigns(db: Session = Depends(get_db)):
 
 @router.post("")
 async def create_campaign(req: CampaignCreate, db: Session = Depends(get_db)):
-    """Create a new campaign."""
+    """Create a new campaign with full settings and auto-import resources."""
     campaign = Campaign(
         name=req.name,
         geo=req.geo.upper(),
         niche=req.niche,
         name_pack=req.name_pack,
         providers=req.providers,
-        gender="female",  # hardcoded for burn model
+        gender="female",
         birth_threads=req.birth_threads,
         send_threads=req.send_threads,
         link_mode=req.link_mode,
+        # Send settings
+        emails_per_day_min=req.emails_per_day_min,
+        emails_per_day_max=req.emails_per_day_max,
+        delay_min=req.delay_min,
+        delay_max=req.delay_max,
+        same_provider=req.same_provider,
+        max_link_uses=req.max_link_uses,
+        max_link_cycles=req.max_link_cycles,
+        # Account source
+        use_existing=req.use_existing,
+        farm_ids=req.farm_ids,
         status=CampaignStatus.DRAFT,
     )
     db.add(campaign)
+    db.flush()  # get campaign.id
+
+    imported = {"templates": 0, "links": 0, "recipients": 0}
+
+    # ── Import templates from global pool ──
+    if req.template_ids:
+        from ..models import Template as GlobalTemplate
+        templates = db.query(GlobalTemplate).filter(GlobalTemplate.id.in_(req.template_ids)).all()
+        for t in templates:
+            ct = CampaignTemplate(
+                campaign_id=campaign.id,
+                subject=t.subject,
+                body_html=t.body,
+                style=t.content_type,
+                active=True,
+            )
+            db.add(ct)
+            imported["templates"] += 1
+
+    # ── Import links from link packs ──
+    if req.link_pack_ids:
+        from ..models import LinkDatabase
+        from ..config import CONFIG_DIR
+        packs = db.query(LinkDatabase).filter(LinkDatabase.id.in_(req.link_pack_ids)).all()
+        for pack in packs:
+            try:
+                full_path = CONFIG_DIR / pack.file_path
+                if full_path.exists():
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            url = line.strip()
+                            if url.startswith("http"):
+                                cl = CampaignLink(
+                                    campaign_id=campaign.id,
+                                    esp_url=url,
+                                    max_uses=req.max_link_uses if req.max_link_uses > 0 else 100,
+                                    active=True,
+                                )
+                                db.add(cl)
+                                imported["links"] += 1
+            except Exception as e:
+                logger.error(f"Link import error for pack {pack.id}: {e}")
+
+    # ── Import recipients from databases ──
+    if req.database_ids:
+        from ..models import RecipientDatabase
+        from ..config import CONFIG_DIR
+        rd_list = db.query(RecipientDatabase).filter(RecipientDatabase.id.in_(req.database_ids)).all()
+        for rd in rd_list:
+            try:
+                full_path = CONFIG_DIR / rd.file_path
+                if full_path.exists():
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            email = line.strip().split(",")[0].strip()  # handle CSV
+                            if "@" in email:
+                                cr = CampaignRecipient(
+                                    campaign_id=campaign.id,
+                                    email=email,
+                                    sent=False,
+                                )
+                                db.add(cr)
+                                imported["recipients"] += 1
+            except Exception as e:
+                logger.error(f"Recipient import error for db {rd.id}: {e}")
+
     db.commit()
     db.refresh(campaign)
-    return {"id": campaign.id, "name": campaign.name, "status": campaign.status}
+
+    logger.info(
+        f"Campaign '{campaign.name}' created: "
+        f"{imported['templates']} templates, {imported['links']} links, {imported['recipients']} recipients"
+    )
+
+    return {
+        "id": campaign.id,
+        "name": campaign.name,
+        "status": campaign.status,
+        "imported": imported,
+    }
 
 
 @router.get("/{campaign_id}")
