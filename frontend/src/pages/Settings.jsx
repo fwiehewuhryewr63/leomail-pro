@@ -155,7 +155,7 @@ export default function Settings() {
                                             </button>
                                         </div>
                                     ) : maskedVal && maskedVal !== '***' ? (
-                                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', color: 'var(--text-secondary)' }}>
+                                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
                                             {maskedVal}
                                         </div>
                                     ) : null}
