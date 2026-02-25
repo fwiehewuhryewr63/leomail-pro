@@ -218,6 +218,7 @@ class Template(Base):
     content_type = Column(String, default="html")  # html, plain
     language = Column(String, default="en")
     pack_name = Column(String, nullable=True)  # name of import pack (ZIP)
+    niche = Column(String, nullable=True)       # nutra / dating / casino / crypto / general
     variables = Column(JSON, default=[])  # detected variables: ["LINK", "FIRSTNAME", ...]
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -246,6 +247,7 @@ class LinkDatabase(Base):
     name = Column(String, nullable=False)  # e.g. "Crypto Offers 2024"
     file_path = Column(String, nullable=False)  # relative to user_data/links/
     total_count = Column(Integer, default=0)
+    niche = Column(String, nullable=True)       # nutra / dating / casino / crypto / general
     
     created_at = Column(DateTime, default=datetime.utcnow)
 

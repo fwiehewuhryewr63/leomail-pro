@@ -342,29 +342,35 @@ export default function Campaigns() {
                         )}
                     </div>
 
-                    {/* Row 5: Resources — Templates, Databases, Links */}
+                    {/* Row 5: Resources — auto-filtered by niche */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 24 }}>
                         <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
-                            <div style={{ ...lbl, marginBottom: 8 }}>📝 Шаблоны</div>
-                            <div style={{ display: 'grid', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                            <div style={{ ...lbl, marginBottom: 8 }}>📝 Шаблоны {form.niche && <span style={{ fontSize: '0.75em', color: 'var(--accent)', fontWeight: 400 }}>({form.niche})</span>}</div>
+                            <div style={{ display: 'grid', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
                                 {templates.length === 0 && <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>Нет шаблонов</div>}
-                                {templates.map(t => (
-                                    <div key={t.id} onClick={() => toggleList(selectedTemplates, setSelectedTemplates, t.id)}
-                                        style={{
-                                            padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
-                                            background: selectedTemplates.includes(t.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
-                                            border: `1px solid ${selectedTemplates.includes(t.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
-                                            color: selectedTemplates.includes(t.id) ? 'var(--accent)' : 'var(--text-muted)',
-                                            fontWeight: selectedTemplates.includes(t.id) ? 600 : 400,
-                                        }}>
-                                        {t.name}
-                                    </div>
-                                ))}
+                                {templates
+                                    .sort((a, b) => (a.niche === form.niche ? -1 : 1) - (b.niche === form.niche ? -1 : 1))
+                                    .map(t => {
+                                        const match = !form.niche || !t.niche || t.niche === form.niche;
+                                        return (
+                                            <div key={t.id} onClick={() => toggleList(selectedTemplates, setSelectedTemplates, t.id)}
+                                                style={{
+                                                    padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
+                                                    background: selectedTemplates.includes(t.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
+                                                    border: `1px solid ${selectedTemplates.includes(t.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
+                                                    color: selectedTemplates.includes(t.id) ? 'var(--accent)' : match ? 'var(--text-secondary)' : 'var(--text-muted)',
+                                                    fontWeight: selectedTemplates.includes(t.id) ? 600 : 400,
+                                                    opacity: match ? 1 : 0.5,
+                                                }}>
+                                                {t.name} {t.niche && <span style={{ fontSize: '0.7em', opacity: 0.6 }}>({t.niche})</span>}
+                                            </div>
+                                        );
+                                    })}
                             </div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
                             <div style={{ ...lbl, marginBottom: 8 }}>📧 Базы получателей</div>
-                            <div style={{ display: 'grid', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                            <div style={{ display: 'grid', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
                                 {databases.length === 0 && <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>Нет баз</div>}
                                 {databases.map(d => (
                                     <div key={d.id} onClick={() => toggleList(selectedDBs, setSelectedDBs, d.id)}
@@ -381,21 +387,27 @@ export default function Campaigns() {
                             </div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 14px' }}>
-                            <div style={{ ...lbl, marginBottom: 8 }}>🔗 Паки ссылок</div>
-                            <div style={{ display: 'grid', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                            <div style={{ ...lbl, marginBottom: 8 }}>🔗 Паки ссылок {form.niche && <span style={{ fontSize: '0.75em', color: 'var(--accent)', fontWeight: 400 }}>({form.niche})</span>}</div>
+                            <div style={{ display: 'grid', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
                                 {linkPacks.length === 0 && <div style={{ fontSize: '0.78em', color: 'var(--text-muted)' }}>Нет паков</div>}
-                                {linkPacks.map(l => (
-                                    <div key={l.id} onClick={() => toggleList(selectedLinkPacks, setSelectedLinkPacks, l.id)}
-                                        style={{
-                                            padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
-                                            background: selectedLinkPacks.includes(l.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
-                                            border: `1px solid ${selectedLinkPacks.includes(l.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
-                                            color: selectedLinkPacks.includes(l.id) ? 'var(--accent)' : 'var(--text-muted)',
-                                            fontWeight: selectedLinkPacks.includes(l.id) ? 600 : 400,
-                                        }}>
-                                        {l.name} ({l.total_count})
-                                    </div>
-                                ))}
+                                {linkPacks
+                                    .sort((a, b) => (a.niche === form.niche ? -1 : 1) - (b.niche === form.niche ? -1 : 1))
+                                    .map(l => {
+                                        const match = !form.niche || !l.niche || l.niche === form.niche;
+                                        return (
+                                            <div key={l.id} onClick={() => toggleList(selectedLinkPacks, setSelectedLinkPacks, l.id)}
+                                                style={{
+                                                    padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82em',
+                                                    background: selectedLinkPacks.includes(l.id) ? 'rgba(212,168,38,0.12)' : 'transparent',
+                                                    border: `1px solid ${selectedLinkPacks.includes(l.id) ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}`,
+                                                    color: selectedLinkPacks.includes(l.id) ? 'var(--accent)' : match ? 'var(--text-secondary)' : 'var(--text-muted)',
+                                                    fontWeight: selectedLinkPacks.includes(l.id) ? 600 : 400,
+                                                    opacity: match ? 1 : 0.5,
+                                                }}>
+                                                {l.name} ({l.total_count}) {l.niche && <span style={{ fontSize: '0.7em', opacity: 0.6 }}>({l.niche})</span>}
+                                            </div>
+                                        );
+                                    })}
                             </div>
                         </div>
                     </div>

@@ -51,6 +51,7 @@ class TemplateCreate(BaseModel):
     body: str
     content_type: str = "html"  # html, plain
     language: str = "en"
+    niche: str = ""
 
 
 

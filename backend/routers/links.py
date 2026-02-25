@@ -21,6 +21,7 @@ async def list_link_databases(db: Session = Depends(get_db)):
         "id": d.id,
         "name": d.name,
         "total_count": d.total_count,
+        "niche": d.niche or "",
         "created_at": d.created_at.isoformat()
     } for d in dbs]
 
@@ -71,6 +72,7 @@ from pydantic import BaseModel
 class LinkTextUpload(BaseModel):
     name: str = ""
     text: str
+    niche: str = ""
 
 
 @router.post("/upload-text")
@@ -91,7 +93,8 @@ async def upload_links_text(req: LinkTextUpload, db: Session = Depends(get_db)):
     link_db = LinkDatabase(
         name=pack_name,
         file_path=str(file_path.relative_to(CONFIG_DIR)),
-        total_count=len(lines)
+        total_count=len(lines),
+        niche=req.niche or None,
     )
     db.add(link_db)
     db.commit()

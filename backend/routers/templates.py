@@ -51,6 +51,7 @@ async def list_templates(db: Session = Depends(get_db)):
             "content_type": t.content_type,
             "language": t.language,
             "pack_name": t.pack_name,
+            "niche": t.niche or "",
             "variables": t.variables or [],
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "body_preview": t.body[:200] if t.body else ""
@@ -68,6 +69,7 @@ async def create_template(req: TemplateCreate, db: Session = Depends(get_db)):
         body=req.body,
         content_type=req.content_type,
         language=req.language,
+        niche=req.niche or None,
         variables=variables,
     )
     db.add(template)
