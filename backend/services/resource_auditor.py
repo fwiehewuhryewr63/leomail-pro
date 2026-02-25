@@ -169,7 +169,7 @@ def _check_campaigns(db: Session) -> list[dict]:
         if active_templates == 0:
             issues.append("No templates")
         if active_links == 0:
-            issues.append("No ESP links")
+            issues.append("No links")
         if unsent == 0:
             issues.append("No recipients left")
 
