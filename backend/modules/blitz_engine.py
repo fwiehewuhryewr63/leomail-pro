@@ -230,19 +230,23 @@ class BlitzCampaignRunner:
                 raw_provider = random.choice(providers)
                 provider = "outlook" if raw_provider == "hotmail" else raw_provider
 
-                # Get proxy (skip ones with too many fails)
-                proxy = db.query(Proxy).filter(
+                # Get proxy — round-robin distribution across workers
+                # Each worker offsets into the pool so threads don't all grab the same proxy
+                active_proxies = db.query(Proxy).filter(
                     Proxy.status == ProxyStatus.ACTIVE,
-                ).order_by(Proxy.fail_count.asc()).first()
+                ).order_by(Proxy.fail_count.asc(), Proxy.id.asc()).all()
 
-                if not proxy:
+                if not active_proxies:
                     logger.warning(f"Blitz birth[{worker_id}]: No proxies available")
                     await asyncio.sleep(BIRTH_RETRY_DELAY)
                     continue
 
+                # Round-robin: each worker picks a different proxy from the pool
+                proxy = active_proxies[worker_id % len(active_proxies)]
+
                 name_pack = resolve_name_pack(campaign.name_pack, campaign.geo)
 
-                logger.debug(f"Blitz birth[{worker_id}]: birthing {provider} via proxy {proxy.id}...")
+                logger.debug(f"Blitz birth[{worker_id}]: birthing {provider} via proxy {proxy.id} ({proxy.host}:{proxy.port})...")
 
                 account_data = await self._do_birth(
                     provider, name_pack, proxy, campaign.geo, db
@@ -255,7 +259,8 @@ class BlitzCampaignRunner:
                     campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
                     if campaign:
                         campaign.accounts_born = (campaign.accounts_born or 0) + 1
-                    proxy.fail_count = 0  # reset on success
+                    proxy.fail_count = 0  # reset consecutive fails
+                    proxy.total_births = (proxy.total_births or 0) + 1  # track lifetime success
                     db.commit()
 
                     logger.info(
@@ -265,14 +270,34 @@ class BlitzCampaignRunner:
                 else:
                     # Birth failed — increment proxy fail counter
                     proxy.fail_count = (proxy.fail_count or 0) + 1
-                    if proxy.fail_count >= 3:
+                    proxy.total_fails = (proxy.total_fails or 0) + 1  # track lifetime fails
+
+                    # Smart DEAD detection:
+                    # 1) 5 consecutive fails = DEAD
+                    # 2) OR lifetime success rate < 20% after 10+ attempts = DEAD
+                    total_attempts = (proxy.total_births or 0) + (proxy.total_fails or 0)
+                    success_rate = (proxy.total_births or 0) / max(total_attempts, 1)
+
+                    if proxy.fail_count >= 5:
                         proxy.status = ProxyStatus.DEAD
                         logger.warning(
-                            f"Blitz birth[{worker_id}]: proxy {proxy.id} → DEAD (3 consecutive fails)"
+                            f"Blitz birth[{worker_id}]: proxy {proxy.id} → DEAD (5 consecutive fails)"
+                        )
+                    elif total_attempts >= 10 and success_rate < 0.2:
+                        proxy.status = ProxyStatus.DEAD
+                        logger.warning(
+                            f"Blitz birth[{worker_id}]: proxy {proxy.id} → DEAD "
+                            f"(success rate {success_rate:.0%} after {total_attempts} attempts)"
                         )
                     db.commit()
-                    logger.warning(f"Blitz birth[{worker_id}]: birth failed (proxy fails: {proxy.fail_count})")
-                    await asyncio.sleep(BIRTH_RETRY_DELAY)
+
+                    # Adaptive cooldown: more fails = longer wait
+                    cooldown = min(BIRTH_RETRY_DELAY * proxy.fail_count, 120)
+                    logger.warning(
+                        f"Blitz birth[{worker_id}]: birth failed "
+                        f"(proxy {proxy.id} fails: {proxy.fail_count}, cooldown: {cooldown}s)"
+                    )
+                    await asyncio.sleep(cooldown)
 
             except asyncio.CancelledError:
                 break

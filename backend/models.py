@@ -86,8 +86,10 @@ class Proxy(Base):
     # Binding & usage tracking
     bound_account_id = Column(Integer, nullable=True)  # 1:1 with account (birth IP)
     use_count = Column(Integer, default=0)  # total usage across all providers
+    total_births = Column(Integer, default=0)  # lifetime successful births
+    total_fails = Column(Integer, default=0)   # lifetime failed births
     
-    # Per-provider usage counters (limit ~2-3 per provider)
+    # Per-provider usage counters (legacy, kept for compatibility)
     use_gmail = Column(Integer, default=0)
     use_yahoo = Column(Integer, default=0)
     use_aol = Column(Integer, default=0)
