@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Rocket, Plus, Play, Pause, Square, Trash2, ChevronRight,
-    Mail, Link2, FileText, Users
+    Mail, Link2, FileText, Users, ChevronDown
 } from 'lucide-react';
 import { API } from '../api';
 
@@ -45,6 +45,56 @@ const PROVIDERS = [
 
 const STATUS_COLOR = { draft: 'var(--text-muted)', running: 'var(--success)', paused: 'var(--warning)', completed: 'var(--info)', stopped: 'var(--danger)' };
 const STATUS_LABEL = { draft: 'Черновик', running: 'Запущена', paused: 'Пауза', completed: 'Завершена', stopped: 'Остановлена' };
+
+/* Custom dark dropdown */
+function DarkSelect({ value, onChange, options, renderOption, renderSelected, style }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+        const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, []);
+    const selected = options.find(o => (o.value ?? o.code) === value);
+    return (
+        <div ref={ref} style={{ position: 'relative', ...style }}>
+            <div onClick={() => setOpen(!open)} style={{
+                ...inp, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                cursor: 'pointer', userSelect: 'none',
+            }}>
+                <span>{renderSelected ? renderSelected(selected) : (selected?.label || value)}</span>
+                <ChevronDown size={14} style={{ opacity: 0.5, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </div>
+            {open && (
+                <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                    marginTop: 4, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 8, maxHeight: 260, overflowY: 'auto',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                }}>
+                    {options.map(o => {
+                        const val = o.value ?? o.code;
+                        const isActive = val === value;
+                        return (
+                            <div key={val} onClick={() => { onChange(val); setOpen(false); }} style={{
+                                padding: '8px 14px', cursor: 'pointer', fontSize: '0.88em',
+                                background: isActive ? 'rgba(212,168,38,0.15)' : 'transparent',
+                                color: isActive ? 'var(--accent)' : 'var(--text-primary)',
+                                borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
+                                transition: 'background 0.15s',
+                            }}
+                                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                {renderOption ? renderOption(o) : (o.label || val)}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function Campaigns() {
     const [campaigns, setCampaigns] = useState([]);
@@ -119,15 +169,23 @@ export default function Campaigns() {
                         </div>
                         <div>
                             <label style={lbl}>GEO</label>
-                            <select style={sel} value={form.geo} onChange={e => setForm({ ...form, geo: e.target.value })}>
-                                {GEOS.map(g => <option key={g.code} value={g.code}>{g.flag} {g.code} — {g.name}</option>)}
-                            </select>
+                            <DarkSelect
+                                value={form.geo}
+                                onChange={v => setForm({ ...form, geo: v })}
+                                options={GEOS}
+                                renderSelected={g => g ? `${g.flag} ${g.code}` : '—'}
+                                renderOption={g => `${g.flag} ${g.code} — ${g.name}`}
+                            />
                         </div>
                         <div>
                             <label style={lbl}>Ниша</label>
-                            <select style={sel} value={form.niche} onChange={e => setForm({ ...form, niche: e.target.value })}>
-                                {NICHES.map(n => <option key={n.value} value={n.value}>{n.icon} {n.label}</option>)}
-                            </select>
+                            <DarkSelect
+                                value={form.niche}
+                                onChange={v => setForm({ ...form, niche: v })}
+                                options={NICHES}
+                                renderSelected={n => n ? `${n.icon} ${n.label}` : '—'}
+                                renderOption={n => `${n.icon} ${n.label}`}
+                            />
                         </div>
                     </div>
 
@@ -278,11 +336,4 @@ const inp = {
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
     color: 'var(--text-primary)', fontSize: '0.9em', outline: 'none',
     transition: 'border-color 0.2s',
-};
-const sel = {
-    ...inp,
-    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
-    paddingRight: '30px', cursor: 'pointer',
 };
