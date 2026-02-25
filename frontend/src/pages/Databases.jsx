@@ -95,27 +95,28 @@ export default function Databases() {
             desc: 'Только email',
             color: 'var(--text-muted)',
             icon: '📧',
-            example: 'john@gmail.com\nanna@yahoo.com\nmike@outlook.com',
-            vars: ['{{USERNAME}} — часть до @'],
-            rules: 'Минимальный формат. Персонализация только по username.',
+            example: 'jessica.smith92@gmail.com\njohn.doe@yahoo.com\nmaria.santos@aol.com',
+            vars: ['{{USERNAME}} — часть email до @', '{{LINK}} — ссылка из кампании'],
+            rules: '{{USERNAME}} работает с любой базой',
         },
         email_first: {
             label: 'VIP',
-            desc: 'Email + Имя',
-            color: 'var(--accent)',
-            icon: '👤',
-            example: 'john@gmail.com,John\nanna@yahoo.com,Anna\nmike@outlook.com,Mike',
-            vars: ['{{USERNAME}} — часть до @', '{{NAME}} — имя получателя'],
-            rules: 'Персонализация по имени. Выше Open Rate.',
-        },
-        email_first_last: {
-            label: 'VIP+',
-            desc: 'Email + Имя + Фамилия',
+            desc: 'Email + Имя через запятую',
             color: '#f59e0b',
-            icon: '👑',
-            example: 'john@gmail.com,John,Smith\nanna@yahoo.com,Anna,Johnson\nmike@outlook.com,Mike,Brown',
-            vars: ['{{USERNAME}} — часть до @', '{{NAME}} — имя', '{{LASTNAME}} — фамилия', '{{FULLNAME}} — полное имя'],
-            rules: 'Максимальная персонализация. Лучший inbox rate.',
+            icon: '⭐',
+            example: 'jessica.smith92@gmail.com,Jessica\njohn.doe@yahoo.com,John\nmaria.santos@aol.com,Maria',
+            vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из кампании'],
+            rules: '{{NAME}} работает ТОЛЬКО с VIP базой!',
+        },
+        // email_first_last detected → treat as VIP
+        email_first_last: {
+            label: 'VIP',
+            desc: 'Email + Имя (+ фамилия)',
+            color: '#f59e0b',
+            icon: '⭐',
+            example: 'jessica@gmail.com,Jessica,Smith\njohn@yahoo.com,John,Doe',
+            vars: ['{{USERNAME}} — часть email до @', '{{NAME}} — имя из базы', '{{LINK}} — ссылка из кампании'],
+            rules: '{{NAME}} работает ТОЛЬКО с VIP базой!',
         },
     };
 
@@ -139,33 +140,38 @@ export default function Databases() {
                             placeholder="USA Finance 2024..." />
                     </div>
 
-                    {/* BASIC / VIP format cards */}
+                    {/* BASIC / VIP format cards — only 2 types */}
                     <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-                            Формат базы
+                            2 типа баз
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                            {Object.entries(FORMAT_INFO).map(([key, info]) => (
-                                <div key={key} style={{
-                                    padding: '10px 12px', borderRadius: 8,
-                                    border: detectedFormat === key ? `2px solid ${info.color}` : '1px solid var(--border-subtle)',
-                                    background: detectedFormat === key ? `${info.color}10` : 'var(--bg-elevated)',
-                                    transition: 'all 0.2s',
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                        <span>{info.icon}</span>
-                                        <span style={{ fontSize: '0.8em', fontWeight: 800, color: detectedFormat === key ? info.color : 'var(--text-muted)' }}>
-                                            {info.label}
-                                        </span>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                            {[['email', FORMAT_INFO.email], ['email_first', FORMAT_INFO.email_first]].map(([key, info]) => {
+                                const isActive = key === 'email' ? detectedFormat === 'email' : (detectedFormat === 'email_first' || detectedFormat === 'email_first_last');
+                                return (
+                                    <div key={key} style={{
+                                        padding: '10px 12px', borderRadius: 8,
+                                        border: isActive ? `2px solid ${info.color}` : '1px solid var(--border-subtle)',
+                                        background: isActive ? `${info.color}10` : 'var(--bg-elevated)',
+                                        transition: 'all 0.2s',
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                            <span>{info.icon}</span>
+                                            <span style={{ fontSize: '0.85em', fontWeight: 800, color: isActive ? info.color : 'var(--text-muted)' }}>
+                                                {info.label}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '0.72em', color: 'var(--text-secondary)', marginBottom: 4 }}>{info.desc}</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65em', color: 'var(--text-muted)' }}>
+                                            {info.example.split('\n').map((l, i) => <div key={i}>{l}</div>)}
+                                        </div>
                                     </div>
-                                    <div style={{ fontSize: '0.7em', color: 'var(--text-secondary)', marginBottom: 4 }}>{info.desc}</div>
-                                    <div style={{ fontSize: '0.62em', color: 'var(--text-muted)', fontStyle: 'italic' }}>{info.rules}</div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
 
-                    {/* Detected format details + template variables */}
+                    {/* Template variables + compatibility rules */}
                     <div style={{
                         padding: '10px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 12,
                         background: `${fmt.color}08`,
@@ -176,14 +182,18 @@ export default function Databases() {
                             <span style={{ color: fmt.color, fontWeight: 800, fontSize: '0.85em' }}>{fmt.label}</span>
                             <span style={{ fontSize: '0.75em', color: 'var(--text-secondary)' }}>— {fmt.desc}</span>
                         </div>
-                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.72em', color: 'var(--text-secondary)', marginBottom: 8 }}>
-                            {fmt.example.split('\n').map((line, i) => <div key={i}>{line}</div>)}
-                        </div>
-                        <div style={{ fontSize: '0.68em', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
-                            <div style={{ fontWeight: 700, marginBottom: 3, color: fmt.color }}>Доступные переменные для шаблонов:</div>
+                        <div style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginBottom: 8 }}>
+                            <div style={{ fontWeight: 700, marginBottom: 3, color: fmt.color }}>Переменные для шаблонов:</div>
                             {fmt.vars.map((v, i) => (
                                 <div key={i} style={{ fontFamily: 'JetBrains Mono, monospace', padding: '1px 0' }}>{v}</div>
                             ))}
+                        </div>
+                        <div style={{ fontSize: '0.65em', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+                            <div style={{ fontWeight: 700, marginBottom: 3 }}>Совместимость:</div>
+                            <div>✅ BASIC шаблон + BASIC база → OK</div>
+                            <div>✅ BASIC шаблон + VIP база → OK</div>
+                            <div>✅ VIP шаблон + VIP база → OK</div>
+                            <div style={{ color: 'var(--warning)' }}>⚠️ VIP шаблон + BASIC база → {'{{NAME}}'} будет пустым!</div>
                         </div>
                     </div>
 
