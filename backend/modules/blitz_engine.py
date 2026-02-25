@@ -627,15 +627,20 @@ class BlitzCampaignRunner:
                     body = body.replace("{{USERNAME}}", username)
 
                     # ═══ VIP variables (only if DB has names) ═══
-                    # {{NAME}} = first_name from VIP database
+                    # {{NAME}} = first_name, {{LASTNAME}} = last_name, {{FULLNAME}} = full name
                     to_name = getattr(recipient, 'first_name', '') or ''
                     to_last = getattr(recipient, 'last_name', '') or ''
+                    full_name = f"{to_name} {to_last}".strip()
                     subject = subject.replace("{{NAME}}", to_name)
                     body = body.replace("{{NAME}}", to_name)
+                    subject = subject.replace("{{LASTNAME}}", to_last)
+                    body = body.replace("{{LASTNAME}}", to_last)
+                    subject = subject.replace("{{FULLNAME}}", full_name)
+                    body = body.replace("{{FULLNAME}}", full_name)
 
                     # Legacy compatibility
-                    subject = subject.replace("{{FIRSTNAME}}", to_name).replace("{{LASTNAME}}", to_last)
-                    body = body.replace("{{FIRSTNAME}}", to_name).replace("{{LASTNAME}}", to_last)
+                    subject = subject.replace("{{FIRSTNAME}}", to_name)
+                    body = body.replace("{{FIRSTNAME}}", to_name)
                     subject = subject.replace("{first_name}", from_name)
                     body = body.replace("{first_name}", from_name)
 

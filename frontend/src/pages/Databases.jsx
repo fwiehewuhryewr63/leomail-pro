@@ -91,22 +91,31 @@ export default function Databases() {
 
     const FORMAT_INFO = {
         email: {
-            label: '{{EMAILNAME}}',
+            label: 'BASIC',
             desc: 'Только email',
             color: 'var(--text-muted)',
+            icon: '📧',
             example: 'john@gmail.com\nanna@yahoo.com\nmike@outlook.com',
+            vars: ['{{USERNAME}} — часть до @'],
+            rules: 'Минимальный формат. Персонализация только по username.',
         },
         email_first: {
-            label: '{{EMAILNAME}},{{FIRSTNAME}}',
+            label: 'VIP',
             desc: 'Email + Имя',
-            color: 'var(--info)',
+            color: 'var(--accent)',
+            icon: '👤',
             example: 'john@gmail.com,John\nanna@yahoo.com,Anna\nmike@outlook.com,Mike',
+            vars: ['{{USERNAME}} — часть до @', '{{NAME}} — имя получателя'],
+            rules: 'Персонализация по имени. Выше Open Rate.',
         },
         email_first_last: {
-            label: '{{EMAILNAME}},{{FIRSTNAME}},{{LASTNAME}}',
+            label: 'VIP+',
             desc: 'Email + Имя + Фамилия',
-            color: 'var(--accent)',
+            color: '#f59e0b',
+            icon: '👑',
             example: 'john@gmail.com,John,Smith\nanna@yahoo.com,Anna,Johnson\nmike@outlook.com,Mike,Brown',
+            vars: ['{{USERNAME}} — часть до @', '{{NAME}} — имя', '{{LASTNAME}} — фамилия', '{{FULLNAME}} — полное имя'],
+            rules: 'Максимальная персонализация. Лучший inbox rate.',
         },
     };
 
@@ -130,10 +139,10 @@ export default function Databases() {
                             placeholder="USA Finance 2024..." />
                     </div>
 
-                    {/* Format detection */}
+                    {/* BASIC / VIP format cards */}
                     <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-                            Supported Formats
+                            Формат базы
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                             {Object.entries(FORMAT_INFO).map(([key, info]) => (
@@ -143,28 +152,39 @@ export default function Databases() {
                                     background: detectedFormat === key ? `${info.color}10` : 'var(--bg-elevated)',
                                     transition: 'all 0.2s',
                                 }}>
-                                    <div style={{ fontSize: '0.72em', fontWeight: 700, color: detectedFormat === key ? info.color : 'var(--text-muted)', marginBottom: 3 }}>
-                                        {info.desc}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                        <span>{info.icon}</span>
+                                        <span style={{ fontSize: '0.8em', fontWeight: 800, color: detectedFormat === key ? info.color : 'var(--text-muted)' }}>
+                                            {info.label}
+                                        </span>
                                     </div>
-                                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65em', color: 'var(--text-secondary)' }}>
-                                        {info.label}
-                                    </div>
+                                    <div style={{ fontSize: '0.7em', color: 'var(--text-secondary)', marginBottom: 4 }}>{info.desc}</div>
+                                    <div style={{ fontSize: '0.62em', color: 'var(--text-muted)', fontStyle: 'italic' }}>{info.rules}</div>
                                 </div>
                             ))}
                         </div>
                     </div>
 
-                    {/* Example */}
+                    {/* Detected format details + template variables */}
                     <div style={{
                         padding: '10px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 12,
                         background: `${fmt.color}08`,
                         border: `1px solid ${fmt.color}25`,
-                        fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78em', color: 'var(--text-secondary)',
                     }}>
-                        <div style={{ color: fmt.color, fontWeight: 700, marginBottom: 4 }}>
-                            {t('format')}: {fmt.label}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span>{fmt.icon}</span>
+                            <span style={{ color: fmt.color, fontWeight: 800, fontSize: '0.85em' }}>{fmt.label}</span>
+                            <span style={{ fontSize: '0.75em', color: 'var(--text-secondary)' }}>— {fmt.desc}</span>
                         </div>
-                        {fmt.example.split('\n').map((line, i) => <div key={i}>{line}</div>)}
+                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.72em', color: 'var(--text-secondary)', marginBottom: 8 }}>
+                            {fmt.example.split('\n').map((line, i) => <div key={i}>{line}</div>)}
+                        </div>
+                        <div style={{ fontSize: '0.68em', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+                            <div style={{ fontWeight: 700, marginBottom: 3, color: fmt.color }}>Доступные переменные для шаблонов:</div>
+                            {fmt.vars.map((v, i) => (
+                                <div key={i} style={{ fontFamily: 'JetBrains Mono, monospace', padding: '1px 0' }}>{v}</div>
+                            ))}
+                        </div>
                     </div>
 
                     {/* Text area */}
@@ -221,16 +241,14 @@ export default function Databases() {
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <span style={{ fontWeight: 600, fontSize: '0.9em' }}>{d.name}</span>
-                                            {d.with_name && (
-                                                <span style={{
-                                                    background: 'var(--gradient-primary)', color: '#000',
-                                                    padding: '1px 8px', borderRadius: 4, fontSize: '0.6em',
-                                                    fontWeight: 800, letterSpacing: '0.05em'
-                                                }}>
-                                                    <Crown size={8} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} />
-                                                    WITH NAMES
-                                                </span>
-                                            )}
+                                            <span style={{
+                                                background: d.with_name ? 'linear-gradient(135deg, #f59e0b, #f97316)' : 'rgba(255,255,255,0.08)',
+                                                color: d.with_name ? '#000' : 'var(--text-muted)',
+                                                padding: '1px 8px', borderRadius: 4, fontSize: '0.6em',
+                                                fontWeight: 800, letterSpacing: '0.05em'
+                                            }}>
+                                                {d.with_name ? '👑 VIP' : '📧 BASIC'}
+                                            </span>
                                         </div>
                                         <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 3 }}>
                                             {d.total_count?.toLocaleString()} {t('total')}
