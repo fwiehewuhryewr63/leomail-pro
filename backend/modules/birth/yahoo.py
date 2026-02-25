@@ -713,11 +713,17 @@ async def register_single_yahoo(
                     get_code_btn = await _wait_for_any(page, [
                         'button:has-text("Get code by text")',
                         'button:has-text("code by text")',
+                        'button:has-text("Получить код")',
+                        'button:has-text("Text me")',
+                        'button:has-text("Send code")',
                         'button[type="submit"]',
-                    ], timeout=3000)
+                        'button[data-type="sms"]',
+                        '#send-code-button',
+                    ], timeout=5000)
                     if not get_code_btn:
-                        _err("Кнопка 'Get code' не найдена после смены номера")
-                        return None
+                        _log("Кнопка 'Get code' не найдена — пробуем Enter")
+                        await page.keyboard.press("Enter")
+                        await _human_delay(2, 4)
 
                 if not phone_accepted:
                     _err(f"Yahoo отклонил {max_phone_retries} номеров подряд — прокси или SMS сервис")
