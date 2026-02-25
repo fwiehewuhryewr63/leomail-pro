@@ -465,26 +465,62 @@ async def register_single_yahoo(
             order = None
             active_sms_provider = sms_provider  # will be updated to whichever works
 
-            # Build expanded country list: Yahoo's detected country first, then all available
-            # Priority countries (known good quality) first, then all others
-            PRIORITY_COUNTRIES = ["us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr", "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il"]
+            # ── Read Yahoo's country dropdown to know which countries are available ──
+            yahoo_available_prefixes = []
+            try:
+                yahoo_available_prefixes = await page.evaluate("""() => {
+                    const prefixes = [];
+                    // Method 1: <select> options with country codes
+                    const selects = document.querySelectorAll('select');
+                    for (const sel of selects) {
+                        for (const opt of sel.options) {
+                            const m = opt.text.match(/\\+(\\d{1,4})/);
+                            if (m) prefixes.push(m[1]);
+                            // Also check value
+                            const vm = (opt.value || '').match(/^(\\d{1,4})$/);
+                            if (vm) prefixes.push(vm[1]);
+                        }
+                    }
+                    // Method 2: data attributes or list items
+                    if (prefixes.length === 0) {
+                        const items = document.querySelectorAll('[data-code], [data-country-code], li[role="option"]');
+                        for (const el of items) {
+                            const code = el.getAttribute('data-code') || el.getAttribute('data-country-code') || '';
+                            if (code) prefixes.push(code);
+                            const m = el.textContent.match(/\\+(\\d{1,4})/);
+                            if (m) prefixes.push(m[1]);
+                        }
+                    }
+                    return [...new Set(prefixes)];
+                }""")
+                if yahoo_available_prefixes:
+                    _log(f"Yahoo dropdown: {len(yahoo_available_prefixes)} стран доступно (примеры: +{', +'.join(yahoo_available_prefixes[:5])})")
+            except Exception as e:
+                _log(f"Не удалось прочитать dropdown Yahoo: {e}")
+
+            # Convert Yahoo prefixes to SMS country codes
+            yahoo_dropdown_countries = []
+            if yahoo_available_prefixes:
+                for prefix in yahoo_available_prefixes:
+                    cc = PREFIX_TO_SMS_COUNTRY.get(prefix)
+                    if cc and cc not in yahoo_dropdown_countries:
+                        yahoo_dropdown_countries.append(cc)
+                _log(f"Yahoo поддерживает: {yahoo_dropdown_countries[:10]}...")
+
+            # Build final country list: detected first, then Yahoo dropdown, then fallback
+            FALLBACK_PRIORITY = ["us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr", "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il"]
             expanded_countries = []
             if yahoo_sms_country:
                 expanded_countries.append(yahoo_sms_country)
-            for c in PRIORITY_COUNTRIES:
+            # Add countries from Yahoo's dropdown (these are guaranteed to work)
+            for c in yahoo_dropdown_countries:
                 if c not in expanded_countries:
                     expanded_countries.append(c)
-            # Add ALL remaining countries from all providers
-            try:
-                from ..services.simsms_provider import COUNTRY_CODES as SIM_CC
-                from ..services.sms_provider import GRIZZLY_COUNTRY_CODES as GR_CC
-                from ..services.fivesim_provider import FIVESIM_COUNTRIES as FS_CC
-                all_known = set(SIM_CC.keys()) | set(GR_CC.keys()) | set(FS_CC.keys())
-                for c in all_known:
-                    if c not in expanded_countries and c != "us_v":
+            # Fallback if dropdown scraping failed
+            if len(expanded_countries) < 3:
+                for c in FALLBACK_PRIORITY:
+                    if c not in expanded_countries:
                         expanded_countries.append(c)
-            except Exception:
-                pass
 
             for provider_name, provider in sms_chain:
                 _log(f"📱 Пробуем SMS: {provider_name} (страны: {expanded_countries[:5]}...)")
