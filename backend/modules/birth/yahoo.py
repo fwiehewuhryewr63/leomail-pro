@@ -161,7 +161,7 @@ async def register_single_yahoo(
 
         # First name
         fn_sel = await _wait_and_find(page, [
-            'input[name="firstName"]', '#usernamereg-firstName',
+            '#reg-firstName', 'input[name="firstName"]', '#usernamereg-firstName',
             'input[aria-label*="irst"]', 'input[aria-label*="имя"]',
             'input[placeholder*="First"]', 'input[placeholder*="имя"]',
             'input[autocomplete="given-name"]',
@@ -174,7 +174,7 @@ async def register_single_yahoo(
 
         # Last name
         ln_sel = await _wait_for_any(page, [
-            'input[name="lastName"]', '#usernamereg-lastName',
+            '#reg-lastName', 'input[name="lastName"]', '#usernamereg-lastName',
             'input[aria-label*="ast"]', 'input[aria-label*="фам"]',
             'input[placeholder*="Last"]', 'input[placeholder*="фам"]',
             'input[autocomplete="family-name"]',
@@ -189,7 +189,7 @@ async def register_single_yahoo(
 
         # Email / Username
         email_sel = await _wait_for_any(page, [
-            'input#reg-userId', 'input[name="userId"]',
+            '#reg-userId', 'input[name="userId"]',
             'input[name="yid"]', '#usernamereg-yid',
             'input[aria-label*="user"]', 'input[aria-label*="email"]',
             'input[placeholder*="email"]', 'input[placeholder*="user"]',
@@ -200,7 +200,8 @@ async def register_single_yahoo(
 
         # Password
         pwd_sel = await _wait_for_any(page, [
-            'input[name="password"]', '#usernamereg-password', 'input[type="password"]',
+            '#reg-password', 'input[name="password"]', '#usernamereg-password',
+            'input[type="password"]',
             'input[aria-label*="assword"]', 'input[aria-label*="арол"]',
             'input[placeholder*="assword"]',
         ], timeout=5000)
@@ -215,7 +216,9 @@ async def register_single_yahoo(
         # Yahoo birthday: input[type="tel"] fields, NOT selects
         month_sel = await _wait_for_any(page, [
             'input[name="mm"]', 'input[placeholder="MM"]',
-            'input[placeholder*="onth"]', 'input[aria-label*="onth"]',
+            'input[placeholder*="Month"]', 'input[placeholder*="onth"]',
+            'input[aria-label="Birthday month"]', 'input[aria-label*="onth"]',
+            'input[id$="-mm"]',
         ], timeout=5000)
         if month_sel:
             await _human_fill(page, month_sel, str(birthday.month).zfill(2))
@@ -223,7 +226,9 @@ async def register_single_yahoo(
 
         day_sel = await _wait_for_any(page, [
             'input[name="dd"]', 'input[placeholder="DD"]',
-            'input[placeholder*="ay"]', 'input[aria-label*="ay"]',
+            'input[placeholder*="Day"]', 'input[placeholder*="ay"]',
+            'input[aria-label="Birthday day"]', 'input[aria-label*="day"]',
+            'input[id$="-dd"]',
         ], timeout=3000)
         if day_sel:
             await _human_fill(page, day_sel, str(birthday.day))
@@ -231,7 +236,9 @@ async def register_single_yahoo(
 
         year_sel = await _wait_for_any(page, [
             'input[name="yyyy"]', 'input[placeholder="YYYY"]',
-            'input[placeholder*="ear"]', 'input[aria-label*="ear"]',
+            'input[placeholder*="Year"]', 'input[placeholder*="ear"]',
+            'input[aria-label="Birthday year"]', 'input[aria-label*="ear"]',
+            'input[id$="-yyyy"]',
         ], timeout=3000)
         if year_sel:
             await _human_fill(page, year_sel, str(birthday.year))
