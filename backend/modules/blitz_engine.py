@@ -385,14 +385,12 @@ class BlitzCampaignRunner:
                         await self.stop("All ESP links exhausted")
                         break
 
-                    # Randomize link
+                    # Randomize link (but DON'T increment use_count yet!)
                     rand_hash = ''.join(random.choices(
                         string.ascii_letters + string.digits, k=6
                     ))
                     link_url = f"{link.esp_url}#{rand_hash}"
-                    link.use_count += 1
-                    if link.use_count >= link.max_uses:
-                        link.active = False
+                    link_id = link.id  # save for post-send update
 
                     # Render template
                     subject = template.subject
@@ -402,13 +400,23 @@ class BlitzCampaignRunner:
                     body = body.replace("{first_name}", from_name)
                     body = body.replace("{date}", datetime.utcnow().strftime("%d/%m/%Y"))
 
+                    # Handle recipient name substitution
+                    to_name = getattr(recipient, 'first_name', '') or ''
+                    to_last = getattr(recipient, 'last_name', '') or ''
+                    subject = subject.replace("{{FIRSTNAME}}", to_name).replace("{{LASTNAME}}", to_last)
+                    body = body.replace("{{FIRSTNAME}}", to_name).replace("{{LASTNAME}}", to_last)
+                    # Legacy placeholders
+                    subject = subject.replace("{recipient_name}", to_name)
+                    body = body.replace("{recipient_name}", to_name)
+
                     # Insert link based on mode
                     if campaign.link_mode == "hyperlink":
                         body = body.replace("{link}", link_url)
                     else:
                         body = body.replace("{link}", link_url)
+                    body = body.replace("{{LINK}}", link_url)
 
-                    # Mark recipient as sent BEFORE sending (prevent double-send)
+                    # Lock recipient to prevent double-send by other threads
                     recipient.sent = True
                     recipient.sent_at = datetime.utcnow()
                     db.commit()
@@ -425,14 +433,24 @@ class BlitzCampaignRunner:
                         from_name=from_name,
                     )
 
-                    # Process result
+                    # ═══ Process result — ONLY count resources on SUCCESS ═══
                     if result == SendResult.OK:
                         recipient.result = "ok"
                         emails_sent += 1
                         consecutive_errors = 0
+
+                        # NOW increment link usage (only on success!)
+                        link = db.query(CampaignLink).filter(
+                            CampaignLink.id == link_id
+                        ).first()
+                        if link:
+                            link.use_count += 1
+                            if link.use_count >= link.max_uses:
+                                link.active = False
+
                         template.use_count += 1
 
-                        # Update campaign stats
+                        # Update campaign stats — only real successes
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
                         ).first()
@@ -446,7 +464,7 @@ class BlitzCampaignRunner:
                         )
 
                     elif result == SendResult.RATE_LIMIT:
-                        # Temporary — undo sent mark, wait, retry
+                        # Temporary — undo recipient lock, DON'T burn link, wait & retry
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -457,10 +475,15 @@ class BlitzCampaignRunner:
                         consecutive_errors += 1
 
                     elif result in (SendResult.AUTH_FAIL, SendResult.SUSPENDED):
-                        # Account is dead
+                        # Account is dead — undo recipient, DON'T burn link
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
+                        campaign = db.query(Campaign).filter(
+                            Campaign.id == self.campaign_id
+                        ).first()
+                        if campaign:
+                            campaign.total_errors = (campaign.total_errors or 0) + 1
                         db.commit()
                         logger.warning(
                             f"Blitz send[{worker_id}] {email} DEAD: {result} — {detail[:80]}"
@@ -468,6 +491,7 @@ class BlitzCampaignRunner:
                         break  # exit inner loop, get new account
 
                     elif result == SendResult.BOUNCE:
+                        # Bad recipient address — mark as bounce, DON'T burn link
                         recipient.result = "bounce"
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
@@ -478,6 +502,7 @@ class BlitzCampaignRunner:
                         consecutive_errors = 0  # bounce is recipient issue, not account
 
                     elif result == SendResult.NETWORK:
+                        # Network issue — undo everything, retry later
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -486,6 +511,7 @@ class BlitzCampaignRunner:
                         await asyncio.sleep(10)
 
                     else:
+                        # Unknown error — mark failed, DON'T burn link
                         recipient.result = "error"
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
