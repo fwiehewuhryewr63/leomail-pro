@@ -30,3 +30,15 @@ Desktop.ini
 
 # === Playwright ===
 browser_profiles/
+
+# === Debug screenshots (never commit) ===
+*.png
+*.jpg
+*.jpeg
+screenshot_*
+debug_*
+
+# === Build artifacts ===
+dist/
+*.exe
+*.zip
