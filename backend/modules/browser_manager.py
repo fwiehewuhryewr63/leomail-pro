@@ -614,6 +614,12 @@ class BrowserManager:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
+        # Kill any orphaned processes that survived
+        try:
+            from ..services.browser_leak_guard import kill_orphaned_browsers
+            kill_orphaned_browsers(max_age_seconds=60)
+        except Exception:
+            pass
         logger.info("Browser engine stopped")
 
     async def create_context(

@@ -242,6 +242,13 @@ async def startup_event():
     asyncio.create_task(proxy_monitor_loop(interval_sec=interval, max_fails=max_fails))
     logger.info(f"Proxy monitor started (every {interval}s, max_fails={max_fails})")
 
+    # Browser leak guard — background task kills orphaned chromium processes
+    try:
+        from .services.browser_leak_guard import periodic_leak_guard
+        asyncio.create_task(periodic_leak_guard(interval_seconds=120, max_age_seconds=300))
+    except Exception:
+        pass
+
     logger.info("Leomail v4.0 Backend Started — Blitz Pipeline")
 
 
