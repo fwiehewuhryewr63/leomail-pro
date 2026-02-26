@@ -338,3 +338,78 @@ async def pre_registration_warmup(page):
     Makes the session look like a real user before hitting signup page.
     """
     await warmup_browsing(page, duration_seconds=random.randint(15, 30))
+
+
+async def post_registration_warmup(page, provider: str = "yahoo", duration_seconds: int = None):
+    """
+    Post-registration session aging: visit inbox, settings, compose.
+    Makes the freshly created account look like a real first-time user.
+    Runs 15-30s — enough to establish session cookies without being slow.
+    """
+    if duration_seconds is None:
+        duration_seconds = random.randint(15, 30)
+
+    logger.debug(f"Post-reg warmup ({provider}) for ~{duration_seconds}s")
+
+    # Provider-specific pages to visit after registration
+    PROVIDER_PAGES = {
+        "yahoo": [
+            ("https://mail.yahoo.com", "Yahoo Mail Inbox"),
+            ("https://mail.yahoo.com/d/settings/1", "Yahoo Settings"),
+            ("https://mail.yahoo.com/d/compose/", "Yahoo Compose"),
+        ],
+        "aol": [
+            ("https://mail.aol.com", "AOL Mail Inbox"),
+            ("https://mail.aol.com/d/settings/1", "AOL Settings"),
+            ("https://mail.aol.com/d/compose/", "AOL Compose"),
+        ],
+        "outlook": [
+            ("https://outlook.live.com/mail/", "Outlook Inbox"),
+            ("https://outlook.live.com/mail/options/general", "Outlook Settings"),
+        ],
+        "hotmail": [
+            ("https://outlook.live.com/mail/", "Hotmail Inbox"),
+            ("https://outlook.live.com/mail/options/general", "Hotmail Settings"),
+        ],
+        "gmail": [
+            ("https://mail.google.com/mail/u/0/#inbox", "Gmail Inbox"),
+            ("https://mail.google.com/mail/u/0/#settings/general", "Gmail Settings"),
+        ],
+    }
+
+    pages_to_visit = PROVIDER_PAGES.get(provider.lower(), PROVIDER_PAGES["yahoo"])
+    start = asyncio.get_event_loop().time()
+
+    for url, name in pages_to_visit:
+        elapsed = asyncio.get_event_loop().time() - start
+        if elapsed > duration_seconds:
+            break
+
+        try:
+            logger.debug(f"Post-reg warmup: visiting {name}")
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await human_delay(2, 5)
+
+            # Human-like behavior: scroll and move mouse
+            await random_mouse_move(page, steps=random.randint(3, 6))
+            await random_scroll(page, "down")
+            await human_delay(1, 3)
+
+            # Read the page a bit more
+            if random.random() < 0.6:
+                await random_scroll(page, "down")
+                await human_delay(1, 2)
+
+            if random.random() < 0.3:
+                await random_scroll(page, "up")
+                await human_delay(0.5, 1)
+
+            await random_mouse_move(page, steps=random.randint(2, 4))
+            await human_delay(1, 2)
+
+        except Exception as e:
+            logger.debug(f"Post-reg warmup {name} error: {e}")
+            continue
+
+    elapsed = asyncio.get_event_loop().time() - start
+    logger.debug(f"Post-reg warmup done: {elapsed:.1f}s ({provider})")

@@ -867,6 +867,14 @@ async def register_single_aol(
         except Exception as imap_e:
             logger.debug(f"[AOL] IMAP check skipped: {imap_e}")
 
+        # Post-registration warmup — visit inbox/settings to age the session
+        try:
+            from ..human_behavior import post_registration_warmup
+            _log("🔥 Пост-рег прогрев сессии...")
+            await post_registration_warmup(page, provider="aol")
+        except Exception as warmup_e:
+            logger.debug(f"[AOL] Post-reg warmup error: {warmup_e}")
+
         return account
 
     except Exception as e:
