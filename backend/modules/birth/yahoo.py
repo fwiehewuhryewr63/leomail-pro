@@ -97,6 +97,38 @@ async def register_single_yahoo(
     except Exception as ve:
         logger.debug(f"[Yahoo] Vision not available: {ve}")
 
+    # ── Fast error page detector (saves 20s vs waiting for fields) ──
+    async def _check_error_page(page, context_msg=""):
+        """Quick 2s check for Yahoo error/block pages. Returns error string or None."""
+        url = page.url or ""
+        # URL-based detection
+        error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
+                      "guce.yahoo", "consent.yahoo", "/sorry"]
+        for pattern in error_urls:
+            if pattern in url.lower():
+                return f"Error URL detected: {url}"
+        # DOM-based detection (fast — querySelector is instant)
+        try:
+            error_text = await page.evaluate("""() => {
+                const body = document.body?.innerText?.substring(0, 2000) || '';
+                const lc = body.toLowerCase();
+                const errors = [
+                    'something went wrong', 'try again later', 'suspicious activity',
+                    'temporarily unavailable', 'too many attempts', 'access denied',
+                    'unable to process', 'service unavailable', 'error 500',
+                    'we are unable', 'blocked', 'not available in your region'
+                ];
+                for (const e of errors) {
+                    if (lc.includes(e)) return body.substring(0, 300);
+                }
+                return null;
+            }""")
+            if error_text:
+                return f"Error page text: {error_text[:200]}"
+        except Exception:
+            pass
+        return None
+
     _active_sms = None  # Track SMS order for crash recovery (cancel if unused)
     _sms_success = False  # Set True when SMS code verified
     try:
@@ -161,6 +193,12 @@ async def register_single_yahoo(
 
         # Yahoo: all fields on one page — fill with human-like behavior
         _log(f"Ввод данных: {first_name} {last_name} / {username}")
+
+        # ── FAST ERROR CHECK (2s vs 20s timeout) ──
+        error = await _check_error_page(page, "before firstname")
+        if error:
+            _err(f"🔴 Yahoo ошибка до формы: {error}")
+            return None
 
         # First name
         fn_sel = await _wait_and_find(page, [
@@ -334,6 +372,12 @@ async def register_single_yahoo(
         # ── Post-submit: Handle Yahoo's "Add your phone number" page ──
         post_url = page.url
         _log(f"После отправки: {post_url}")
+
+        # ── FAST ERROR CHECK after submit ──
+        error = await _check_error_page(page, "after submit")
+        if error:
+            _err(f"🔴 Yahoo ошибка после submit: {error}")
+            return None
 
         # Check for reCAPTCHA after submit
         await _detect_and_solve_recaptcha(page, captcha_provider, _log)

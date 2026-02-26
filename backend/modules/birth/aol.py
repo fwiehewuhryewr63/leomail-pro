@@ -98,6 +98,36 @@ async def register_single_aol(
     except Exception as ve:
         logger.debug(f"[AOL] Vision not available: {ve}")
 
+    # ── Fast error page detector (saves 20s vs waiting for fields) ──
+    async def _check_error_page(page, context_msg=""):
+        """Quick check for AOL error/block pages. Returns error string or None."""
+        url = page.url or ""
+        error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
+                      "guce.yahoo", "consent.yahoo", "/sorry"]
+        for pattern in error_urls:
+            if pattern in url.lower():
+                return f"Error URL detected: {url}"
+        try:
+            error_text = await page.evaluate("""() => {
+                const body = document.body?.innerText?.substring(0, 2000) || '';
+                const lc = body.toLowerCase();
+                const errors = [
+                    'something went wrong', 'try again later', 'suspicious activity',
+                    'temporarily unavailable', 'too many attempts', 'access denied',
+                    'unable to process', 'service unavailable', 'error 500',
+                    'we are unable', 'blocked', 'not available in your region'
+                ];
+                for (const e of errors) {
+                    if (lc.includes(e)) return body.substring(0, 300);
+                }
+                return null;
+            }""")
+            if error_text:
+                return f"Error page text: {error_text[:200]}"
+        except Exception:
+            pass
+        return None
+
     _active_sms = None  # Track SMS order for crash recovery
     _sms_success = False
     try:
@@ -150,6 +180,12 @@ async def register_single_aol(
 
         # AOL: all fields on one page — fill with human-like behavior
         _log(f"Ввод данных: {first_name} {last_name} / {username}")
+
+        # ── FAST ERROR CHECK (2s vs 20s timeout) ──
+        error = await _check_error_page(page, "before firstname")
+        if error:
+            _err(f"🔴 AOL ошибка до формы: {error}")
+            return None
 
         # First name
         fn_sel = await _wait_and_find(page, [
