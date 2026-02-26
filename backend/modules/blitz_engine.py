@@ -265,17 +265,25 @@ class BlitzCampaignRunner:
 
                 # Get proxy — round-robin distribution across workers
                 # Each worker offsets into the pool so threads don't all grab the same proxy
+                # Apply cooldown filter (same as birth.py)
+                from datetime import datetime, timedelta
+                cooldown_min = {"yahoo": 30, "aol": 30, "gmail": 30,
+                                "outlook": 15, "hotmail": 15}.get(provider.lower(), 20)
+                cutoff = datetime.utcnow() - timedelta(minutes=cooldown_min)
                 active_proxies = db.query(Proxy).filter(
                     Proxy.status == ProxyStatus.ACTIVE,
+                    (Proxy.last_used_at == None) | (Proxy.last_used_at < cutoff),  # noqa: E711
                 ).order_by(Proxy.fail_count.asc(), Proxy.id.asc()).all()
 
                 if not active_proxies:
-                    logger.warning(f"Blitz birth[{worker_id}]: No proxies available")
+                    logger.warning(f"Blitz birth[{worker_id}]: No proxies available (cooldown {cooldown_min}min)")
                     await asyncio.sleep(BIRTH_RETRY_DELAY)
                     continue
 
                 # Round-robin: each worker picks a different proxy from the pool
                 proxy = active_proxies[worker_id % len(active_proxies)]
+                proxy.last_used_at = datetime.utcnow()
+                db.commit()
 
                 name_pack = resolve_name_pack(campaign.name_pack, campaign.geo)
 
