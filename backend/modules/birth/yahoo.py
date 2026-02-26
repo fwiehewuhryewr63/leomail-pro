@@ -97,6 +97,8 @@ async def register_single_yahoo(
     except Exception as ve:
         logger.debug(f"[Yahoo] Vision not available: {ve}")
 
+    _active_sms = None  # Track SMS order for crash recovery (cancel if unused)
+    _sms_success = False  # Set True when SMS code verified
     try:
         page = await context.new_page()
         thread_id = thread_log.id if thread_log else 0
@@ -376,6 +378,7 @@ async def register_single_yahoo(
             phone_number = order["number"]
             order_id = order["id"]
             sms_country = order.get("country", "")
+            _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
             display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
             _log(f"Номер: {display_phone} (страна: {sms_country})")
 
@@ -883,6 +886,7 @@ async def register_single_yahoo(
         except Exception:
             session_path = None
 
+        _sms_success = True  # SMS was used successfully, don't cancel
         account = Account(
             email=email,
             password=password,
@@ -914,6 +918,14 @@ async def register_single_yahoo(
         _err(str(e)[:500])
         return None
     finally:
+        # Cancel unused SMS order (crash recovery — don't waste money)
+        if _active_sms and not _sms_success:
+            try:
+                _log_fn = _log if '_log' in dir() else logger.info
+                await asyncio.to_thread(_active_sms["provider"].cancel_order, _active_sms["order_id"])
+                logger.info(f"[Yahoo] ⚠️ SMS отменён (crash recovery): {_active_sms['number']}")
+            except Exception:
+                pass
         ACTIVE_PAGES.pop(thread_id, None)
         try:
             await context.close()

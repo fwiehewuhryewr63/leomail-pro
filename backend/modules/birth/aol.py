@@ -98,6 +98,8 @@ async def register_single_aol(
     except Exception as ve:
         logger.debug(f"[AOL] Vision not available: {ve}")
 
+    _active_sms = None  # Track SMS order for crash recovery
+    _sms_success = False
     try:
         page = await context.new_page()
         thread_id = thread_log.id if thread_log else 0
@@ -349,6 +351,7 @@ async def register_single_aol(
             phone_number = order["number"]
             order_id = order["id"]
             sms_country = order.get("country", "")
+            _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
             display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
             _log(f"Номер: {display_phone} (страна: {sms_country})")
 
@@ -795,6 +798,7 @@ async def register_single_aol(
         except Exception:
             session_path = None
 
+        _sms_success = True
         account = Account(
             email=email,
             password=password,
@@ -826,6 +830,12 @@ async def register_single_aol(
         _err(str(e)[:500])
         return None
     finally:
+        if _active_sms and not _sms_success:
+            try:
+                await asyncio.to_thread(_active_sms["provider"].cancel_order, _active_sms["order_id"])
+                logger.info(f"[AOL] ⚠️ SMS отменён (crash recovery): {_active_sms['number']}")
+            except Exception:
+                pass
         ACTIVE_PAGES.pop(thread_id, None)
         try:
             await context.close()
