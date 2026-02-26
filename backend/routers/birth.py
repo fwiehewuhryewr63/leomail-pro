@@ -423,18 +423,28 @@ async def run_birth_task(request: BirthRequest):
                             await asyncio.sleep(random.uniform(2, 5))
 
                     except Exception as e:
-                        logger.error(f"[Birth] Worker {worker_id} crashed: {e}", exc_info=True)
+                        err_str = str(e)
+                        err_lower = err_str.lower()
+                        is_browser_crash = any(x in err_lower for x in [
+                            "connection closed", "browser has been closed", "target closed",
+                            "target page", "context or browser", "reading from the driver",
+                        ])
+                        if is_browser_crash:
+                            logger.warning(f"[Birth] Worker {worker_id}: browser crashed, will auto-restart on next attempt: {err_str[:200]}")
+                        else:
+                            logger.error(f"[Birth] Worker {worker_id} crashed: {e}", exc_info=True)
                         try:
                             task.failed_items = (task.failed_items or 0) + 1
                             async with job_lock:
                                 consecutive_failures[0] += 1
                             if thread_log:
                                 thread_log.status = "error"
-                                thread_log.error_message = str(e)[:500]
+                                thread_log.error_message = f"{'🔄 Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
                             db.commit()
                         except Exception:
                             pass
-                        await asyncio.sleep(3)
+                        # Wait longer on browser crash to give auto-restart time
+                        await asyncio.sleep(5 if is_browser_crash else 3)
 
             # Launch workers
             num_workers = min(request.threads, request.quantity)

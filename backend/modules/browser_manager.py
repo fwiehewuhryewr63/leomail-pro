@@ -730,8 +730,21 @@ class BrowserManager:
             except Exception as e:
                 logger.warning(f"Failed to load session {session_path}: {e}")
 
-        # Create context
-        context = await self.browser.new_context(**context_options)
+        # Create context — with auto-restart on crash
+        try:
+            context = await self.browser.new_context(**context_options)
+        except Exception as ctx_err:
+            err_msg = str(ctx_err).lower()
+            if "connection closed" in err_msg or "browser has been closed" in err_msg or "target closed" in err_msg:
+                logger.warning(f"Browser engine crashed, auto-restarting... ({ctx_err})")
+                try:
+                    await self.stop()
+                except Exception:
+                    pass
+                await self.start()
+                context = await self.browser.new_context(**context_options)
+            else:
+                raise
 
         # Apply antidetect stealth scripts (per-context: GPU rotation, UA-matched platform)
         ctx_ua = context_options.get("user_agent", "")
