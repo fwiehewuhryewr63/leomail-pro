@@ -186,6 +186,21 @@ async def startup_event():
         except Exception:
             pass
 
+        # accounts — IMAP verification columns
+        try:
+            acc_cols = [c["name"] for c in inspector.get_columns("accounts")]
+            acc_migrations = {
+                "imap_verified": "BOOLEAN DEFAULT 0",
+                "imap_checked_at": "DATETIME",
+            }
+            for col, col_type in acc_migrations.items():
+                if col not in acc_cols:
+                    conn.execute(text(f"ALTER TABLE accounts ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Migrated: added {col} column to accounts")
+        except Exception:
+            pass
+
     # Initialize user_data directories
     init_directories()
 

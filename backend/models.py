@@ -162,6 +162,8 @@ class Account(Base):
 
     # Health
     health_score = Column(Float, default=100.0)  # 0-100
+    imap_verified = Column(Boolean, default=False)  # IMAP login check after birth
+    imap_checked_at = Column(DateTime, nullable=True)
 
     # Proxy binding
     proxy_id = Column(Integer, ForeignKey("proxies.id"), nullable=True)

@@ -955,6 +955,14 @@ async def register_single_yahoo(
 
         logger.info(f"✅ Yahoo registered: {email}")
         export_account_to_file(account, {"sms_phone": locals().get("display_phone", "")})
+
+        # IMAP verification (non-blocking — don't fail the birth if IMAP is down)
+        try:
+            from ...services.imap_checker import verify_account_imap
+            await verify_account_imap(account, db, _log, _err)
+        except Exception as imap_e:
+            logger.debug(f"[Yahoo] IMAP check skipped: {imap_e}")
+
         return account
 
     except Exception as e:

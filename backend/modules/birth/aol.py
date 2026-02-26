@@ -859,6 +859,14 @@ async def register_single_aol(
 
         logger.info(f"✅ AOL registered: {email}")
         export_account_to_file(account, {"sms_phone": display_phone})
+
+        # IMAP verification (non-blocking)
+        try:
+            from ...services.imap_checker import verify_account_imap
+            await verify_account_imap(account, db, _log, _err)
+        except Exception as imap_e:
+            logger.debug(f"[AOL] IMAP check skipped: {imap_e}")
+
         return account
 
     except Exception as e:
