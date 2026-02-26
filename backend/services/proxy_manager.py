@@ -350,6 +350,14 @@ class ProxyManager:
             group_filter = self._provider_group_filter(provider)
             if group_filter is not None:
                 query = query.filter(group_filter)
+            # Cooldown: minimum interval between uses on same proxy
+            cooldown_minutes = {"yahoo": 30, "aol": 30, "gmail": 30,
+                                "outlook": 15, "hotmail": 15}.get(provider.lower(), 20)
+            from datetime import datetime, timedelta
+            cutoff = datetime.utcnow() - timedelta(minutes=cooldown_minutes)
+            query = query.filter(
+                (Proxy.last_used_at == None) | (Proxy.last_used_at < cutoff)  # noqa: E711
+            )
 
         candidates = query.all()
 

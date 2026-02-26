@@ -119,6 +119,7 @@ async def startup_event():
                 "use_hotmail": "INTEGER DEFAULT 0",
                 "total_births": "INTEGER DEFAULT 0",
                 "total_fails": "INTEGER DEFAULT 0",
+                "last_used_at": "DATETIME",
             }
             for col, col_type in proxy_extra.items():
                 if col not in proxy_cols2:

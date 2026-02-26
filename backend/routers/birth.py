@@ -267,6 +267,7 @@ async def run_birth_task(request: BirthRequest):
                         # Increment per-provider usage counter
                         if proxy:
                             proxy_manager.increment_provider_usage(proxy, request.provider)
+                            proxy.last_used_at = datetime.utcnow()
 
                         thread_log = ThreadLog(
                             task_id=task.id,

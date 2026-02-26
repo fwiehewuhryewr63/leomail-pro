@@ -97,6 +97,7 @@ class Proxy(Base):
     use_hotmail = Column(Integer, default=0)
     
     expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)  # cooldown: when proxy was last used for birth
     created_at = Column(DateTime, default=datetime.utcnow)
 
     accounts = relationship("Account", back_populates="proxy")
