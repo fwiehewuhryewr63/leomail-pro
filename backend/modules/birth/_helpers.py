@@ -197,6 +197,42 @@ async def scrape_phone_dropdown(page, _log=None) -> list[str]:
         return []
 
 
+# ── SMS Exponential Backoff Tracker ──
+# Prevents hammering SMS providers when they're down
+_sms_backoff = {}  # {service: {"fails": int, "last_fail": float}}
+_SMS_BACKOFF_BASE = 10    # seconds
+_SMS_BACKOFF_MAX = 120    # max seconds
+
+
+def _get_sms_backoff_delay(service: str) -> float:
+    """Get current backoff delay for a service. Returns 0 if no backoff needed."""
+    import time
+    info = _sms_backoff.get(service)
+    if not info or info["fails"] == 0:
+        return 0
+    delay = min(_SMS_BACKOFF_BASE * (2 ** (info["fails"] - 1)), _SMS_BACKOFF_MAX)
+    # Check if enough time passed since last fail
+    elapsed = time.time() - info.get("last_fail", 0)
+    remaining = delay - elapsed
+    return max(0, remaining)
+
+
+def _record_sms_fail(service: str):
+    """Record an SMS ordering failure for backoff calculation."""
+    import time
+    if service not in _sms_backoff:
+        _sms_backoff[service] = {"fails": 0, "last_fail": 0}
+    _sms_backoff[service]["fails"] += 1
+    _sms_backoff[service]["last_fail"] = time.time()
+    logger.debug(f"SMS backoff [{service}]: fails={_sms_backoff[service]['fails']}")
+
+
+def _reset_sms_backoff(service: str):
+    """Reset backoff after successful SMS order."""
+    _sms_backoff[service] = {"fails": 0, "last_fail": 0}
+    logger.debug(f"SMS backoff [{service}]: reset")
+
+
 async def order_sms_with_chain(
     service: str,
     sms_provider,
@@ -233,6 +269,12 @@ async def order_sms_with_chain(
     if not sms_provider:
         _err(f"{service.upper()} требует SMS, но SMS провайдер не настроен")
         return None, None, []
+
+    # Exponential backoff — wait if previous attempts failed
+    backoff_delay = _get_sms_backoff_delay(service)
+    if backoff_delay > 0:
+        _log(f"⏳ SMS backoff: ждём {backoff_delay:.0f}с перед заказом ({_sms_backoff.get(service, {}).get('fails', 0)} подряд фейлов)")
+        await asyncio.sleep(backoff_delay)
 
     # ── Step 1: Build ordered country list ──
     detected_country = None  # from page dropdown
@@ -306,6 +348,7 @@ async def order_sms_with_chain(
                 )
                 if order and "error" not in order:
                     _log(f"✅ {provider_name}: номер из {order.get('country', '?')} — {order.get('number', '')}")
+                    _reset_sms_backoff(service)
                     return order, provider, expanded_countries
                 _log(f"{provider_name} from_countries: {order.get('error', '') if order else 'empty'}")
             except Exception as e:
@@ -316,14 +359,16 @@ async def order_sms_with_chain(
             try:
                 order = await asyncio.to_thread(provider.order_number, service, country)
                 if order and "error" not in order:
-                    _log(f"✅ {provider_name}: номер из {country} — {order.get('number', '')}")
+                    _log(f"✅ {provider_name}: номер из {order.get('country', '?')} — {order.get('number', '')}")
+                    _reset_sms_backoff(service)
                     return order, provider, expanded_countries
             except Exception as e:
                 _log(f"{provider_name}/{country}: {e}")
 
         _log(f"❌ {provider_name}: все страны исчерпаны")
 
-    _err(f"Не удалось заказать SMS ни через одного провайдера для {service}")
+    _record_sms_fail(service)
+    _err(f"Не удалось заказать SMS ни через одного провайдера для {service} (след. попытка через {_get_sms_backoff_delay(service):.0f}с)")
     return None, None, expanded_countries
 
 
