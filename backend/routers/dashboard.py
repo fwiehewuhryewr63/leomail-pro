@@ -243,3 +243,119 @@ async def dashboard_stats(db: Session = Depends(get_db)):
             "running": running_tasks,
         },
     }
+
+
+@router.get("/dashboard/analytics")
+async def dashboard_analytics(db: Session = Depends(get_db)):
+    """
+    Advanced analytics — IMAP rates, proxy cooldown, browser memory, SMS backoff.
+    Covers all new features from Steps 1-9.
+    """
+    from sqlalchemy import func
+    from datetime import datetime, timedelta
+
+    # ── IMAP Verification Stats ──
+    imap_total = db.query(Account).filter(Account.imap_checked_at != None).count()  # noqa: E711
+    imap_verified = db.query(Account).filter(Account.imap_verified == True).count()  # noqa: E712
+    imap_failed = imap_total - imap_verified
+    imap_unchecked = db.query(Account).filter(Account.imap_checked_at == None).count()  # noqa: E711
+    imap_rate = round((imap_verified / imap_total * 100), 1) if imap_total > 0 else 0
+
+    # Per-provider IMAP breakdown
+    imap_by_provider = {}
+    for row in db.query(
+        Account.provider,
+        func.count().label("total"),
+    ).filter(Account.imap_checked_at != None).group_by(Account.provider).all():  # noqa: E711
+        prov = row[0] or "unknown"
+        total = row[1] or 0
+        verified = db.query(Account).filter(
+            Account.provider == row[0],
+            Account.imap_verified == True,  # noqa: E712
+        ).count()
+        imap_by_provider[prov] = {
+            "total": total,
+            "verified": verified,
+            "failed": total - verified,
+            "rate": round((verified / total * 100), 1) if total > 0 else 0,
+        }
+
+    # ── Proxy Cooldown Status ──
+    now = datetime.utcnow()
+    cooldown_30min = now - timedelta(minutes=30)
+    cooldown_15min = now - timedelta(minutes=15)
+
+    proxies_active = db.query(Proxy).filter(Proxy.status == "active").count()
+    proxies_on_cooldown_30 = db.query(Proxy).filter(
+        Proxy.status == "active",
+        Proxy.last_used_at != None,  # noqa: E711
+        Proxy.last_used_at > cooldown_30min,
+    ).count()
+    proxies_on_cooldown_15 = db.query(Proxy).filter(
+        Proxy.status == "active",
+        Proxy.last_used_at != None,  # noqa: E711
+        Proxy.last_used_at > cooldown_15min,
+    ).count()
+    proxies_available_yahoo = proxies_active - proxies_on_cooldown_30
+    proxies_available_outlook = proxies_active - proxies_on_cooldown_15
+
+    # ── Browser Memory ──
+    browser_memory_mb = 0
+    try:
+        from ..services.browser_leak_guard import get_browser_memory_usage_mb
+        browser_memory_mb = round(get_browser_memory_usage_mb(), 1)
+    except Exception:
+        pass
+
+    # ── SMS Backoff Status ──
+    sms_backoff_status = {}
+    try:
+        from ..modules.birth._helpers import _sms_backoff, _get_sms_backoff_delay
+        for service, info in _sms_backoff.items():
+            sms_backoff_status[service] = {
+                "consecutive_fails": info.get("fails", 0),
+                "next_delay_seconds": round(_get_sms_backoff_delay(service), 0),
+            }
+    except Exception:
+        pass
+
+    # ── Birth Success Rate (last 24h) ──
+    since_24h = now - timedelta(hours=24)
+    births_ok = db.query(ThreadLog).filter(
+        ThreadLog.status == "done",
+        ThreadLog.created_at > since_24h,
+    ).count()
+    births_fail = db.query(ThreadLog).filter(
+        ThreadLog.status.in_(["error", "stopped"]),
+        ThreadLog.created_at > since_24h,
+    ).count()
+    births_total = births_ok + births_fail
+    birth_success_rate = round((births_ok / births_total * 100), 1) if births_total > 0 else 0
+
+    return {
+        "imap": {
+            "total_checked": imap_total,
+            "verified": imap_verified,
+            "failed": imap_failed,
+            "unchecked": imap_unchecked,
+            "success_rate": imap_rate,
+            "by_provider": imap_by_provider,
+        },
+        "proxy_cooldown": {
+            "total_active": proxies_active,
+            "on_cooldown_30min": proxies_on_cooldown_30,
+            "on_cooldown_15min": proxies_on_cooldown_15,
+            "available_for_yahoo": proxies_available_yahoo,
+            "available_for_outlook": proxies_available_outlook,
+        },
+        "browser": {
+            "memory_usage_mb": browser_memory_mb,
+        },
+        "sms_backoff": sms_backoff_status,
+        "birth_24h": {
+            "success": births_ok,
+            "failed": births_fail,
+            "total": births_total,
+            "success_rate": birth_success_rate,
+        },
+    }
