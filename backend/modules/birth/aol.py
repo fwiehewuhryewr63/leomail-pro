@@ -418,8 +418,36 @@ async def register_single_aol(
                     pass
 
                 if not country_changed:
-                    _log(f"Не удалось сменить код — вводим полный номер +{sms_prefix}{local_number}")
-                    local_number = f"{sms_prefix}{local_number}"
+                    page_country = PREFIX_TO_SMS_COUNTRY.get(aol_page_prefix)
+                    if page_country:
+                        _log(f"⚠️ Не удалось сменить +{aol_page_prefix}→+{sms_prefix}. "
+                             f"Отменяем номер и заказываем из {page_country}")
+                        try:
+                            await asyncio.to_thread(sms_provider.cancel_order, order_id)
+                        except Exception:
+                            pass
+                        new_order = await order_sms_retry(
+                            service="aol",
+                            active_provider=sms_provider,
+                            expanded_countries=[page_country] + [c for c in expanded_countries if c != page_country],
+                            used_numbers={phone_number},
+                            _log=_log,
+                        )
+                        if new_order:
+                            phone_number = new_order["number"]
+                            order_id = new_order["id"]
+                            sms_country = new_order.get("country", page_country)
+                            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+                            local_number = phone_number.lstrip("+")
+                            if phone_prefix and local_number.startswith(phone_prefix):
+                                local_number = local_number[len(phone_prefix):]
+                            _log(f"✅ Новый номер для +{aol_page_prefix}: {local_number}")
+                        else:
+                            _err(f"Не удалось заказать номер для +{aol_page_prefix}")
+                            return None
+                    else:
+                        _log(f"⚠️ Не удалось сменить код, неизвестный prefix +{aol_page_prefix} — вводим полный номер")
+                        local_number = f"{sms_prefix}{local_number}"
 
             # Human-like: read the page text first
             await random_mouse_move(page, steps=3)
