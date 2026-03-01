@@ -319,7 +319,7 @@ export default function Farms() {
                         <div className="form-group">
                             <label className="form-label">New Farm Name</label>
                             <input className="form-input" value={mergeName} onChange={e => setMergeName(e.target.value)}
-                                placeholder="Например: Combined Farm" autoFocus />
+                                placeholder="E.g.: Combined Farm" autoFocus />
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button className="btn btn-primary" onClick={mergeFarms} disabled={!mergeName.trim()}>

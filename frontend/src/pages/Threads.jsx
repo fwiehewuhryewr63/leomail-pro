@@ -32,7 +32,7 @@ function maskProxy(proxy) {
     return host.substring(0, 10) + '…';
 }
 
-// Clean up action text: remove "Поток N:" prefix
+// Clean up action text: remove "Thread N:" prefix
 function cleanAction(action) {
     if (!action) return '';
     return action.replace(/^\u041f\u043e\u0442\u043e\u043a\s*\d+:\s*/i, '').trim();
