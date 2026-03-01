@@ -39,17 +39,44 @@ async def system_resources():
 
 @router.get("/active-threads")
 async def active_threads(db: Session = Depends(get_db)):
-    """List recent thread logs: running + last 50 completed."""
+    """List recent thread logs: running + last 50 completed, enriched with Task info."""
     running = db.query(ThreadLog).filter(ThreadLog.status == "running").all()
     recent = db.query(ThreadLog).filter(
         ThreadLog.status.in_(["done", "error"])
     ).order_by(ThreadLog.updated_at.desc()).limit(50).all()
-    
+
     threads = running + recent
-    return [
-        {
+
+    # Pre-fetch linked Tasks in one query for performance
+    task_ids = list(set(t.task_id for t in threads if t.task_id))
+    tasks_map = {}
+    if task_ids:
+        tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
+        tasks_map = {t.id: t for t in tasks}
+
+    result = []
+    for t in threads:
+        task = tasks_map.get(t.task_id)
+        # Extract provider from thread_type or task details
+        provider = ""
+        if t.thread_type:
+            # thread_type is like "birth_gmail", "birth_yahoo", "warmup", "work"
+            parts = (t.thread_type or "").split("_", 1)
+            if len(parts) > 1:
+                provider = parts[1]
+        if not provider and t.account_email:
+            # Fallback: extract from email domain
+            domain = t.account_email.split("@")[-1] if "@" in (t.account_email or "") else ""
+            for p in ["gmail", "yahoo", "aol", "outlook", "hotmail", "protonmail", "tuta"]:
+                if p in domain.lower():
+                    provider = p
+                    break
+
+        result.append({
             "id": t.id,
             "task_id": t.task_id,
+            "task_type": task.type if task else (t.thread_type or "").split("_")[0] or "birth",
+            "provider": provider,
             "index": t.thread_index,
             "type": t.thread_type,
             "status": t.status,
@@ -59,9 +86,9 @@ async def active_threads(db: Session = Depends(get_db)):
             "error": t.error_message,
             "started": t.started_at.isoformat() if t.started_at else None,
             "updated": t.updated_at.isoformat() if t.updated_at else None,
-        }
-        for t in threads
-    ]
+        })
+
+    return result
 
 
 @router.get("/batch")
