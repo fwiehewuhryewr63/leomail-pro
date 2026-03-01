@@ -9,15 +9,15 @@ import { ProviderLogo } from '../components/ProviderLogos';
 
 /* ── Service definitions ── */
 const CAPTCHA_SERVICES = [
-    { key: 'twocaptcha_key', configPath: ['captcha', 'twocaptcha', 'api_key'], name: '2Captcha', service: 'twocaptcha', desc: 'FunCaptcha / Arkose' },
-    { key: 'capguru_key', configPath: ['captcha', 'capguru', 'api_key'], name: 'CapGuru', service: 'capguru', desc: 'reCAPTCHA v2/v3' },
-    { key: 'capsolver_key', configPath: ['captcha', 'capsolver', 'api_key'], name: 'CapSolver', service: 'capsolver', desc: 'hCaptcha / Image' },
+    { key: 'twocaptcha_key', configPath: ['captcha', 'twocaptcha', 'api_key'], name: '2Captcha', service: 'twocaptcha', desc: 'FunCaptcha / Arkose', color: '#EF4444' },
+    { key: 'capguru_key', configPath: ['captcha', 'capguru', 'api_key'], name: 'CapGuru', service: 'capguru', desc: 'reCAPTCHA v2/v3', color: '#10B981' },
+    { key: 'capsolver_key', configPath: ['captcha', 'capsolver', 'api_key'], name: 'CapSolver', service: 'capsolver', desc: 'hCaptcha / Image', color: '#3B82F6' },
 ];
 
 const SMS_SERVICES = [
-    { key: 'simsms_key', configPath: ['sms', 'simsms', 'api_key'], name: 'SimSMS', service: 'simsms', desc: 'Default SMS' },
-    { key: 'grizzly_key', configPath: ['sms', 'grizzly', 'api_key'], name: 'Grizzly SMS', service: 'grizzly', desc: 'Alternative' },
-    { key: 'fivesim_key', configPath: ['sms', '5sim', 'api_key'], name: '5sim', service: '5sim', desc: 'Fallback' },
+    { key: 'simsms_key', configPath: ['sms', 'simsms', 'api_key'], name: 'SimSMS', service: 'simsms', desc: 'Default SMS', color: '#06B6D4' },
+    { key: 'grizzly_key', configPath: ['sms', 'grizzly', 'api_key'], name: 'Grizzly SMS', service: 'grizzly', desc: 'Alternative', color: '#F59E0B' },
+    { key: 'fivesim_key', configPath: ['sms', '5sim', 'api_key'], name: '5sim', service: '5sim', desc: 'Fallback', color: '#8B5CF6' },
 ];
 
 const PROXY_PROVIDERS = [
@@ -29,10 +29,10 @@ const PROXY_PROVIDERS = [
 ];
 
 const PROXY_API_SERVICES = [
-    { key: 'asocks_key', configPath: ['proxy_providers', 'asocks', 'api_key'], name: 'ASocks', service: 'asocks', desc: 'Mobile 4G → Gmail', color: '#8B5CF6', icon: '📱' },
-    { key: 'proxy6_key', configPath: ['proxy_providers', 'proxy6', 'api_key'], name: 'Proxy6', service: 'proxy6', desc: 'IPv4 → Tier 1', color: '#F59E0B', icon: '6️⃣' },
-    { key: 'belurk_key', configPath: ['proxy_providers', 'belurk', 'api_key'], name: 'Belurk', service: 'belurk', desc: 'IPv4 → Tier 1', color: '#EF4444', icon: '🛡️' },
-    { key: 'iproyal_key', configPath: ['proxy_providers', 'iproyal', 'api_key'], name: 'IPRoyal', service: 'iproyal', desc: 'Residential → Tier 2', color: '#3B82F6', icon: '🏠' },
+    { key: 'asocks_key', configPath: ['proxy_providers', 'asocks', 'api_key'], name: 'ASocks', service: 'asocks', desc: 'Mobile 4G - Gmail', color: '#06B6D4' },
+    { key: 'proxy6_key', configPath: ['proxy_providers', 'proxy6', 'api_key'], name: 'Proxy6', service: 'proxy6', desc: 'IPv4 - Tier 1', color: '#F59E0B' },
+    { key: 'belurk_key', configPath: ['proxy_providers', 'belurk', 'api_key'], name: 'Belurk', service: 'belurk', desc: 'IPv4 - Tier 1', color: '#A855F7' },
+    { key: 'iproyal_key', configPath: ['proxy_providers', 'iproyal', 'api_key'], name: 'IPRoyal', service: 'iproyal', desc: 'Residential - Tier 2', color: '#EC4899' },
 ];
 
 export default function Settings() {
@@ -153,9 +153,9 @@ export default function Settings() {
         return (
             <div className="card" style={{ padding: '16px 18px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div style={{ fontWeight: 800, fontSize: '0.95em' }}>{svc.name}</div>
+                    <div style={{ fontWeight: 800, fontSize: '0.95em', color: svc.color || 'var(--text-primary)' }}>{svc.name}</div>
                     {status === 'active' ? (
-                        <span className="badge badge-success" style={{ fontSize: '0.7em' }}>✓ Connected</span>
+                        <span className="badge badge-success" style={{ fontSize: '0.7em' }}>Connected</span>
                     ) : (
                         <span className="badge" style={{ fontSize: '0.7em', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>Not configured</span>
                     )}
@@ -269,16 +269,16 @@ export default function Settings() {
                             <div key={svc.key} className="card" style={{ padding: '16px 18px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <span style={{ fontSize: '1.1em' }}>{svc.icon}</span>
-                                        <span style={{ fontWeight: 800, fontSize: '0.95em' }}>{svc.name}</span>
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: svc.color, flexShrink: 0 }} />
+                                        <span style={{ fontWeight: 800, fontSize: '0.95em', color: svc.color }}>{svc.name}</span>
                                     </div>
                                     {status === 'active' ? (
-                                        <span className="badge badge-success" style={{ fontSize: '0.7em' }}>✓ Connected</span>
+                                        <span className="badge badge-success" style={{ fontSize: '0.7em' }}>Connected</span>
                                     ) : (
                                         <span className="badge" style={{ fontSize: '0.7em', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>Not configured</span>
                                     )}
                                 </div>
-                                <div style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginBottom: 8 }}>{svc.desc}</div>
+                                <div style={{ fontSize: '0.7em', color: svc.color, opacity: 0.6, marginBottom: 8 }}>{svc.desc}</div>
 
                                 {/* API Key input */}
                                 <div style={{ marginBottom: 8 }}>
@@ -372,7 +372,7 @@ export default function Settings() {
                                     body: JSON.stringify({ auto_buy_enabled: v })
                                 });
                             }} />
-                        <span style={{ fontSize: '0.82em', fontWeight: 700 }}>🛒 Auto-Buy when low</span>
+                        <span style={{ fontSize: '0.82em', fontWeight: 700 }}>Auto-Buy when low</span>
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>Max $</span>
@@ -392,34 +392,28 @@ export default function Settings() {
                 </div>
             </div>
 
-            {/* ═══ PROXY CONFIGURATION ═══ */}
+            {/* ═══ PROXY LIMITS (compact strip) ═══ */}
             <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Configuration</span>
+                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Limits</span>
                 </div>
-                <div className="card" style={{ padding: '16px 20px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+                <div className="card" style={{ padding: '14px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 20, justifyContent: 'space-between' }}>
                         {PROXY_PROVIDERS.map(p => (
-                            <div key={p.id} style={{ textAlign: 'center' }}>
-                                <div style={{ margin: '0 auto 6px' }}>
-                                    <ProviderLogo provider={p.id} size={36} />
-                                </div>
-                                <div style={{ fontSize: '0.72em', fontWeight: 700, color: p.color, marginBottom: 2 }}>
-                                    {p.name}
-                                </div>
-                                <div style={{ fontSize: '0.68em', color: 'var(--text-muted)', marginBottom: 4 }}>[{proxyLimits[p.id] || 3}]</div>
+                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                                <ProviderLogo provider={p.id} size={22} />
+                                <span style={{ fontSize: '0.78em', fontWeight: 700, color: p.color, whiteSpace: 'nowrap' }}>{p.name}</span>
                                 <input
                                     type="number"
                                     className="form-input"
                                     value={proxyLimits[p.id] ?? 3}
                                     onChange={e => setProxyLimits(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 0 }))}
                                     onBlur={e => saveProxyLimit(p.id, e.target.value)}
-                                    style={{ width: '100%', textAlign: 'center', fontSize: '1em', padding: '6px 4px' }}
+                                    style={{ width: 44, textAlign: 'center', fontSize: '0.85em', padding: '4px 2px', flexShrink: 0 }}
                                     min={0}
                                     max={20}
                                 />
-                                <div style={{ fontSize: '0.6em', color: 'var(--text-muted)', marginTop: 2 }}>max uses</div>
                             </div>
                         ))}
                     </div>
