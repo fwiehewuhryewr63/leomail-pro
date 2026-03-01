@@ -23,6 +23,12 @@ class SettingsUpdate(BaseModel):
     capguru_key: Optional[str] = None
     twocaptcha_key: Optional[str] = None
     capsolver_key: Optional[str] = None
+    # Proxy providers
+    asocks_key: Optional[str] = None
+    webshare_key: Optional[str] = None
+    iproyal_key: Optional[str] = None
+    auto_buy_enabled: Optional[bool] = None
+    auto_buy_max_spend: Optional[float] = None
     headless: Optional[bool] = None
     threads: Optional[int] = None
     # Proxy usage limits per provider group
@@ -67,6 +73,22 @@ async def get_settings():
 
         "browser": config.get("browser", {}),
         "proxies_count": len(config.get("proxies", [])),
+        # Proxy providers
+        "proxy_providers": {
+            "asocks": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("asocks", {}).get("api_key", "")),
+                "enabled": config.get("proxy_providers", {}).get("asocks", {}).get("enabled", True)
+            },
+            "webshare": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("webshare", {}).get("api_key", "")),
+                "enabled": config.get("proxy_providers", {}).get("webshare", {}).get("enabled", True)
+            },
+            "iproyal": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("iproyal", {}).get("api_key", "")),
+                "enabled": config.get("proxy_providers", {}).get("iproyal", {}).get("enabled", True)
+            }
+        },
+        "auto_buy": config.get("auto_buy", {"enabled": False, "max_spend_usd": 10.0}),
         # Proxy limits — read from config, fallback to ProxyManager defaults
         "proxy_limits": {
             "gmail": config.get("proxy_limits", {}).get("gmail", ProxyManager.GMAIL_LIMIT),
@@ -93,6 +115,17 @@ async def update_settings(update: SettingsUpdate):
         config.setdefault("captcha", {}).setdefault("twocaptcha", {})["api_key"] = update.twocaptcha_key
     if update.capsolver_key is not None:
         config.setdefault("captcha", {}).setdefault("capsolver", {})["api_key"] = update.capsolver_key
+    # Proxy providers
+    if update.asocks_key is not None:
+        config.setdefault("proxy_providers", {}).setdefault("asocks", {})["api_key"] = update.asocks_key
+    if update.webshare_key is not None:
+        config.setdefault("proxy_providers", {}).setdefault("webshare", {})["api_key"] = update.webshare_key
+    if update.iproyal_key is not None:
+        config.setdefault("proxy_providers", {}).setdefault("iproyal", {})["api_key"] = update.iproyal_key
+    if update.auto_buy_enabled is not None:
+        config.setdefault("auto_buy", {})["enabled"] = update.auto_buy_enabled
+    if update.auto_buy_max_spend is not None:
+        config.setdefault("auto_buy", {})["max_spend_usd"] = max(1.0, update.auto_buy_max_spend)
     if update.headless is not None:
         config.setdefault("browser", {})["headless"] = update.headless
     if update.threads is not None:
@@ -186,5 +219,94 @@ async def test_service(service: str):
             return {"status": "ok", "message": f"Connected! Баланс: {balance}₽"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+    elif service in ("asocks", "webshare", "iproyal"):
+        try:
+            from ..services.proxy_providers import get_proxy_provider
+            provider = get_proxy_provider(service)
+            if not provider:
+                return {"status": "error", "message": f"No API key for {service}"}
+            balance = provider.get_balance()
+            if balance < 0:
+                return {"status": "error", "message": f"Invalid API key or connection error"}
+            unit = "GB" if service in ("webshare", "iproyal") else "$"
+            return {"status": "ok", "message": f"Connected! Balance: {balance:.2f} {unit}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
     
     return {"status": "error", "message": "Unknown service"}
+
+
+@router.post("/proxy-sync/{provider}")
+async def sync_proxies(provider: str):
+    """Sync proxies from a provider API into the database."""
+    from ..services.proxy_providers import get_proxy_provider
+    from ..database import SessionLocal
+    from ..models import Proxy, ProxyStatus
+    from datetime import datetime
+
+    pp = get_proxy_provider(provider)
+    if not pp:
+        return {"status": "error", "message": f"No API key configured for {provider}"}
+
+    try:
+        proxy_list = pp.list_proxies()
+        if not proxy_list:
+            return {"status": "error", "message": "No proxies returned from provider"}
+
+        db = SessionLocal()
+        added = 0
+        skipped = 0
+        try:
+            for p in proxy_list:
+                host = p.get("host", "")
+                port = p.get("port", 0)
+                if not host or not port:
+                    skipped += 1
+                    continue
+
+                # Dedup by host:port
+                existing = db.query(Proxy).filter(
+                    Proxy.host == host, Proxy.port == port
+                ).first()
+                if existing:
+                    skipped += 1
+                    continue
+
+                # Parse expires_at
+                exp = p.get("expires_at")
+                expires_at = None
+                if exp:
+                    try:
+                        expires_at = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        pass
+
+                proxy = Proxy(
+                    host=host,
+                    port=port,
+                    username=p.get("username", "") or "",
+                    password=p.get("password", "") or "",
+                    protocol=p.get("protocol", "http"),
+                    proxy_type=p.get("proxy_type", "residential"),
+                    status=ProxyStatus.ACTIVE,
+                    geo=p.get("geo", "") or "",
+                    source=provider,
+                    external_id=p.get("external_id", "") or "",
+                    expires_at=expires_at,
+                )
+                db.add(proxy)
+                added += 1
+
+            db.commit()
+        finally:
+            db.close()
+
+        return {
+            "status": "ok",
+            "message": f"Synced! Added: {added}, Skipped (duplicates): {skipped}",
+            "added": added,
+            "skipped": skipped,
+        }
+    except Exception as e:
+        logger.error(f"[ProxySync] Error syncing {provider}: {e}")
+        return {"status": "error", "message": str(e)}

@@ -50,6 +50,7 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "use_PT": p.use_protonmail or 0,
             "use_TT": p.use_tuta or 0,
             "bound_to": bound_to,
+            "source": getattr(p, 'source', 'manual') or 'manual',
             "last_check": p.last_check.isoformat() if p.last_check else None,
             "expires_at": p.expires_at.isoformat() if p.expires_at else None,
         })

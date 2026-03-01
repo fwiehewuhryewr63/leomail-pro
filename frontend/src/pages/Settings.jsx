@@ -28,6 +28,12 @@ const PROXY_PROVIDERS = [
     { id: 'tuta', name: 'Tuta', color: '#840010', backendKey: 'tuta_proxy_limit', configKey: 'tuta' },
 ];
 
+const PROXY_API_SERVICES = [
+    { key: 'asocks_key', configPath: ['proxy_providers', 'asocks', 'api_key'], name: 'ASocks', service: 'asocks', desc: 'Mobile 4G / Residential', color: '#8B5CF6', icon: '📱' },
+    { key: 'iproyal_key', configPath: ['proxy_providers', 'iproyal', 'api_key'], name: 'IPRoyal', service: 'iproyal', desc: 'Residential', color: '#3B82F6', icon: '🏠' },
+    { key: 'webshare_key', configPath: ['proxy_providers', 'webshare', 'api_key'], name: 'Webshare', service: 'webshare', desc: 'Residential / Free', color: '#10B981', icon: '🌐' },
+];
+
 export default function Settings() {
     const _i18n = useI18n();
     const [rawSettings, setRawSettings] = useState({});
@@ -42,12 +48,17 @@ export default function Settings() {
     const [updateApplying, setUpdateApplying] = useState(false);
     const [updateStatus, setUpdateStatus] = useState('');
     const [updateProgress, setUpdateProgress] = useState(null);
+    const [syncing, setSyncing] = useState(null);
+    const [syncResult, setSyncResult] = useState({});
+    const [autoBuy, setAutoBuy] = useState({ enabled: false, max_spend_usd: 10 });
 
     const loadSettings = () => {
         fetch(`${API}/settings/`)
             .then(r => r.json())
             .then(d => {
                 setRawSettings(d || {});
+                // Init auto-buy from settings
+                if (d?.auto_buy) setAutoBuy(d.auto_buy);
                 const limits = {};
                 const pl = d?.proxy_limits || {};
                 PROXY_PROVIDERS.forEach(p => {
@@ -236,6 +247,147 @@ export default function Settings() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                     {SMS_SERVICES.map(svc => <ServiceCard key={svc.key} svc={svc} />)}
+                </div>
+            </div>
+
+            {/* ═══ PROXY PROVIDERS (API) ═══ */}
+            <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6' }} />
+                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Providers (API)</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    {PROXY_API_SERVICES.map(svc => {
+                        const status = getStatus(svc);
+                        const maskedVal = getKeyValue(svc.configPath);
+                        const isEditing = editing === svc.key;
+                        const tr = testResult[svc.service];
+                        const sr = syncResult[svc.service];
+
+                        return (
+                            <div key={svc.key} className="card" style={{ padding: '16px 18px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ fontSize: '1.1em' }}>{svc.icon}</span>
+                                        <span style={{ fontWeight: 800, fontSize: '0.95em' }}>{svc.name}</span>
+                                    </div>
+                                    {status === 'active' ? (
+                                        <span className="badge badge-success" style={{ fontSize: '0.7em' }}>✓ Connected</span>
+                                    ) : (
+                                        <span className="badge" style={{ fontSize: '0.7em', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>Not configured</span>
+                                    )}
+                                </div>
+                                <div style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginBottom: 8 }}>{svc.desc}</div>
+
+                                {/* API Key input */}
+                                <div style={{ marginBottom: 8 }}>
+                                    <div style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase' }}>API key</div>
+                                    {isEditing ? (
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            <input className="form-input" style={{ fontSize: '0.85em', padding: '6px 10px', fontFamily: 'JetBrains Mono, monospace' }}
+                                                value={editVal} onChange={e => setEditVal(e.target.value)}
+                                                placeholder="Enter API key" autoFocus />
+                                            <button className="btn btn-primary btn-sm" onClick={() => saveKey(svc, editVal)}>
+                                                <Save size={13} />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{
+                                            fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', padding: '6px 10px',
+                                            background: 'rgba(255,255,255,0.03)', borderRadius: 6, color: 'var(--text-secondary)',
+                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                            cursor: 'pointer', border: '1px solid var(--border-subtle)',
+                                        }} onClick={() => { setEditing(svc.key); setEditVal(''); }}>
+                                            {maskedVal || '••••••••'}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Test result */}
+                                {tr && (
+                                    <div style={{
+                                        fontSize: '0.78em', marginBottom: 6, padding: '4px 8px', borderRadius: 4,
+                                        background: tr.status === 'ok' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                                        color: tr.status === 'ok' ? 'var(--success)' : 'var(--danger)',
+                                    }}>
+                                        {tr.message}
+                                    </div>
+                                )}
+
+                                {/* Sync result */}
+                                {sr && (
+                                    <div style={{
+                                        fontSize: '0.78em', marginBottom: 6, padding: '4px 8px', borderRadius: 4,
+                                        background: sr.status === 'ok' ? 'rgba(139,92,246,0.1)' : 'rgba(239,68,68,0.1)',
+                                        color: sr.status === 'ok' ? '#A78BFA' : 'var(--danger)',
+                                    }}>
+                                        {sr.message}
+                                    </div>
+                                )}
+
+                                {/* Actions */}
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                    <button className="btn btn-sm" style={{ flex: 1, fontSize: '0.76em' }}
+                                        onClick={() => testService(svc.service)}
+                                        disabled={testing === svc.service || status === 'missing'}>
+                                        {testing === svc.service ? <Loader size={12} className="spin" /> : <TestTube size={12} />} Test
+                                    </button>
+                                    <button className="btn btn-sm" style={{
+                                        flex: 1, fontSize: '0.76em',
+                                        background: 'rgba(139,92,246,0.15)', color: '#A78BFA', border: '1px solid rgba(139,92,246,0.3)'
+                                    }}
+                                        onClick={async () => {
+                                            setSyncing(svc.service);
+                                            try {
+                                                const r = await fetch(`${API}/settings/proxy-sync/${svc.service}`, { method: 'POST' });
+                                                const data = await r.json();
+                                                setSyncResult(prev => ({ ...prev, [svc.service]: data }));
+                                            } catch {
+                                                setSyncResult(prev => ({ ...prev, [svc.service]: { status: 'error', message: 'Connection error' } }));
+                                            }
+                                            setSyncing(null);
+                                        }}
+                                        disabled={syncing === svc.service || status === 'missing'}>
+                                        {syncing === svc.service ? <Loader size={12} className="spin" /> : <Download size={12} />} Sync
+                                    </button>
+                                    <button className="btn btn-sm" onClick={() => { setEditing(svc.key); setEditVal(''); }}>
+                                        <Edit3 size={12} />
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Auto-Buy toggle */}
+                <div className="card" style={{ padding: '12px 18px', marginTop: 10, display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1 }}>
+                        <input type="checkbox" checked={autoBuy.enabled || false}
+                            onChange={e => {
+                                const v = e.target.checked;
+                                setAutoBuy(prev => ({ ...prev, enabled: v }));
+                                fetch(`${API}/settings/`, {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ auto_buy_enabled: v })
+                                });
+                            }} />
+                        <span style={{ fontSize: '0.82em', fontWeight: 700 }}>🛒 Auto-Buy при нехватке</span>
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>Max $</span>
+                        <input type="number" className="form-input" style={{ width: 70, fontSize: '0.82em', padding: '4px 8px' }}
+                            value={autoBuy.max_spend_usd || 10}
+                            onChange={e => {
+                                const v = parseFloat(e.target.value) || 10;
+                                setAutoBuy(prev => ({ ...prev, max_spend_usd: v }));
+                            }}
+                            onBlur={e => {
+                                fetch(`${API}/settings/`, {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ auto_buy_max_spend: parseFloat(e.target.value) || 10 })
+                                });
+                            }} />
+                    </div>
                 </div>
             </div>
 

@@ -25,6 +25,18 @@ DEFAULT_CONFIG = {
         "capsolver": {"api_key": "", "enabled": True}
     },
 
+    "proxy_providers": {
+        "asocks": {"api_key": "", "enabled": True},
+        "webshare": {"api_key": "", "enabled": True},
+        "iproyal": {"api_key": "", "enabled": True}
+    },
+    "auto_buy": {
+        "enabled": False,
+        "max_spend_usd": 10.0,
+        "mobile_provider": "asocks",
+        "residential_provider": "iproyal"
+    },
+
     "proxies": [],
     "browser": {
         "headless": False,
@@ -116,6 +128,9 @@ def get_api_key(service: str) -> str | None:
         return key if key else None
     elif service == "5sim":
         key = config.get("sms", {}).get("5sim", {}).get("api_key", "")
+        return key if key else None
+    elif service in ("asocks", "webshare", "iproyal"):
+        key = config.get("proxy_providers", {}).get(service, {}).get("api_key", "")
         return key if key else None
 
     return None

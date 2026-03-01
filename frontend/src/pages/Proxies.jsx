@@ -294,6 +294,7 @@ export default function Proxies() {
                                 <th style={thStyle}>Status</th>
                                 <th style={thStyle}>Host:Port</th>
                                 <th style={thStyle}>Type</th>
+                                <th style={thStyle}>Source</th>
                                 <th style={thStyle}>Geo</th>
                                 <th style={thStyle}>Speed</th>
                                 {[
@@ -350,6 +351,24 @@ export default function Proxies() {
                                             background: (p.proxy_type || 'http') === 'socks5' ? 'rgba(139,92,246,0.15)' : 'rgba(59,130,246,0.15)',
                                             color: (p.proxy_type || 'http') === 'socks5' ? '#A78BFA' : '#60A5FA',
                                         }}>{(p.proxy_type || 'HTTP').toUpperCase()}</span>
+                                    </td>
+
+                                    {/* Source badge */}
+                                    <td style={tdStyle}>
+                                        {(() => {
+                                            const src = p.source || 'manual';
+                                            const srcMap = {
+                                                manual: { color: '#9CA3AF', bg: 'rgba(156,163,175,0.15)', label: '📄' },
+                                                asocks: { color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', label: '📱 AS' },
+                                                iproyal: { color: '#3B82F6', bg: 'rgba(59,130,246,0.15)', label: '🏠 IR' },
+                                                webshare: { color: '#10B981', bg: 'rgba(16,185,129,0.15)', label: '🌐 WS' },
+                                            };
+                                            const s = srcMap[src] || srcMap.manual;
+                                            return <span style={{
+                                                padding: '2px 6px', borderRadius: 4, fontSize: '0.72em', fontWeight: 700,
+                                                background: s.bg, color: s.color, border: `1px solid ${s.color}33`,
+                                            }}>{s.label}</span>;
+                                        })()}
                                     </td>
 
                                     {/* Geo with flag */}
