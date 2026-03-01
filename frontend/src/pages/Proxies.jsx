@@ -296,10 +296,23 @@ export default function Proxies() {
                                 <th style={thStyle}>Type</th>
                                 <th style={thStyle}>Geo</th>
                                 <th style={thStyle}>Speed</th>
-                                <th style={thStyle}>Outlook<br />Uses</th>
-                                <th style={thStyle}>Yahoo<br />Uses</th>
-                                <th style={thStyle}>Gmail<br />Uses</th>
-                                <th style={thStyle}>ProtonMail</th>
+                                {[
+                                    { label: 'G', color: '#EA4335', bg: 'rgba(234,67,53,0.15)' },
+                                    { label: 'Y/A', color: '#6001D2', bg: 'rgba(96,1,210,0.15)' },
+                                    { label: 'O/H', color: '#0078D4', bg: 'rgba(0,120,212,0.15)' },
+                                    { label: 'P', color: '#6D4AFF', bg: 'rgba(109,74,255,0.15)' },
+                                    { label: 'T', color: '#840010', bg: 'rgba(132,0,16,0.15)' },
+                                ].map(b => (
+                                    <th key={b.label} style={{ ...thStyle, textAlign: 'center', padding: '8px 4px' }}>
+                                        <span style={{
+                                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                            width: b.label.length > 1 ? 32 : 22, height: 22, borderRadius: 6,
+                                            background: b.bg, color: b.color,
+                                            fontSize: '0.85em', fontWeight: 900, letterSpacing: 0,
+                                            border: `1px solid ${b.color}33`,
+                                        }}>{b.label}</span>
+                                    </th>
+                                ))}
                                 <th style={thStyle}>Last Used</th>
                                 <th style={thStyle}>Actions</th>
                             </tr>
@@ -347,19 +360,20 @@ export default function Proxies() {
                                         {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
                                     </td>
 
-                                    {/* Per-provider usage cells with colors */}
+                                    {/* Per-provider usage cells: G, Y/A, O/H, P, T */}
                                     {[
-                                        { key: 'OH', limit: 3 },
-                                        { key: 'YA', limit: 3 },
                                         { key: 'G', limit: 1 },
+                                        { key: 'YA', limit: 3 },
+                                        { key: 'OH', limit: 3 },
                                         { key: 'PT', limit: 3 },
+                                        { key: 'TT', limit: 3 },
                                     ].map(({ key, limit }) => {
                                         const cnt = p[`use_${key}`] || 0;
                                         const style = usageCell(cnt);
                                         return (
                                             <td key={key} style={{
                                                 ...tdStyle, textAlign: 'center', fontSize: '0.85em',
-                                                ...style, padding: '8px 6px', borderRadius: 0,
+                                                ...style, padding: '8px 4px', borderRadius: 0,
                                             }}>
                                                 {cnt > 0 ? `${cnt}/${limit}` : '—'}
                                             </td>
