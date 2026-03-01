@@ -258,6 +258,13 @@ echo Cleaning up...
 if exist "_update_tmp" rmdir /s /q "_update_tmp"
 if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"
 
+:: Clear webview cache to prevent stale frontend
+echo Clearing browser cache...
+if exist "%APPDATA%\leomail\Cache" rmdir /s /q "%APPDATA%\leomail\Cache"
+if exist "%APPDATA%\leomail\Code Cache" rmdir /s /q "%APPDATA%\leomail\Code Cache"
+if exist "%APPDATA%\Leomail\Cache" rmdir /s /q "%APPDATA%\Leomail\Cache"
+if exist "%APPDATA%\Leomail\Code Cache" rmdir /s /q "%APPDATA%\Leomail\Code Cache"
+
 echo.
 echo ==========================================
 echo   Update complete! Starting Leomail...
