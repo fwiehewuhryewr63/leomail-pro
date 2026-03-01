@@ -1,5 +1,5 @@
 """
-Leomail v2.1 — Full Geo & Language Database
+Leomail v2.1 - Full Geo & Language Database
 50+ countries, 30+ languages, SimSMS mapping, timezone data, name databases
 """
 

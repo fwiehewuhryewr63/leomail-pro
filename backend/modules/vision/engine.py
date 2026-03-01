@@ -1,6 +1,6 @@
 """
-Leomail Vision Engine — main orchestrator.
-Takes Playwright page → screenshot → OCR → stage detection → element finding.
+Leomail Vision Engine - main orchestrator.
+Takes Playwright page -> screenshot -> OCR -> stage detection -> element finding.
 Integrates with birth engine to replace fragile CSS selectors.
 """
 import asyncio
@@ -78,7 +78,7 @@ class VisionEngine:
         self._last_result = result
 
         if self.debug:
-            logger.debug(f"[Vision] Stage: {result['stage']} ({result['confidence']:.0%}) — {result['description']}")
+            logger.debug(f"[Vision] Stage: {result['stage']} ({result['confidence']:.0%}) - {result['description']}")
             if result['matched_keywords']:
                 logger.debug(f"[Vision] Matched: {result['matched_keywords']}")
 
@@ -97,7 +97,7 @@ class VisionEngine:
 
         loc = OCR.find_text_location(img_bytes, text)
         if loc:
-            logger.info(f"[Vision] 🎯 OCR found '{text}' at ({loc['x']}, {loc['y']})")
+            logger.info(f"[Vision] OCR found '{text}' at ({loc['x']}, {loc['y']})")
             await page.mouse.click(loc["x"], loc["y"])
             await asyncio.sleep(0.3)
             return True
@@ -139,7 +139,7 @@ class VisionEngine:
 
         loc = self.detector.find_input_near_label(img_bytes, label, offset_y)
         if loc:
-            logger.info(f"[Vision] 🎯 Found label '{label}' — clicking input at ({loc['x']}, {loc['y']})")
+            logger.info(f"[Vision] Found label '{label}' - clicking input at ({loc['x']}, {loc['y']})")
             await page.mouse.click(loc["x"], loc["y"])
             await asyncio.sleep(0.2)
             await page.keyboard.type(value, delay=30 + __import__("random").randint(10, 80))
@@ -229,7 +229,7 @@ class VisionEngine:
 
     async def smart_click(self, page, css_selector: str, ocr_text: str = None) -> bool:
         """
-        Smart click — tries OCR first (if text given), falls back to CSS.
+        Smart click - tries OCR first (if text given), falls back to CSS.
         This is the primary replacement for page.click(selector).
         
         Usage:
@@ -253,7 +253,7 @@ class VisionEngine:
 
     async def smart_fill(self, page, css_selector: str, value: str, ocr_label: str = None) -> bool:
         """
-        Smart fill — tries OCR label first, falls back to CSS. 
+        Smart fill - tries OCR label first, falls back to CSS. 
         This is the primary replacement for page.fill(selector, value).
         
         Usage:

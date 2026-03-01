@@ -1,5 +1,5 @@
 """
-Leomail v3 — Outlook/Hotmail Registration Engine (with Vision CV)
+Leomail v3 - Outlook/Hotmail Registration Engine (with Vision CV)
 Upgraded: human_fill, BIRTH_CANCEL_EVENT, better error handling, proxy detection.
 """
 import asyncio
@@ -105,7 +105,7 @@ async def register_single_outlook(
         page = await context.new_page()
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
+        # Fast warmup - just a quick Google visit (2-3s instead of 15-30s)
         _log("Quick session warmup...")
         try:
             await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
@@ -134,7 +134,7 @@ async def register_single_outlook(
         # CRITICAL: Check if proxy is dead
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"[ERR] Proxy DEAD — page failed to load (URL: {current_url})")
+            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
             if proxy:
                 try:
                     proxy.status = ProxyStatus.DEAD
@@ -278,7 +278,7 @@ async def register_single_outlook(
         ]
         month_name = month_names[birthday.month] if 1 <= birthday.month <= 12 else str(birthday.month)
 
-        # Country selection — use GEO profile from proxy if available
+        # Country selection - use GEO profile from proxy if available
         from ...services.geo_resolver import build_geo_profile, resolve_proxy_geo
         proxy_geo = resolve_proxy_geo(proxy) if proxy else None
         geo_profile = build_geo_profile(proxy_geo) if proxy_geo else None
@@ -424,7 +424,7 @@ async def register_single_outlook(
                 await page.keyboard.press("Enter")
             await _human_delay(3, 6)
         else:
-            _log("[WARN] Name page not found — possibly already on CAPTCHA")
+            _log("[WARN] Name page not found - possibly already on CAPTCHA")
 
         # ── Step 7: FunCaptcha ──
         _log("Checking CAPTCHA...")
@@ -475,7 +475,7 @@ async def register_single_outlook(
                     )
                     if token:
                         _log("[OK] FunCaptcha solved! Injecting token...")
-                        # Enhanced token injection — 4 strategies
+                        # Enhanced token injection - 4 strategies
                         await page.evaluate(f"""(() => {{
                             const token = "{token}";
                             // Strategy 1: postMessage to enforcement iframe
@@ -522,9 +522,9 @@ async def register_single_outlook(
                 _err("FunCaptcha required but no CAPTCHA providers configured!")
                 return None
         else:
-            _log("No CAPTCHA detected — continuing")
+            _log("No CAPTCHA detected - continuing")
 
-        # ── Step 8: Post-captcha — check for additional prompts ──
+        # ── Step 8: Post-captcha - check for additional prompts ──
         # MS may show "Stay signed in?" or other prompts
         await _human_delay(2, 4)
 
@@ -571,14 +571,14 @@ async def register_single_outlook(
                 registration_success = True
                 _log("[OK] Left registration page")
             else:
-                # Still on signup — check for specific failure indicators
+                # Still on signup - check for specific failure indicators
                 page_text = await page.locator('body').inner_text()
                 fail_indicators = ["something went wrong", "couldn't create", "error", "blocked"]
                 if any(fi.lower() in page_text.lower() for fi in fail_indicators):
                     _err(f"[FAIL] Page contains error indicators")
                     await _debug_screenshot(page, "outlook_error_on_page", _log)
                 else:
-                    # On signup page but no error — probably captcha pending
+                    # On signup page but no error - probably captcha pending
                     _log("[WARN] Still on signup.live.com, but no errors")
                     await _debug_screenshot(page, "outlook_still_on_signup", _log)
         except Exception as e:

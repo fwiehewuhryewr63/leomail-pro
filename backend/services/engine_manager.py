@@ -1,9 +1,9 @@
 """
-Leomail v4 — Engine Manager
+Leomail v4 - Engine Manager
 Singleton that manages 3 independent engines running in parallel:
-  1. AUTOREG (birth)  — creates accounts → Farm
-  2. WARMUP           — warms up accounts from farms → Ready status
-  3. CAMPAIGN (work)  — sends emails using warmed accounts
+  1. AUTOREG (birth)  - creates accounts -> Farm
+  2. WARMUP           - warms up accounts from farms -> Ready status
+  3. CAMPAIGN (work)  - sends emails using warmed accounts
 
 Each engine has its own thread pool, cancel event, and status tracking.
 Shared resources (proxies, accounts DB) use locks to avoid conflicts.
@@ -106,14 +106,14 @@ class EngineManager:
             EngineType.CAMPAIGN: EngineState(EngineType.CAMPAIGN),
         }
 
-        # Shared proxy lock — prevents 2 engines from grabbing the same proxy
+        # Shared proxy lock - prevents 2 engines from grabbing the same proxy
         self.proxy_lock = threading.Lock()
 
         # Global event loop for async engines
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
 
-        logger.info("[EngineManager] Initialized — 3 engines ready")
+        logger.info("[EngineManager] Initialized - 3 engines ready")
 
     # ── Engine Lifecycle ──
 
@@ -136,7 +136,7 @@ class EngineManager:
         engine.threads = threads
         engine.total_target = total_target
         engine.task_id = task_id
-        logger.info(f"[EngineManager] {engine_type.value} STARTED — {threads} threads, target={total_target}")
+        logger.info(f"[EngineManager] {engine_type.value} STARTED - {threads} threads, target={total_target}")
 
     def stop_engine(self, engine_type: EngineType, mode: str = "instant"):
         """Signal engine to stop."""
@@ -154,7 +154,7 @@ class EngineManager:
         engine = self.engines[engine_type]
         engine.status = EngineStatus.IDLE
         logger.info(
-            f"[EngineManager] {engine_type.value} FINISHED — "
+            f"[EngineManager] {engine_type.value} FINISHED - "
             f"completed={engine.completed}, failed={engine.failed}"
         )
 

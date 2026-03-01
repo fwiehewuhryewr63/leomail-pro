@@ -1,5 +1,5 @@
 """
-Leomail v4 — Human Behavior Engine v2
+Leomail v4 - Human Behavior Engine v2
 Realistic human-like interactions for browser automation.
 Every function is designed to pass modern anti-bot behavioral analysis.
 
@@ -20,7 +20,7 @@ from loguru import logger
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# QWERTY Adjacent Key Map — for realistic typo generation
+# QWERTY Adjacent Key Map - for realistic typo generation
 # ═══════════════════════════════════════════════════════════════════════════════
 QWERTY_ADJACENT = {
     'q': 'wa', 'w': 'qeas', 'e': 'wrds', 'r': 'etdf', 't': 'ryfg',
@@ -39,7 +39,7 @@ QWERTY_ADJACENT = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _bezier_point(t: float, p0: float, p1: float, p2: float, p3: float) -> float:
-    """Cubic bezier interpolation: P0→P1→P2→P3 at parameter t ∈ [0,1]."""
+    """Cubic bezier interpolation: P0->P1->P2->P3 at parameter t ∈ [0,1]."""
     u = 1 - t
     return u**3 * p0 + 3 * u**2 * t * p1 + 3 * u * t**2 * p2 + t**3 * p3
 
@@ -231,7 +231,7 @@ async def random_scroll(page, direction: str = "random"):
 async def hover_then_click(page, selector: str, timeout: int = 5000):
     """
     Human-like click: move to element, hover (read text), then click.
-    More realistic than instant click — humans read before acting.
+    More realistic than instant click - humans read before acting.
     """
     try:
         el = page.locator(selector).first
@@ -256,7 +256,7 @@ async def hover_then_click(page, selector: str, timeout: int = 5000):
         # Move to element with Bezier curve
         await _move_mouse_to(page, target_x, target_y)
 
-        # HOVER DWELL (200-600ms) — reading button text
+        # HOVER DWELL (200-600ms) - reading button text
         await asyncio.sleep(random.uniform(0.2, 0.6))
 
         # Click
@@ -287,7 +287,7 @@ async def human_click(page, selector: str, timeout: int = 5000):
         center_x = box["x"] + box["width"] / 2
         center_y = box["y"] + box["height"] / 2
 
-        # Human offset — Gaussian distribution (most clicks near center)
+        # Human offset - Gaussian distribution (most clicks near center)
         offset_x = random.gauss(0, box["width"] * 0.15)
         offset_y = random.gauss(0, box["height"] * 0.15)
         target_x = center_x + offset_x
@@ -386,7 +386,7 @@ async def human_type(page, selector: str, text: str, clear: bool = True,
         if char in "@._-!#$%&" and random.random() < 0.4:
             await asyncio.sleep(random.uniform(0.3, 0.8))
         elif char.isdigit() and i > 0 and text[i-1].isalpha() and random.random() < 0.3:
-            # Pause at alpha→digit transition (switching mental mode)
+            # Pause at alpha->digit transition (switching mental mode)
             await asyncio.sleep(random.uniform(0.2, 0.5))
 
         # Random thinking pause
@@ -411,7 +411,7 @@ async def human_type(page, selector: str, text: str, clear: bool = True,
                 await el.type(char, delay=random.randint(base_min, base_max))
 
             elif typo_type == "double":
-                # Double press: 'passsword' → backspace → continue
+                # Double press: 'passsword' -> backspace -> continue
                 await el.type(char, delay=random.randint(base_min, base_max))
                 await el.type(char, delay=random.randint(20, 50))  # Fast double
                 await asyncio.sleep(random.uniform(0.15, 0.4))
@@ -510,7 +510,7 @@ async def between_steps(page):
 
 async def idle_behavior(page, duration_seconds: float = None):
     """
-    Simulate human 'idle' — subtle mouse jitters, occasional micro-scroll.
+    Simulate human 'idle' - subtle mouse jitters, occasional micro-scroll.
     Real humans don't freeze between actions; their hand drifts on the mouse.
     """
     if duration_seconds is None:
@@ -771,7 +771,7 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
     """
     Post-registration session aging: visit inbox, settings, compose.
     Makes the freshly created account look like a real first-time user.
-    Runs 15-30s — enough to establish session cookies without being slow.
+    Runs 15-30s - enough to establish session cookies without being slow.
     """
     if duration_seconds is None:
         duration_seconds = random.randint(15, 30)

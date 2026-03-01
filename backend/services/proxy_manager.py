@@ -1,5 +1,5 @@
 """
-Leomail v3 — Proxy Manager
+Leomail v3 - Proxy Manager
 Import, rotate, and manage proxies with round-robin and GEO filtering.
 1 proxy = 1 account (hard binding). Auto-reassign on proxy death.
 """
@@ -38,7 +38,7 @@ class ProxyManager:
                 skipped += 1
                 continue
 
-            # Check duplicate — include username because rotating proxies
+            # Check duplicate - include username because rotating proxies
             # use same host:port but different sessions via username
             dup_query = self.db.query(Proxy).filter(
                 Proxy.host == parsed["host"],
@@ -174,7 +174,7 @@ class ProxyManager:
             if self._is_exhausted(p):
                 proxies.remove(p)
                 p.status = ProxyStatus.EXHAUSTED
-                logger.info(f"Proxy {p.host}:{p.port} exhausted (all provider groups at limit) → EXHAUSTED")
+                logger.info(f"Proxy {p.host}:{p.port} exhausted (all provider groups at limit) -> EXHAUSTED")
                 self.db.commit()
 
         if proxies:
@@ -345,7 +345,7 @@ class ProxyManager:
     async def get_verified_unbound_proxy_async(self, proxy_type: str = None, protocol: str = None, exclude_ids: set = None, provider: str = None) -> Proxy | None:
         """Async version of get_verified_unbound_proxy.
         exclude_ids: set of proxy IDs to skip (blacklisted/burned).
-        provider: e.g. 'yahoo' — excludes proxies that hit per-provider usage limit.
+        provider: e.g. 'yahoo' - excludes proxies that hit per-provider usage limit.
         """
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
@@ -373,7 +373,7 @@ class ProxyManager:
         candidates = query.all()
 
         # If no non-blacklisted proxies, try ANY unbound active proxy
-        # but ONLY if there's no blacklist (first run) — never ignore blacklist
+        # but ONLY if there's no blacklist (first run) - never ignore blacklist
         if not candidates and not exclude_ids:
             candidates = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
@@ -413,7 +413,7 @@ class ProxyManager:
 
     def replace_dead_proxy_same_type(self, account: Account, dead_proxy: Proxy) -> Proxy | None:
         """
-        Replace dead proxy with same type (mobile→mobile, socks→socks).
+        Replace dead proxy with same type (mobile->mobile, socks->socks).
         Unbinds old, binds new, returns new proxy or None.
         """
         # Mark old as dead
@@ -437,7 +437,7 @@ class ProxyManager:
         if replacement:
             self.bind_proxy_to_account(replacement, account)
             logger.info(f"Replaced proxy for {account.email}: "
-                        f"{dead_proxy.host}:{dead_proxy.port} → {replacement.host}:{replacement.port}")
+                        f"{dead_proxy.host}:{dead_proxy.port} -> {replacement.host}:{replacement.port}")
             return replacement
         else:
             logger.warning(f"No replacement proxy for {account.email}")
@@ -447,7 +447,7 @@ class ProxyManager:
     def release_all_free_proxies(self) -> dict:
         """
         Reset all dead/expired UNBOUND proxies back to ACTIVE.
-        Does NOT touch EXHAUSTED proxies — those stay until manually deleted.
+        Does NOT touch EXHAUSTED proxies - those stay until manually deleted.
         """
         freed = self.db.query(Proxy).filter(
             Proxy.status.in_([ProxyStatus.DEAD, ProxyStatus.EXPIRED]),
@@ -492,7 +492,7 @@ class ProxyManager:
             count += 1
 
         self.db.commit()
-        logger.info(f"[ProxyManager] Reset counters on {count} proxies ({reactivated} exhausted → active)")
+        logger.info(f"[ProxyManager] Reset counters on {count} proxies ({reactivated} exhausted -> active)")
         return {"reset": count, "reactivated": reactivated}
 
     def reset_single_proxy_counters(self, proxy_id: int) -> dict:
@@ -585,7 +585,7 @@ class ProxyManager:
                 self.bind_proxy_to_account(replacement, account)
                 reassigned += 1
                 logger.info(f"Auto-reassigned {account.email}: "
-                            f"{dead_proxy.host}:{dead_proxy.port} → {replacement.host}:{replacement.port}")
+                            f"{dead_proxy.host}:{dead_proxy.port} -> {replacement.host}:{replacement.port}")
             else:
                 no_proxy += 1
                 logger.warning(f"No free proxy for {account.email} (old proxy dead)")

@@ -1,6 +1,6 @@
 """
-Leomail v4 — Blitz Pipeline Engine
-Continuous Birth → Send → Die → Repeat conveyor.
+Leomail v4 - Blitz Pipeline Engine
+Continuous Birth -> Send -> Die -> Repeat conveyor.
 Two async pools: birth_pool feeds send_pool via asyncio.Queue.
 """
 import asyncio
@@ -19,7 +19,7 @@ from ..services.smtp_sender import send_email, SendResult
 
 
 # ─── Global campaign registry ────────────────────────────────────────────────
-# campaign_id → BlitzCampaignRunner instance
+# campaign_id -> BlitzCampaignRunner instance
 _active_campaigns: dict[int, "BlitzCampaignRunner"] = {}
 
 
@@ -63,7 +63,7 @@ def get_warmup_delay(emails_sent: int) -> float:
     return base * jitter
 
 
-# ── Auto GEO → Name Pack mapping ──
+# ── Auto GEO -> Name Pack mapping ──
 GEO_NAME_PACK_MAP = {
     "AR": "argentina_5k", "BO": "bolivia_5k", "BR": "brazil_5k",
     "CA": "canada_5k", "CL": "chile_5k", "CO": "colombia_5k",
@@ -94,8 +94,8 @@ def resolve_name_pack(campaign_name_pack: str, geo: str) -> str:
 class BlitzCampaignRunner:
     """
     Runs a single campaign with two pools:
-    - birth_pool: N threads birthing accounts → pushing to send_queue
-    - send_pool:  M threads pulling accounts from queue → sending → burning
+    - birth_pool: N threads birthing accounts -> pushing to send_queue
+    - send_pool:  M threads pulling accounts from queue -> sending -> burning
     """
 
     def __init__(self, campaign_id: int):
@@ -263,7 +263,7 @@ class BlitzCampaignRunner:
                 raw_provider = random.choice(providers)
                 provider = "outlook" if raw_provider == "hotmail" else raw_provider
 
-                # Get proxy — round-robin distribution across workers
+                # Get proxy - round-robin distribution across workers
                 # Each worker offsets into the pool so threads don't all grab the same proxy
                 # Apply cooldown filter (same as birth.py)
                 from datetime import datetime, timedelta
@@ -305,11 +305,11 @@ class BlitzCampaignRunner:
                     db.commit()
 
                     logger.info(
-                        f"Blitz birth[{worker_id}]: ✓ {account_data['email']} "
-                        f"→ send queue ({self.send_queue.qsize()} waiting)"
+                        f"Blitz birth[{worker_id}]: {account_data['email']} "
+                        f"-> send queue ({self.send_queue.qsize()} waiting)"
                     )
                 else:
-                    # Birth failed — increment proxy fail counter
+                    # Birth failed - increment proxy fail counter
                     proxy.fail_count = (proxy.fail_count or 0) + 1
                     proxy.total_fails = (proxy.total_fails or 0) + 1  # track lifetime fails
 
@@ -322,12 +322,12 @@ class BlitzCampaignRunner:
                     if proxy.fail_count >= 5:
                         proxy.status = ProxyStatus.DEAD
                         logger.warning(
-                            f"Blitz birth[{worker_id}]: proxy {proxy.id} → DEAD (5 consecutive fails)"
+                            f"Blitz birth[{worker_id}]: proxy {proxy.id} -> DEAD (5 consecutive fails)"
                         )
                     elif total_attempts >= 10 and success_rate < 0.2:
                         proxy.status = ProxyStatus.DEAD
                         logger.warning(
-                            f"Blitz birth[{worker_id}]: proxy {proxy.id} → DEAD "
+                            f"Blitz birth[{worker_id}]: proxy {proxy.id} -> DEAD "
                             f"(success rate {success_rate:.0%} after {total_attempts} attempts)"
                         )
                     db.commit()
@@ -379,7 +379,7 @@ class BlitzCampaignRunner:
                 break
 
         if not name_pool:
-            # Fallback — generate random
+            # Fallback - generate random
             name_pool = [("Maria", "Silva"), ("Jessica", "Smith"), ("Sarah", "Johnson")]
             logger.warning(f"Blitz: name pack '{name_pack}' not found, using fallback names")
 
@@ -556,12 +556,12 @@ class BlitzCampaignRunner:
                     ).first()
 
                     if not recipient:
-                        # No more recipients → campaign complete
+                        # No more recipients -> campaign complete
                         logger.info(f"Blitz send[{worker_id}]: no more recipients")
                         await self.stop("All recipients sent")
                         break
 
-                    # Get template — ONE-TIME USE (like links, each template burns after use)
+                    # Get template - ONE-TIME USE (like links, each template burns after use)
                     template = db.query(CampaignTemplate).filter(
                         CampaignTemplate.campaign_id == self.campaign_id,
                         CampaignTemplate.active == True  # noqa
@@ -584,7 +584,7 @@ class BlitzCampaignRunner:
                             await self.stop("No active templates (waited 5 min)")
                             break
 
-                    # Lock template — mark inactive BEFORE send to prevent other threads using it
+                    # Lock template - mark inactive BEFORE send to prevent other threads using it
                     template_id = template.id
                     template.active = False
                     template.use_count = (template.use_count or 0) + 1
@@ -677,7 +677,7 @@ class BlitzCampaignRunner:
                         from_name=from_name,
                     )
 
-                    # ═══ Process result — ONLY count resources on SUCCESS ═══
+                    # ═══ Process result - ONLY count resources on SUCCESS ═══
                     if result == SendResult.OK:
                         recipient.result = "ok"
                         emails_sent += 1
@@ -693,9 +693,9 @@ class BlitzCampaignRunner:
                             if link.use_count >= link.max_uses:
                                 link.active = False
 
-                        # Template already burned (active=False before send) — no action needed
+                        # Template already burned (active=False before send) - no action needed
 
-                        # Update campaign stats — only real successes
+                        # Update campaign stats - only real successes
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
                         ).first()
@@ -713,12 +713,12 @@ class BlitzCampaignRunner:
 
                         db.commit()
                         logger.debug(
-                            f"Blitz send[{worker_id}] {email} → {recipient.email} ✓ "
+                            f"Blitz send[{worker_id}] {email} -> {recipient.email} "
                             f"({emails_sent}/{MAX_EMAILS_PER_ACCOUNT})"
                         )
 
                     elif result == SendResult.RATE_LIMIT:
-                        # Rate limited — undo recipient + template, SWITCH to new account
+                        # Rate limited - undo recipient + template, SWITCH to new account
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -734,12 +734,12 @@ class BlitzCampaignRunner:
                             campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                         db.commit()
                         logger.warning(
-                            f"Blitz send[{worker_id}] {email} RATE LIMITED → switching account"
+                            f"Blitz send[{worker_id}] {email} RATE LIMITED -> switching account"
                         )
-                        break  # exit inner loop → get NEW account from queue
+                        break  # exit inner loop -> get NEW account from queue
 
                     elif result in (SendResult.AUTH_FAIL, SendResult.SUSPENDED):
-                        # Account is dead — undo recipient + template, DON'T burn
+                        # Account is dead - undo recipient + template, DON'T burn
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -756,12 +756,12 @@ class BlitzCampaignRunner:
                             campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                         db.commit()
                         logger.warning(
-                            f"Blitz send[{worker_id}] {email} DEAD: {result} — {detail[:80]}"
+                            f"Blitz send[{worker_id}] {email} DEAD: {result} - {detail[:80]}"
                         )
                         break  # exit inner loop, get new account
 
                     elif result == SendResult.BOUNCE:
-                        # Bad recipient address — mark as bounce, DON'T burn link
+                        # Bad recipient address - mark as bounce, DON'T burn link
                         recipient.result = "bounce"
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
@@ -772,7 +772,7 @@ class BlitzCampaignRunner:
                         consecutive_errors = 0  # bounce is recipient issue, not account
 
                     elif result == SendResult.NETWORK:
-                        # Network issue — undo everything including template
+                        # Network issue - undo everything including template
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -785,7 +785,7 @@ class BlitzCampaignRunner:
                         await asyncio.sleep(10)
 
                     else:
-                        # Unknown error — mark failed, DON'T burn link
+                        # Unknown error - mark failed, DON'T burn link
                         recipient.result = "error"
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
@@ -795,7 +795,7 @@ class BlitzCampaignRunner:
                         db.commit()
                         consecutive_errors += 1
 
-                    # Progressive warmup delay — uses warmup_level (includes prior sends)
+                    # Progressive warmup delay - uses warmup_level (includes prior sends)
                     delay = get_warmup_delay(warmup_level)
                     if warmup_level <= len(WARMUP_DELAYS):
                         logger.debug(
@@ -835,7 +835,7 @@ class BlitzCampaignRunner:
     # ─── Resource Monitor ─────────────────────────────────────────────────────
 
     async def _resource_monitor(self):
-        """Periodic resource check — auto-pause on critical deficit."""
+        """Periodic resource check - auto-pause on critical deficit."""
         while not self._stop_event.is_set():
             try:
                 await asyncio.sleep(RESOURCE_CHECK_INTERVAL)
@@ -856,7 +856,7 @@ class BlitzCampaignRunner:
                         CampaignRecipient.sent == False  # noqa
                     ).count()
                     if remaining == 0:
-                        await self.stop("All recipients sent — campaign complete")
+                        await self.stop("All recipients sent - campaign complete")
                         break
 
                     # Check remaining links

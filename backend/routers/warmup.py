@@ -1,5 +1,5 @@
 """
-Leomail v4 — Warmup Router
+Leomail v4 - Warmup Router
 API endpoints for the warm-up engine.
 """
 from fastapi import APIRouter, Depends, BackgroundTasks
@@ -147,7 +147,7 @@ async def warmup_status(db: Session = Depends(get_db)):
 
 @router.get("/cost")
 async def cost_tracking(db: Session = Depends(get_db)):
-    """Cost tracking — SMS + CAPTCHA spend estimates."""
+    """Cost tracking - SMS + CAPTCHA spend estimates."""
     from sqlalchemy import func
 
     total_accounts = db.query(Account).count()

@@ -1,5 +1,5 @@
 """
-Leomail v4 — Campaign Router
+Leomail v4 - Campaign Router
 CRUD operations + bulk import for templates, ESP links, recipients.
 """
 from fastapi import APIRouter, Depends, HTTPException
@@ -69,7 +69,7 @@ class CampaignUpdate(BaseModel):
 
 
 class BulkTextImport(BaseModel):
-    """Raw text import — one item per line."""
+    """Raw text import - one item per line."""
     content: str          # raw text pasted or from file
     max_uses: int = 100   # for links: max uses per link
 
@@ -322,7 +322,7 @@ async def update_campaign(campaign_id: int, req: CampaignUpdate, db: Session = D
     if not c:
         raise HTTPException(404, "Campaign not found")
     if c.status == CampaignStatus.RUNNING:
-        raise HTTPException(400, "Cannot update running campaign — pause first")
+        raise HTTPException(400, "Cannot update running campaign - pause first")
 
     for field, value in req.dict(exclude_none=True).items():
         if field == "geo" and value:
@@ -340,7 +340,7 @@ async def delete_campaign(campaign_id: int, db: Session = Depends(get_db)):
     if not c:
         raise HTTPException(404, "Campaign not found")
     if c.status == CampaignStatus.RUNNING:
-        raise HTTPException(400, "Cannot delete running campaign — stop first")
+        raise HTTPException(400, "Cannot delete running campaign - stop first")
 
     db.delete(c)
     db.commit()
@@ -461,7 +461,7 @@ async def import_templates(campaign_id: int, req: BulkTextImport, db: Session = 
         if body_start > 0:
             body = "\n".join(lines[body_start:]).strip()
         elif not subject:
-            # No headers — first line = subject, rest = body
+            # No headers - first line = subject, rest = body
             if lines:
                 subject = lines[0].strip()
                 body = "\n".join(lines[1:]).strip()
@@ -512,7 +512,7 @@ async def delete_template(campaign_id: int, template_id: int, db: Session = Depe
 
 @router.post("/{campaign_id}/links/import")
 async def import_links(campaign_id: int, req: BulkTextImport, db: Session = Depends(get_db)):
-    """Import ESP tracking links — one URL per line."""
+    """Import ESP tracking links - one URL per line."""
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(404, "Campaign not found")
@@ -569,7 +569,7 @@ async def list_links(campaign_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{campaign_id}/recipients/import")
 async def import_recipients(campaign_id: int, req: BulkTextImport, db: Session = Depends(get_db)):
-    """Import recipient emails — one per line."""
+    """Import recipient emails - one per line."""
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(404, "Campaign not found")

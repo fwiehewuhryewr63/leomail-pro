@@ -1,5 +1,5 @@
 """
-Leomail v4 — Warm-up Engine Worker
+Leomail v4 - Warm-up Engine Worker
 Progressive email sending to build sender reputation.
 Supports peer-to-peer warming (accounts send to each other) and external warming.
 """
@@ -49,7 +49,7 @@ PROVIDER_CONFIGS = {
         "smtp_ssl": False,
     },
     "tuta": {
-        # Tuta doesn't support standard IMAP/SMTP — skip for warmup
+        # Tuta doesn't support standard IMAP/SMTP - skip for warmup
         "imap": None,
         "smtp": None,
         "smtp_ssl": False,
@@ -73,7 +73,7 @@ WARMUP_SUBJECTS = [
     "Thank you for the update",
     "Agenda for tomorrow",
     "Can you review this?",
-    "FYI — new schedule",
+    "FYI - new schedule",
     "Quick heads up",
     "Confirmed for Thursday",
     "Running a bit late",
@@ -85,14 +85,14 @@ WARMUP_BODIES = [
     "Hi! Just wanted to follow up on what we discussed. Let me know your thoughts when you get a chance.",
     "Hey, I saw this and thought of you. Hope all is well!",
     "Thanks for getting back to me so quickly. I'll review everything and circle back tomorrow.",
-    "Just a quick note — I'll be on a call most of the afternoon. Can we catch up later this week?",
+    "Just a quick note - I'll be on a call most of the afternoon. Can we catch up later this week?",
     "Perfect, that works for me. See you then!",
     "I just sent over the updated document. Let me know if you have any questions.",
     "Thanks for the heads up. I'll make sure to review it before our meeting.",
     "Sounds great! Looking forward to it.",
     "Good morning! Just checking in to see if you need anything from me on this.",
     "That's a great point. I'll think about it and get back to you.",
-    "Hey! Quick question — did you end up going with option A or B?",
+    "Hey! Quick question - did you end up going with option A or B?",
     "I appreciate the update. Everything looks good on my end.",
     "Just wanted to say thank you for all your help this week.",
     "No worries at all! Take your time and let me know when you're ready.",
@@ -134,7 +134,7 @@ def get_phase_for_day(day: int) -> tuple:
             phase_config = schedule.get(phase_key, {"min": 1, "max": 3})
             return phase_config["min"], phase_config["max"], status
 
-    # Day 30+ — fully warmed
+    # Day 30+ - fully warmed
     return 0, 0, AccountStatus.WARMED
 
 
@@ -186,7 +186,7 @@ def send_warmup_email(
         server.login(from_email, from_password)
         server.sendmail(from_email, to_email, msg.as_string())
         server.quit()
-        logger.debug(f"Warmup email sent: {from_email} → {to_email}")
+        logger.debug(f"Warmup email sent: {from_email} -> {to_email}")
         return True
     except smtplib.SMTPAuthenticationError as e:
         logger.warning(f"SMTP auth failed for {from_email}: {e}")
@@ -279,7 +279,7 @@ async def warmup_single_account(
     day = account.warmup_day
     min_emails, max_emails, target_status = get_phase_for_day(day)
 
-    # Day 30+ → mark as warmed
+    # Day 30+ -> mark as warmed
     if day > 30:
         account.status = AccountStatus.WARMED
         try:
@@ -321,7 +321,7 @@ async def warmup_single_account(
             peer = random.choice(peer_accounts)
             to_email = peer.email
         else:
-            # No peers — skip
+            # No peers - skip
             logger.warning(f"No peer accounts for warming {account.email}")
             break
 

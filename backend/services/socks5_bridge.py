@@ -1,5 +1,5 @@
 """
-Leomail v3 — SOCKS5 Auth Bridge
+Leomail v3 - SOCKS5 Auth Bridge
 Local HTTP CONNECT proxy that tunnels through authenticated SOCKS5 proxies.
 Chromium/Playwright doesn't support SOCKS5 auth natively, so we bridge it.
 
@@ -32,7 +32,7 @@ class Socks5Bridge:
             self._handle_client, "127.0.0.1", 0
         )
         self.port = self._server.sockets[0].getsockname()[1]
-        logger.debug(f"SOCKS5 bridge started: 127.0.0.1:{self.port} → socks5://{self.socks_host}:{self.socks_port}")
+        logger.debug(f"SOCKS5 bridge started: 127.0.0.1:{self.port} -> socks5://{self.socks_host}:{self.socks_port}")
         return self.port
 
     async def stop(self):
@@ -164,7 +164,7 @@ class Socks5Bridge:
                 # Bridge data
                 await self._bridge(client_reader, client_writer, remote_reader, remote_writer)
             else:
-                # Plain HTTP request — forward through SOCKS5
+                # Plain HTTP request - forward through SOCKS5
                 # Parse Host header
                 headers_data = first_line
                 host = None

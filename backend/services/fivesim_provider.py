@@ -1,13 +1,13 @@
 """
-Leomail v3 — 5sim.net SMS Provider
+Leomail v3 - 5sim.net SMS Provider
 REST API integration: https://5sim.net/docs
 
 Auth: Bearer token in Authorization header
 Endpoints:
-  - GET /v1/user/profile → balance
-  - GET /v1/user/buy/activation/{country}/any/{product} → order number
-  - GET /v1/user/check/{id} → poll SMS status
-  - GET /v1/user/cancel/{id} → cancel order
+  - GET /v1/user/profile -> balance
+  - GET /v1/user/buy/activation/{country}/any/{product} -> order number
+  - GET /v1/user/check/{id} -> poll SMS status
+  - GET /v1/user/cancel/{id} -> cancel order
 """
 import time
 import re
@@ -153,7 +153,7 @@ class FiveSimProvider:
                     # 5sim returns phone with + prefix
                     if phone.startswith("+"):
                         phone = phone[1:]
-                    logger.info(f"5sim: [OK] got number from {c} — {phone}")
+                    logger.info(f"5sim: [OK] got number from {c} - {phone}")
                     self._last_country = c
                     return {
                         "id": str(result["id"]),
@@ -162,7 +162,7 @@ class FiveSimProvider:
                         "service": service,
                     }
                 err = result.get("error", "") if result else ""
-                logger.debug(f"5sim auto: {c} → {err}")
+                logger.debug(f"5sim auto: {c} -> {err}")
 
             return {"error": "5sim: no real numbers"}
 
@@ -203,7 +203,7 @@ class FiveSimProvider:
                     phone = result["phone"]
                     if phone.startswith("+"):
                         phone = phone[1:]
-                    logger.info(f"5sim: [OK] {c} — {phone}")
+                    logger.info(f"5sim: [OK] {c} - {phone}")
                     self._last_country = c
                     return {
                         "id": str(result["id"]),
@@ -222,7 +222,7 @@ class FiveSimProvider:
         """
         Poll for SMS code.
         5sim /check/{id} returns JSON with 'sms' array when code arrives.
-        Status: PENDING → RECEIVED → FINISHED / CANCELED / TIMEOUT
+        Status: PENDING -> RECEIVED -> FINISHED / CANCELED / TIMEOUT
         """
         start = time.time()
 
@@ -251,7 +251,7 @@ class FiveSimProvider:
                         # Extract digits from SMS text
                         digits = re.findall(r'\d{4,8}', sms_text)
                         code = digits[0] if digits else sms_text
-                    logger.info(f"5sim: SMS received — code={code}")
+                    logger.info(f"5sim: SMS received - code={code}")
 
                     # Finish the order
                     self._get(f"/user/finish/{order_id}")
@@ -274,7 +274,7 @@ class FiveSimProvider:
                     return {"code": code, "raw": str(sms_list[0]), "wait_time": round(time.time() - start, 1)}
                 return {"error": "Activation finished but code not found"}
 
-            # PENDING — wait and retry
+            # PENDING - wait and retry
             for _ in range(8):  # 8 x 0.5s = 4s
                 if cancel_event and cancel_event.is_set():
                     try:
@@ -284,12 +284,12 @@ class FiveSimProvider:
                     return {"error": "Cancelled by user", "cancelled": True}
                 time.sleep(0.5)
 
-        # Timeout — cancel the number
+        # Timeout - cancel the number
         try:
             self.cancel_number(order_id)
         except Exception:
             pass
-        return {"error": f"Timeout {timeout}с — SMS not received", "timeout": True}
+        return {"error": f"Timeout {timeout}с - SMS not received", "timeout": True}
 
     def cancel_number(self, order_id: str) -> bool:
         """Cancel an order."""

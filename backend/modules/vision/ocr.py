@@ -1,5 +1,5 @@
 """
-Leomail Vision — OCR wrapper using Tesseract.
+Leomail Vision - OCR wrapper using Tesseract.
 Extracts all text + bounding boxes from a screenshot.
 Falls back to basic pattern matching if Tesseract is not installed.
 """
@@ -13,7 +13,7 @@ try:
     HAS_TESSERACT = True
 except ImportError:
     HAS_TESSERACT = False
-    logger.warning("[Vision] pytesseract/Pillow not installed — OCR disabled")
+    logger.warning("[Vision] pytesseract/Pillow not installed - OCR disabled")
 
 try:
     import cv2
@@ -40,7 +40,7 @@ if _tess and HAS_TESSERACT:
     pytesseract.pytesseract.tesseract_cmd = _tess
     logger.info(f"[Vision] Tesseract found: {_tess}")
 elif HAS_TESSERACT:
-    logger.warning("[Vision] Tesseract binary not found — OCR will fail. Install: choco install tesseract")
+    logger.warning("[Vision] Tesseract binary not found - OCR will fail. Install: choco install tesseract")
 
 
 class OCR:

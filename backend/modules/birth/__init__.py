@@ -1,5 +1,5 @@
 """
-Leomail v3 — Birth Modules
+Leomail v3 - Birth Modules
 Provider-specific registration engines + shared helpers.
 """
 from .outlook import register_single_outlook

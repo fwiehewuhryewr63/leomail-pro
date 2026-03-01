@@ -21,7 +21,7 @@ from .routers import warmup, update
 
 @asynccontextmanager
 async def lifespan(app):
-    """Single lifespan handler — avoids merged_lifespan recursion in PyInstaller."""
+    """Single lifespan handler - avoids merged_lifespan recursion in PyInstaller."""
     await _startup()
     yield
     # Shutdown logic (if needed)
@@ -38,7 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register all routers — using direct route addition to avoid
+# Register all routers - using direct route addition to avoid
 # FastAPI's merged_lifespan recursion (crashes PyInstaller frozen EXE)
 _all_routers = [
     dashboard.router, birth.router, settings.router, proxies.router,
@@ -69,7 +69,7 @@ async def _startup():
     with db_engine.connect() as conn:
         inspector = inspect(db_engine)
 
-        # proxies — missing columns
+        # proxies - missing columns
         proxy_cols = [c["name"] for c in inspector.get_columns("proxies")]
         proxy_migrations = {
             "external_ip": "VARCHAR",
@@ -81,7 +81,7 @@ async def _startup():
                 conn.commit()
                 logger.info(f"Migrated: added {col} column to proxies")
 
-        # templates — all potentially missing columns
+        # templates - all potentially missing columns
         try:
             tmpl_cols = [c["name"] for c in inspector.get_columns("templates")]
             migrations = {
@@ -100,7 +100,7 @@ async def _startup():
         except Exception:
             pass  # table may not exist yet
 
-        # tasks — stop_reason (graceful termination)
+        # tasks - stop_reason (graceful termination)
         try:
             task_cols = [c["name"] for c in inspector.get_columns("tasks")]
             task_migrations = {
@@ -114,7 +114,7 @@ async def _startup():
         except Exception:
             pass
 
-        # proxies — per-provider usage counters
+        # proxies - per-provider usage counters
         try:
             proxy_cols2 = [c["name"] for c in inspector.get_columns("proxies")]
             proxy_extra = {
@@ -139,7 +139,7 @@ async def _startup():
         except Exception:
             pass
 
-        # campaigns — send settings + account source columns
+        # campaigns - send settings + account source columns
         try:
             camp_cols = [c["name"] for c in inspector.get_columns("campaigns")]
             camp_migrations = {
@@ -166,7 +166,7 @@ async def _startup():
         except Exception:
             pass
 
-        # campaign_recipients — first_name for VIP
+        # campaign_recipients - first_name for VIP
         try:
             cr_cols = [c["name"] for c in inspector.get_columns("campaign_recipients")]
             if "first_name" not in cr_cols:
@@ -176,7 +176,7 @@ async def _startup():
         except Exception:
             pass
 
-        # link_databases — niche column
+        # link_databases - niche column
         try:
             lp_cols = [c["name"] for c in inspector.get_columns("link_databases")]
             if "niche" not in lp_cols:
@@ -186,7 +186,7 @@ async def _startup():
         except Exception:
             pass
 
-        # recipient_databases — with_name column
+        # recipient_databases - with_name column
         try:
             rd_cols = [c["name"] for c in inspector.get_columns("recipient_databases")]
             if "with_name" not in rd_cols:
@@ -196,7 +196,7 @@ async def _startup():
         except Exception:
             pass
 
-        # accounts — IMAP verification columns
+        # accounts - IMAP verification columns
         try:
             acc_cols = [c["name"] for c in inspector.get_columns("accounts")]
             acc_migrations = {
@@ -263,14 +263,14 @@ async def _startup():
     asyncio.create_task(proxy_monitor_loop(interval_sec=interval, max_fails=max_fails))
     logger.info(f"Proxy monitor started (every {interval}s, max_fails={max_fails})")
 
-    # Browser leak guard — background task kills orphaned chromium processes
+    # Browser leak guard - background task kills orphaned chromium processes
     try:
         from .services.browser_leak_guard import periodic_leak_guard
         asyncio.create_task(periodic_leak_guard(interval_seconds=120, max_age_seconds=300))
     except Exception:
         pass
 
-    logger.info("Leomail v4.0 Backend Started — Blitz Pipeline")
+    logger.info("Leomail v4.0 Backend Started - Blitz Pipeline")
 
 
 # Serve React frontend in production

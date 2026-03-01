@@ -1,5 +1,5 @@
 """
-Leomail v2.1 — Geo API Router
+Leomail v2.1 - Geo API Router
 Serves country/language data to frontend
 """
 from fastapi import APIRouter

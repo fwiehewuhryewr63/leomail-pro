@@ -1,7 +1,7 @@
 """
-Leomail v3 — Spintax Engine
+Leomail v3 - Spintax Engine
 Generates unique email content from spintax templates.
-{word1|word2|word3} → random pick each time = millions of unique variants.
+{word1|word2|word3} -> random pick each time = millions of unique variants.
 """
 import re
 import random
@@ -18,7 +18,7 @@ def spin(text: str) -> str:
     Supports nested spintax via multiple passes.
     
     Example:
-        spin("{Hi|Hello} {friend|mate}!") → "Hello mate!"
+        spin("{Hi|Hello} {friend|mate}!") -> "Hello mate!"
     """
     # Multiple passes for nested spintax
     for _ in range(5):

@@ -1,5 +1,5 @@
 """
-Leomail v3 — Anti-Detect Browser Engine
+Leomail v3 - Anti-Detect Browser Engine
 Full fingerprint randomization, device emulation, GEO-aware context, persistent sessions.
 """
 import os
@@ -162,7 +162,7 @@ GPU_COMBOS = [
     ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
 ]
 
-# ─── Mobile GPU Combos (Adreno, Mali, Apple — must match mobile devices!) ─────
+# ─── Mobile GPU Combos (Adreno, Mali, Apple - must match mobile devices!) ─────
 
 MOBILE_GPU_ANDROID = [
     ("Qualcomm", "Adreno (TM) 730"),       # Snapdragon 8 Gen 1 (Pixel 7, Galaxy S22)
@@ -283,7 +283,7 @@ def _build_mobile_stealth_extra(platform: str = "android") -> str:
         }}, 1000 + Math.random() * 500);
     }})();
 
-    // M5. TouchEvent constructor (critical — Google checks this!)
+    // M5. TouchEvent constructor (critical - Google checks this!)
     if (typeof TouchEvent === 'undefined') {{
         window.TouchEvent = class TouchEvent extends UIEvent {{
             constructor(type, init) {{ super(type, init); }}
@@ -310,7 +310,7 @@ def _build_mobile_stealth_extra(platform: str = "android") -> str:
         navigator.vibrate = function(pattern) {{ return true; }};
     }}
 
-    // M8. MediaDevices — mobile has front+back cameras
+    // M8. MediaDevices - mobile has front+back cameras
     if (navigator.mediaDevices) {{
         navigator.mediaDevices.enumerateDevices = async function() {{
             return [
@@ -375,7 +375,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         window.chrome = {{ runtime: {{}}, loadTimes: function(){{ return {{}} }}, csi: function(){{ return {{}} }} }};
     }}
 
-    // 3. Navigator.platform — MUST match User-Agent
+    // 3. Navigator.platform - MUST match User-Agent
     Object.defineProperty(navigator, 'platform', {{ get: () => '{platform}' }});
 
     // 4. Permissions API
@@ -547,7 +547,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     }}
 
     // 14. Intl.DateTimeFormat timezone consistency (prevents tz mismatch detection)
-    {'// timezone_id was provided — override Intl to match' if timezone_id else '// no timezone_id — skip Intl override'}
+    {'// timezone_id was provided - override Intl to match' if timezone_id else '// no timezone_id - skip Intl override'}
     """ + (f"""
     (function() {{
         const _origDTF = Intl.DateTimeFormat;
@@ -563,7 +563,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     }})();
     """ if timezone_id else "") + f"""
 
-    // 15. WebRTC IP leak prevention (JS-level — blocks even if Chrome args fail)
+    // 15. WebRTC IP leak prevention (JS-level - blocks even if Chrome args fail)
     (function() {{
         const _origRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
         if (_origRTC) {{
@@ -741,7 +741,7 @@ class BrowserManager:
         lang = country_data["lang"] if country_data else "en"
         locale_str = f"{lang}-{country_code}" if country_code else f"{lang}-US"
 
-        # Proxy config — handle SOCKS5 auth via local bridge
+        # Proxy config - handle SOCKS5 auth via local bridge
         proxy_config = None
         socks5_bridge = None
         if proxy:
@@ -750,7 +750,7 @@ class BrowserManager:
             is_socks = protocol in ('socks5', 'socks4')
 
             if is_socks and has_auth:
-                # Chromium can't do SOCKS5 auth — start local HTTP bridge
+                # Chromium can't do SOCKS5 auth - start local HTTP bridge
                 from ..services.socks5_bridge import Socks5Bridge
                 socks5_bridge = Socks5Bridge(
                     proxy.host, proxy.port,
@@ -758,9 +758,9 @@ class BrowserManager:
                 )
                 await socks5_bridge.start()
                 proxy_config = {"server": f"http://127.0.0.1:{socks5_bridge.port}"}
-                logger.debug(f"SOCKS5 auth bridge: :{socks5_bridge.port} → {proxy.host}:{proxy.port}")
+                logger.debug(f"SOCKS5 auth bridge: :{socks5_bridge.port} -> {proxy.host}:{proxy.port}")
             elif is_socks and not has_auth:
-                # SOCKS5 without auth — Playwright/Chromium handles it natively
+                # SOCKS5 without auth - Playwright/Chromium handles it natively
                 proxy_config = {"server": f"socks5://{proxy.host}:{proxy.port}"}
             elif hasattr(proxy, 'to_playwright'):
                 proxy_config = proxy.to_playwright()
@@ -819,7 +819,7 @@ class BrowserManager:
             except Exception as e:
                 logger.warning(f"Failed to load session {session_path}: {e}")
 
-        # Create context — with auto-restart on crash
+        # Create context - with auto-restart on crash
         try:
             context = await self.browser.new_context(**context_options)
         except Exception as ctx_err:
@@ -860,7 +860,7 @@ class BrowserManager:
         # Add bare language tag if not redundant (e.g. "pt" from "pt-BR")
         bare_lang = locale_str.split("-")[0]
         if bare_lang != locale_str:
-            ctx_langs.append(bare_lang)  # "pt-BR" → also add "pt"
+            ctx_langs.append(bare_lang)  # "pt-BR" -> also add "pt"
         # Always include English as fallback (natural for most multilingual users)
         if "en" not in ctx_langs:
             ctx_langs.append("en")
@@ -902,7 +902,7 @@ class BrowserManager:
         with open(session_path, "w") as f:
             json.dump(state, f)
 
-        logger.info(f"Session saved: account {account_id} → {session_path}")
+        logger.info(f"Session saved: account {account_id} -> {session_path}")
         return session_path
 
     async def load_session_context(

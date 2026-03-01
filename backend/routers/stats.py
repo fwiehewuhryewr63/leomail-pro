@@ -1,5 +1,5 @@
 """
-Leomail v3 — Statistics Router
+Leomail v3 - Statistics Router
 API endpoints for mailing campaign stats and reports.
 """
 from fastapi import APIRouter, Depends

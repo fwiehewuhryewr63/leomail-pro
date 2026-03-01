@@ -14,7 +14,7 @@ class AccountStatus(str, enum.Enum):
     PHASE_3 = "phase_3"   # Day 8-14:  10-20 emails/day
     PHASE_4 = "phase_4"   # Day 15-21: 20-50 emails/day
     PHASE_5 = "phase_5"   # Day 22-30: 50-100 emails/day
-    WARMED = "warmed"      # Fully warmed — ready for mass mailing
+    WARMED = "warmed"      # Fully warmed - ready for mass mailing
     SENDING = "sending"
     PAUSED = "paused"
     DEAD = "dead"
@@ -394,7 +394,7 @@ class CampaignStatus(str, enum.Enum):
 
 
 class Campaign(Base):
-    """Blitz Pipeline campaign — continuous Birth → Send → Die → Repeat."""
+    """Blitz Pipeline campaign - continuous Birth -> Send -> Die -> Repeat."""
     __tablename__ = "campaigns"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -454,7 +454,7 @@ class Campaign(Base):
 
 
 class CampaignTemplate(Base):
-    """Email template for a campaign — rotated randomly during send."""
+    """Email template for a campaign - rotated randomly during send."""
     __tablename__ = "campaign_templates"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -471,7 +471,7 @@ class CampaignTemplate(Base):
 
 
 class CampaignLink(Base):
-    """ESP tracking link for a campaign — rotated with use limits + #hash randomization."""
+    """ESP tracking link for a campaign - rotated with use limits + #hash randomization."""
     __tablename__ = "campaign_links"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -487,7 +487,7 @@ class CampaignLink(Base):
 
 
 class CampaignRecipient(Base):
-    """Target email for a campaign — tracks sent status per recipient."""
+    """Target email for a campaign - tracks sent status per recipient."""
     __tablename__ = "campaign_recipients"
 
     id = Column(Integer, primary_key=True, index=True)

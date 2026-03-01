@@ -1,5 +1,5 @@
 """
-Leomail v4 — Proxy Provider API Clients
+Leomail v4 - Proxy Provider API Clients
 Supports: ASocks, Proxy6, Belurk, IPRoyal
 Each provider: fetch balance, list active proxies, buy new proxies.
 """
@@ -41,12 +41,12 @@ class ProxyProviderBase:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ASocks — mobile + residential proxies
+# ASocks - mobile + residential proxies
 # API: https://api.asocks.com/v2/
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ASocksProvider(ProxyProviderBase):
-    """ASocks.com — mobile & residential proxies, pay-per-GB."""
+    """ASocks.com - mobile & residential proxies, pay-per-GB."""
     name = "asocks"
     BASE_URL = "https://api.asocks.com/v2"
 
@@ -134,12 +134,12 @@ class ASocksProvider(ProxyProviderBase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# IPRoyal — residential proxies
+# IPRoyal - residential proxies
 # API: https://resi-api.iproyal.com/v1/
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class IPRoyalProvider(ProxyProviderBase):
-    """IPRoyal — residential proxies with reseller API."""
+    """IPRoyal - residential proxies with reseller API."""
     name = "iproyal"
     BASE_URL = "https://resi-api.iproyal.com/v1"
 
@@ -224,12 +224,12 @@ class IPRoyalProvider(ProxyProviderBase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Proxy6.net — IPv4/IPv6 proxies (datacenter, but user confirmed they work)
+# Proxy6.net - IPv4/IPv6 proxies (datacenter, but user confirmed they work)
 # API: https://px6.link/api/{key}/
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class Proxy6Provider(ProxyProviderBase):
-    """Proxy6.net — IPv4/IPv6 proxies with full buy/list/prolong API."""
+    """Proxy6.net - IPv4/IPv6 proxies with full buy/list/prolong API."""
     name = "proxy6"
     BASE_URL = "https://px6.link/api"
 
@@ -321,12 +321,12 @@ class Proxy6Provider(ProxyProviderBase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Belurk.ru — IPv4/IPv6 proxies
+# Belurk.ru - IPv4/IPv6 proxies
 # API: https://belurk.com/api/v1/
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class BelurkProvider(ProxyProviderBase):
-    """Belurk.ru — IPv4/IPv6 proxies with order-based API."""
+    """Belurk.ru - IPv4/IPv6 proxies with order-based API."""
     name = "belurk"
     BASE_URL = "https://belurk.com/api/v1"
 
@@ -476,8 +476,8 @@ PROVIDERS = {
 }
 
 # Tiered auto-buy order:
-# Gmail → ASocks (mobile)
-# Everything else → tier 1 (Proxy6, Belurk) → tier 2 (IPRoyal)
+# Gmail -> ASocks (mobile)
+# Everything else -> tier 1 (Proxy6, Belurk) -> tier 2 (IPRoyal)
 AUTO_BUY_TIERS = {
     "gmail": [("asocks", "mobile")],
     "default": [
@@ -512,8 +512,8 @@ def get_all_providers() -> list[ProxyProviderBase]:
 def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict]:
     """
     Tiered auto-buy:
-      Gmail → ASocks (mobile 4G)
-      Others → Proxy6 + Belurk (tier 1) → IPRoyal (tier 2)
+      Gmail -> ASocks (mobile 4G)
+      Others -> Proxy6 + Belurk (tier 1) -> IPRoyal (tier 2)
     
     Tries each provider in order until count proxies are acquired.
     """
@@ -529,7 +529,7 @@ def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict
 
         pp = get_proxy_provider(svc_name)
         if not pp:
-            logger.debug(f"[AutoBuy] Skipping {svc_name} — no API key")
+            logger.debug(f"[AutoBuy] Skipping {svc_name} - no API key")
             continue
 
         logger.info(f"[AutoBuy] Trying {svc_name}: {remaining} × {proxy_type} for {provider}")

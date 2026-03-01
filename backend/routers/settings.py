@@ -94,7 +94,7 @@ async def get_settings():
             }
         },
         "auto_buy": config.get("auto_buy", {"enabled": False, "max_spend_usd": 10.0}),
-        # Proxy limits — read from config, fallback to ProxyManager defaults
+        # Proxy limits - read from config, fallback to ProxyManager defaults
         "proxy_limits": {
             "gmail": config.get("proxy_limits", {}).get("gmail", ProxyManager.GMAIL_LIMIT),
             "yahoo_aol": config.get("proxy_limits", {}).get("yahoo_aol", ProxyManager.YA_LIMIT),
@@ -138,7 +138,7 @@ async def update_settings(update: SettingsUpdate):
     if update.threads is not None:
         config.setdefault("browser", {})["threads"] = update.threads
     
-    # Proxy limits — save to config AND update ProxyManager class constants
+    # Proxy limits - save to config AND update ProxyManager class constants
     limits = config.setdefault("proxy_limits", {})
     if update.gmail_proxy_limit is not None:
         v = max(1, update.gmail_proxy_limit)

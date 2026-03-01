@@ -1,5 +1,5 @@
 """
-Leomail v3 — Logs Router
+Leomail v3 - Logs Router
 Real-time server logs via polling.
 """
 from fastapi import APIRouter

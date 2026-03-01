@@ -10,7 +10,7 @@ from ..config import load_config, get_api_key
 
 
 class CaptchaProvider:
-    """CapGuru — solves reCAPTCHA v2/v3."""
+    """CapGuru - solves reCAPTCHA v2/v3."""
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
@@ -148,7 +148,7 @@ class CaptchaProvider:
 
 
 class TwoCaptchaProvider:
-    """2Captcha — solves FunCaptcha / Arkose Labs (for Outlook/Hotmail)."""
+    """2Captcha - solves FunCaptcha / Arkose Labs (for Outlook/Hotmail)."""
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
@@ -221,11 +221,11 @@ class TwoCaptchaProvider:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CapSolver — supports reCAPTCHA v2/v3, hCaptcha, FunCaptcha via createTask API
+# CapSolver - supports reCAPTCHA v2/v3, hCaptcha, FunCaptcha via createTask API
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class CapSolverProvider:
-    """CapSolver.com — modern multi-captcha solver (AI-based, faster than 2captcha)."""
+    """CapSolver.com - modern multi-captcha solver (AI-based, faster than 2captcha)."""
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
@@ -338,7 +338,7 @@ class CapSolverProvider:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CaptchaChain — tries solvers in priority order with auto-fallback
+# CaptchaChain - tries solvers in priority order with auto-fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class CaptchaChain:
@@ -397,7 +397,7 @@ class CaptchaChain:
                 logger.info(f"CaptchaChain: trying {name} for {captcha_type}")
                 result = method(**kwargs)
                 if result:
-                    logger.info(f"CaptchaChain: {name} solved {captcha_type} ✓")
+                    logger.info(f"CaptchaChain: {name} solved {captcha_type} ")
                     return result
                 logger.warning(f"CaptchaChain: {name} returned None for {captcha_type}")
             except Exception as e:

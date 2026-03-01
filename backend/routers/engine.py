@@ -1,5 +1,5 @@
 """
-Leomail v4 — Engine Router
+Leomail v4 - Engine Router
 Unified API for managing all 3 engines: autoreg, warmup, campaign.
 """
 from fastapi import APIRouter, Depends

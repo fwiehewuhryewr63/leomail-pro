@@ -1,5 +1,5 @@
 """
-Leomail v2.2 — Error Handler & Ban Controller
+Leomail v2.2 - Error Handler & Ban Controller
 Full classification of SMTP errors, bans, limits, MailerDaemon, bounces.
 Auto-actions: mark dead, pause, rotate, invalidate recipient.
 """
@@ -147,7 +147,7 @@ class ErrorHandler:
             ErrorType.AUTH_FAIL: "mark_dead",
             ErrorType.BLACKLISTED: "mark_dead",
             ErrorType.LIMIT: "pause_1h",
-            ErrorType.MAILER_DAEMON: "warning_only",  # yellow — account continues, just stat
+            ErrorType.MAILER_DAEMON: "warning_only",  # yellow - account continues, just stat
             ErrorType.INVALID_RECIPIENT: "mark_recipient_invalid",
             ErrorType.TIMEOUT: "retry_later",
             ErrorType.CAPTCHA_FAIL: "retry_new_captcha",
@@ -156,18 +156,18 @@ class ErrorHandler:
         }
         action = actions.get(error_type, "log_warning")
 
-        # Check bounce rate — only pause if extremely high (>10% over 20+ sends)
+        # Check bounce rate - only pause if extremely high (>10% over 20+ sends)
         if account_email and account_email in self.account_sent:
             sent = self.account_sent[account_email]
             bounces = self.account_bounces.get(account_email, 0)
             if sent > 20 and bounces / sent > 0.10:
                 action = "pause_high_bounce"
-                logger.warning(f"Account {account_email} bounce rate {bounces}/{sent} = {bounces/sent*100:.1f}% — pausing")
+                logger.warning(f"Account {account_email} bounce rate {bounces}/{sent} = {bounces/sent*100:.1f}% - pausing")
 
         return action
 
     def handle_error(self, raw_error: str, account_email: str = "", recipient_email: str = "") -> SendError:
-        """Full pipeline: classify → decide action → record."""
+        """Full pipeline: classify -> decide action -> record."""
         error_type = self.classify(raw_error)
         action = self.decide_action(error_type, account_email)
 
@@ -182,7 +182,7 @@ class ErrorHandler:
                 if domain:
                     self.domain_bounces[domain] = self.domain_bounces.get(domain, 0) + 1
 
-        logger.info(f"Error [{error_type}] account={account_email} → action={action}")
+        logger.info(f"Error [{error_type}] account={account_email} -> action={action}")
         return error
 
     def record_sent(self, account_email: str):

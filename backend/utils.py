@@ -1,5 +1,5 @@
 """
-Leomail v3 — Utilities
+Leomail v3 - Utilities
 Name generation by language (with fallback to built-in dictionaries).
 """
 import random
@@ -182,7 +182,7 @@ def generate_username(first_name: str, last_name: str) -> str:
     suffix_len = random.randint(2, 5)
     suffix = ''.join(random.choice(suffix_chars) for _ in range(suffix_len))
 
-    # Randomize position of suffix — MUST start with a letter (Yahoo requirement)
+    # Randomize position of suffix - MUST start with a letter (Yahoo requirement)
     patterns = [
         f"{first}{last}{suffix}",       # aaronsmith4k
         f"{first}{suffix}{last}",       # aaron4ksmith

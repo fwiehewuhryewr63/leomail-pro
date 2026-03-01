@@ -1,5 +1,5 @@
 """
-Leomail v4 — SMTP Sender
+Leomail v4 - SMTP Sender
 Direct SMTP connection for burn-model sending.
 Each provider: host, port, TLS config.
 """

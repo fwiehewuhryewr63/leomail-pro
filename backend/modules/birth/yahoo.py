@@ -1,5 +1,5 @@
 """
-Leomail v3 — Yahoo Registration Engine (with Vision CV)
+Leomail v3 - Yahoo Registration Engine (with Vision CV)
 """
 import asyncio
 import random
@@ -93,7 +93,7 @@ async def register_single_yahoo(
     try:
         from ..vision import VisionEngine
         vision = VisionEngine("yahoo", debug=True)
-        _log("[Vision] Vision Engine active — OCR + stage detection")
+        _log("[Vision] Vision Engine active - OCR + stage detection")
     except Exception as ve:
         logger.debug(f"[Yahoo] Vision not available: {ve}")
 
@@ -107,7 +107,7 @@ async def register_single_yahoo(
         for pattern in error_urls:
             if pattern in url.lower():
                 return f"Error URL detected: {url}"
-        # DOM-based detection (fast — querySelector is instant)
+        # DOM-based detection (fast - querySelector is instant)
         try:
             error_text = await page.evaluate("""() => {
                 const body = document.body?.innerText?.substring(0, 2000) || '';
@@ -136,7 +136,7 @@ async def register_single_yahoo(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
+        # Fast warmup - just a quick Google visit (2-3s instead of 15-30s)
         _log("Quick session warmup...")
         try:
             await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
@@ -161,7 +161,7 @@ async def register_single_yahoo(
         # CRITICAL: Check if proxy is dead
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"[ERR] Proxy DEAD — page failed to load (URL: {current_url})")
+            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
             if proxy:
                 try:
                     proxy.status = ProxyStatus.DEAD
@@ -173,7 +173,7 @@ async def register_single_yahoo(
 
         # Check if Yahoo returned error page (E500, rate limit, etc.)
         if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
-            _err(f"[ERR] Yahoo returned error page — IP blocked or rate limited (URL: {current_url})")
+            _err(f"[ERR] Yahoo returned error page - IP blocked or rate limited (URL: {current_url})")
             return None
 
         await random_mouse_move(page, steps=3)
@@ -183,15 +183,15 @@ async def register_single_yahoo(
         if vision:
             try:
                 stage = await vision.analyze(page)
-                _log(f"[Vision] Stage: {stage['stage']} ({stage['confidence']:.0%}) — {stage['description']}")
+                _log(f"[Vision] Stage: {stage['stage']} ({stage['confidence']:.0%}) - {stage['description']}")
                 err = await vision.is_error(page)
                 if err:
-                    _err(f"[Vision] Error detected: {err['type']} — {err['text']}")
+                    _err(f"[Vision] Error detected: {err['type']} - {err['text']}")
                     return None
             except Exception as ve:
                 logger.debug(f"[Yahoo] Vision stage detect: {ve}")
 
-        # Yahoo: all fields on one page — fill with human-like behavior
+        # Yahoo: all fields on one page - fill with human-like behavior
         _log(f"Entering data: {first_name} {last_name} / {username}")
 
         # ── FAST ERROR CHECK (2s vs 20s timeout) ──
@@ -224,7 +224,7 @@ async def register_single_yahoo(
             await _human_fill(page, ln_sel, last_name)
             await _human_delay(1.2, 2.8)
 
-        # Small scroll down — humans do this
+        # Small scroll down - humans do this
         await page.mouse.wheel(0, random.randint(50, 150))
         await _human_delay(0.5, 1.0)
 
@@ -250,7 +250,7 @@ async def register_single_yahoo(
             await _human_fill(page, pwd_sel, password)
             await _human_delay(1.0, 2.0)
 
-        # Birthday — scroll down a bit first
+        # Birthday - scroll down a bit first
         await page.mouse.wheel(0, random.randint(30, 80))
         await _human_delay(0.5, 1.0)
 
@@ -290,7 +290,7 @@ async def register_single_yahoo(
         await page.mouse.wheel(0, random.randint(100, 200))
         await _human_delay(0.8, 1.5)
 
-        # Click Next / Continue / Submit — with "Email not available" retry
+        # Click Next / Continue / Submit - with "Email not available" retry
         _log("Submitting form (Next)...")
         submit_btn = await _wait_for_any(page, [
             'button[name="signup"]',
@@ -304,7 +304,7 @@ async def register_single_yahoo(
                 await page.locator(submit_btn).first.wait_for(state="attached", timeout=3000)
                 await _human_click(page, submit_btn)
             except Exception:
-                _log("Button disabled — trying Enter...")
+                _log("Button disabled - trying Enter...")
                 await page.keyboard.press("Enter")
         else:
             await page.keyboard.press("Enter")
@@ -364,9 +364,9 @@ async def register_single_yahoo(
                     _err("Email field not found for re-entry")
                     return None
             else:
-                break  # No error — proceed
+                break  # No error - proceed
         else:
-            _err(f"Yahoo rejected 3 usernames in a row — try different names")
+            _err(f"Yahoo rejected 3 usernames in a row - try different names")
             return None
 
         # ── Post-submit: Handle Yahoo's "Add your phone number" page ──
@@ -470,7 +470,7 @@ async def register_single_yahoo(
             country_changed = not country_needs_change  # Already correct = no change needed
 
             if country_needs_change:
-                _log(f"Yahoo shows +{yahoo_page_prefix}, SMS number +{sms_prefix} — need to change")
+                _log(f"Yahoo shows +{yahoo_page_prefix}, SMS number +{sms_prefix} - need to change")
 
                 # Method 1: select_option on <select> elements (Yahoo uses <select> for country)
                 try:
@@ -522,12 +522,12 @@ async def register_single_yahoo(
                         pass
 
                 if not country_changed:
-                    # Country change failed — the page still shows +yahoo_page_prefix
+                    # Country change failed - the page still shows +yahoo_page_prefix
                     # DO NOT enter a number formatted for +sms_prefix into +yahoo_page_prefix field!
                     # Instead: cancel current number and re-order one matching the page's country
                     page_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
                     if page_country:
-                        _log(f"[WARN] Не удалось сменить +{yahoo_page_prefix}→+{sms_prefix}. "
+                        _log(f"[WARN] Не удалось сменить +{yahoo_page_prefix}->+{sms_prefix}. "
                              f"Canceling number and ordering from {page_country} (countries: +{yahoo_page_prefix})")
                         # Cancel current order
                         try:
@@ -555,7 +555,7 @@ async def register_single_yahoo(
                             _err(f"Failed to order number for +{yahoo_page_prefix}")
                             return None
                     else:
-                        _log(f"[WARN] Failed to change code, unknown prefix +{yahoo_page_prefix} — entering full number")
+                        _log(f"[WARN] Failed to change code, unknown prefix +{yahoo_page_prefix} - entering full number")
                         local_number = f"{sms_prefix}{local_number}"
 
             # Human-like: read the page text first (real person would read instructions)
@@ -686,14 +686,14 @@ async def register_single_yahoo(
                             phone_still_visible = False
 
                         if phone_still_visible:
-                            _log("[WARN] Phone form still visible — number not accepted, trying another")
+                            _log("[WARN] Phone form still visible - number not accepted, trying another")
                             is_rejected = True
                         else:
                             phone_accepted = True
                             break
 
-                    # Phone rejected — cancel old number and get a new one
-                    _log(f"Yahoo rejected number {display_phone} — getting new one")
+                    # Phone rejected - cancel old number and get a new one
+                    _log(f"Yahoo rejected number {display_phone} - getting new one")
                     await _debug_screenshot(page, f"yahoo_phone_rejected_{phone_attempt}", _log)
                     try:
                         await asyncio.to_thread(sms_provider.cancel_number, order_id)
@@ -746,19 +746,19 @@ async def register_single_yahoo(
                         '#send-code-button',
                     ], timeout=5000)
                     if not get_code_btn:
-                        _log("Кнопка 'Get code' not foundа — пробуем Enter")
+                        _log("Кнопка 'Get code' not foundа - пробуем Enter")
                         await page.keyboard.press("Enter")
                         await _human_delay(2, 4)
 
                 if not phone_accepted:
-                    _err(f"Yahoo rejected {max_phone_retries} numbers in a row — proxy or SMS service issue")
+                    _err(f"Yahoo rejected {max_phone_retries} numbers in a row - proxy or SMS service issue")
                     return None
             else:
-                _log("[WARN] Get code by text button not found — trying Enter")
+                _log("[WARN] Get code by text button not found - trying Enter")
                 await page.keyboard.press("Enter")
                 await _human_delay(4, 7)
         else:
-            _log("[WARN] Phone page not found — Yahoo may not have moved to next step")
+            _log("[WARN] Phone page not found - Yahoo may not have moved to next step")
             await _debug_screenshot(page, "4_yahoo_no_phone_page", _log)
             return None
 
@@ -807,7 +807,7 @@ async def register_single_yahoo(
             if first_digit:
                 _log(f"[OK] SMS code field found: {first_digit}")
             else:
-                _log("[WARN] SMS code field NOT FOUND — Yahoo did not show verification form!")
+                _log("[WARN] SMS code field NOT FOUND - Yahoo did not show verification form!")
                 _log(f"Current URL: {page.url}")
                 await _debug_screenshot(page, "yahoo_no_sms_field", _log)
                 # Log page text for debugging
@@ -903,7 +903,7 @@ async def register_single_yahoo(
                 on_success = "/account/create/success" in final_url
                 if not on_create or on_success:
                     registration_success = True
-                    _log("[OK] Left registration page — counting as success")
+                    _log("[OK] Left registration page - counting as success")
 
             # Final check: look for error indicators
             if registration_success:
@@ -956,14 +956,14 @@ async def register_single_yahoo(
         logger.info(f"[OK] Yahoo registered: {email}")
         export_account_to_file(account, {"sms_phone": locals().get("display_phone", "")})
 
-        # IMAP verification (non-blocking — don't fail the birth if IMAP is down)
+        # IMAP verification (non-blocking - don't fail the birth if IMAP is down)
         try:
             from ...services.imap_checker import verify_account_imap
             await verify_account_imap(account, db, _log, _err)
         except Exception as imap_e:
             logger.debug(f"[Yahoo] IMAP check skipped: {imap_e}")
 
-        # Post-registration warmup — visit inbox/settings to age the session
+        # Post-registration warmup - visit inbox/settings to age the session
         try:
             from ..human_behavior import post_registration_warmup
             _log("[OK] Post-reg session warmup...")
@@ -978,7 +978,7 @@ async def register_single_yahoo(
         _err(str(e)[:500])
         return None
     finally:
-        # Cancel unused SMS order (crash recovery — don't waste money)
+        # Cancel unused SMS order (crash recovery - don't waste money)
         if _active_sms and not _sms_success:
             try:
                 _log_fn = _log if '_log' in dir() else logger.info

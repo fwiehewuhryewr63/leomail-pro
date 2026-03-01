@@ -31,7 +31,7 @@ async def list_databases(db: Session = Depends(get_db)):
         func.count(MailingStats.id)
     ).group_by(MailingStats.recipient_email, MailingStats.status).all()
 
-    # Build lookup: email → {sent: N, error: N, bounce: N, ...}
+    # Build lookup: email -> {sent: N, error: N, bounce: N, ...}
     email_stats = {}
     for email, status, cnt in stats_rows:
         email_lower = (email or "").strip().lower()
@@ -100,8 +100,8 @@ async def list_databases(db: Session = Depends(get_db)):
 async def upload_database(req: DatabaseUpload, db: Session = Depends(get_db)):
     """
     Upload recipient database with 2 supported formats:
-    1. email only    → BASIC
-    2. email,Name    → VIP
+    1. email only    -> BASIC
+    2. email,Name    -> VIP
     """
     DATABASES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -362,7 +362,7 @@ async def reset_progress(db_id: int, db: Session = Depends(get_db)):
     rec.used_count = 0
     db.commit()
 
-    logger.info(f"Reset progress for '{rec.name}': used_count {old_used} → 0, cleared {cleared} stats")
+    logger.info(f"Reset progress for '{rec.name}': used_count {old_used} -> 0, cleared {cleared} stats")
     return {
         "ok": True,
         "database": rec.name,

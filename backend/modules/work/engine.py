@@ -1,5 +1,5 @@
 """
-Leomail v3 — Work Module (Mass Mailing Engine)
+Leomail v3 - Work Module (Mass Mailing Engine)
 Browser-based sending: open profile, compose with template variables + spintax, send, track.
 Supports: Yahoo, AOL, Gmail, Outlook/Hotmail.
 """
@@ -86,21 +86,21 @@ class LinkRotator:
     """
     Sequential link rotator with cycle tracking.
 
-    Cycles through links in ORDER: 1→2→...→N→1→2→...→N
+    Cycles through links in ORDER: 1->2->...->N->1->2->...->N
     max_uses: per-link usage limit (0 = unlimited)
     max_cycles: how many times to loop through the entire list (0 = unlimited)
 
     Presets:
-      max_cycles=0, max_uses=0  → unlimited cycling
-      max_cycles=1, max_uses=1  → single-use (each link exactly once)
-      max_cycles=3, max_uses=0  → 3 full passes through the list
+      max_cycles=0, max_uses=0  -> unlimited cycling
+      max_cycles=1, max_uses=1  -> single-use (each link exactly once)
+      max_cycles=3, max_uses=0  -> 3 full passes through the list
     """
 
     def __init__(self, links: list, max_uses: int = 0, max_cycles: int = 0):
         self.links = links
         self.max_uses = max_uses      # per-link limit (0 = ∞)
         self.max_cycles = max_cycles  # list-level limit (0 = ∞)
-        self.usage = {}               # url → count
+        self.usage = {}               # url -> count
         self.index = 0
         self.current_cycle = 0
         self._exhausted = False
@@ -246,7 +246,7 @@ class WorkSession:
     async def run(self, recipients: list[dict], db: Session):
         """Execute sending for this account."""
         provider = self.account.provider or "yahoo"
-        # User sets how many emails per day — no hardcoded limits
+        # User sets how many emails per day - no hardcoded limits
         emails_today = random.randint(self.emails_per_day_min, self.emails_per_day_max)
         emails_today = min(emails_today, len(recipients))
 
@@ -298,7 +298,7 @@ class WorkSession:
                 if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                     logger.warning(
                         f"Work [{self.account.email}]: {MAX_CONSECUTIVE_ERRORS} "
-                        f"consecutive errors — pausing account"
+                        f"consecutive errors - pausing account"
                     )
                     await debug_screenshot(page, "consecutive_errors_pause", self.account.email, "work")
                     self.account.status = "paused"
@@ -321,7 +321,7 @@ class WorkSession:
                 # Update thread log
                 if self.thread_log:
                     self.thread_log.current_action = (
-                        f"Sending {i + 1}/{len(batch)} → {recipient['email']}"
+                        f"Sending {i + 1}/{len(batch)} -> {recipient['email']}"
                     )
                     self.thread_log.updated_at = datetime.utcnow()
                     db.commit()
@@ -345,13 +345,13 @@ class WorkSession:
                     # Record success stat
                     self._record_stat(db, recipient["email"], "sent", template_name=tmpl_name)
 
-                    logger.debug(f"Work [{self.account.email}] → {recipient['email']} ✓")
+                    logger.debug(f"Work [{self.account.email}] -> {recipient['email']} ")
 
                 except Exception as e:
                     error_msg = str(e)
                     self.error_count += 1
                     self.consecutive_errors += 1
-                    logger.error(f"Work [{self.account.email}] → {recipient['email']} ✗: {error_msg}")
+                    logger.error(f"Work [{self.account.email}] -> {recipient['email']} : {error_msg}")
 
                     # Record error stat
                     self._record_stat(
@@ -475,11 +475,11 @@ class WorkSession:
         await page.keyboard.press("Tab")
         await _human_delay(0.5, 1)
 
-        # Fill "Subject" (may contain Cyrillic — use JS)
+        # Fill "Subject" (may contain Cyrillic - use JS)
         await _type_human(page, 'input#compose-subject-input', subject)
         await _human_delay(0.3, 0.8)
 
-        # Fill "Body" (contenteditable div — use JS for all text)
+        # Fill "Body" (contenteditable div - use JS for all text)
         await _type_human(
             page, 'div[aria-label="Message body"]',
             body, is_contenteditable=True,
@@ -597,7 +597,7 @@ async def run_work_task(
         if not accounts:
             logger.error("Work: no eligible accounts")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Process stopped because — no available accounts in selected farms")
+                        stop_reason="Process stopped because - no available accounts in selected farms")
             db.add(task); db.commit()
             return
 
@@ -613,7 +613,7 @@ async def run_work_task(
         if not all_recipients:
             logger.error("Work: no recipients loaded")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Process stopped because — no recipients in selected databases (empty or not found)")
+                        stop_reason="Process stopped because - no recipients in selected databases (empty or not found)")
             db.add(task); db.commit()
             return
 
@@ -631,7 +631,7 @@ async def run_work_task(
         if not all_recipients:
             logger.warning("Work: all recipients already sent")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Process stopped — all recipients already received emails (no resend needed)")
+                        stop_reason="Process stopped - all recipients already received emails (no resend needed)")
             db.add(task); db.commit()
             return
 
@@ -652,11 +652,11 @@ async def run_work_task(
                         lines = [l.strip() for l in f if l.strip().startswith("http")]
                         all_link_urls.extend(lines)
 
-        # If link packs were selected but no links loaded — stop
+        # If link packs were selected but no links loaded - stop
         if link_database_ids and not all_link_urls:
             logger.error("Work: link packs selected but no links loaded")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Process stopped because — link packs selected but links not loaded (files empty or not found)")
+                        stop_reason="Process stopped because - link packs selected but links not loaded (files empty or not found)")
             db.add(task); db.commit()
             return
 
@@ -669,7 +669,7 @@ async def run_work_task(
         if not template_triples:
             logger.error("Work: no templates")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Process stopped — no templates for mailing")
+                        stop_reason="Process stopped - no templates for mailing")
             db.add(task); db.commit()
             return
 
@@ -729,7 +729,7 @@ async def run_work_task(
 
         if not account_batches:
             task.status = TaskStatus.STOPPED
-            task.stop_reason = "Process stopped — no data for account distribution"
+            task.stop_reason = "Process stopped - no data for account distribution"
             task.completed_at = datetime.utcnow()
             db.commit()
             return
@@ -789,8 +789,8 @@ async def run_work_task(
                     # Check if links exhausted after this session
                     if link_database_ids and link_rotator.next() is None and max_link_uses > 0:
                         links_exhausted[0] = True
-                        exhaustion_reason[0] = "Thread завершился потому что — ссылки for писем закончились (все использованы до лимита)"
-                        logger.warning(f"Work [{account.email}]: links exhausted — signaling stop")
+                        exhaustion_reason[0] = "Thread завершился потому что - ссылки for писем закончились (все использованы до лимита)"
+                        logger.warning(f"Work [{account.email}]: links exhausted - signaling stop")
 
             # Launch all account workers with staggered start
             async_tasks = []
@@ -823,7 +823,7 @@ async def run_work_task(
         if task and task.id:
             try:
                 task.status = TaskStatus.FAILED
-                task.stop_reason = f"Process stopped — critical error: {str(e)[:200]}"
+                task.stop_reason = f"Process stopped - critical error: {str(e)[:200]}"
                 task.completed_at = datetime.utcnow()
                 db.commit()
             except Exception:

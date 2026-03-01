@@ -1,7 +1,7 @@
 """
-Leomail v4 — Auto-update Service (EXE edition)
+Leomail v4 - Auto-update Service (EXE edition)
 Checks GitHub Releases for updates, downloads ZIP, prepares updater.bat.
-user_data/ is never touched — it lives outside _internal/.
+user_data/ is never touched - it lives outside _internal/.
 """
 import os
 import sys

@@ -1,5 +1,5 @@
 """
-Leomail v2.2 — Error Handler API Router
+Leomail v2.2 - Error Handler API Router
 Error statistics and ban/bounce monitoring endpoints.
 """
 from fastapi import APIRouter

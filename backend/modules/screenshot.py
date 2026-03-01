@@ -1,5 +1,5 @@
 """
-Leomail v3 — Shared Screenshot Utility
+Leomail v3 - Shared Screenshot Utility
 Auto-captures debug screenshots at key flow points in all engines.
 Used by warmup, work, and birth engines.
 """

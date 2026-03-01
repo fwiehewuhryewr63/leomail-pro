@@ -1,5 +1,5 @@
 """
-Leomail v3 — Work (Mailing) Router
+Leomail v3 - Work (Mailing) Router
 API endpoints for starting and managing mass mailing campaigns.
 """
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -189,7 +189,7 @@ async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
     if template_count == 0:
         warnings.append("No templates")
     elif template_count < 3:
-        warnings.append(f"Few templates ({template_count}) — frequent repeats")
+        warnings.append(f"Few templates ({template_count}) - frequent repeats")
 
     # 4. Links
     total_links = 0
@@ -212,13 +212,13 @@ async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
         effective_links = 0
 
     if request.link_database_ids and effective_links > 0 and effective_links < remaining:
-        warnings.append(f"Links ({effective_links}) less than recipients ({remaining}) — some emails will have no links")
+        warnings.append(f"Links ({effective_links}) less than recipients ({remaining}) - some emails will have no links")
 
     # 5. Capacity calculation
     avg_emails = (request.emails_per_day_min + request.emails_per_day_max) / 2
     total_capacity = int(account_count * avg_emails)
     if total_capacity > 0 and total_capacity < remaining:
-        warnings.append(f"Capacity ({total_capacity} emails) less than recipients ({remaining}) — will take multiple days")
+        warnings.append(f"Capacity ({total_capacity} emails) less than recipients ({remaining}) - will take multiple days")
 
     # 6. ETA
     avg_delay = (request.delay_min + request.delay_max) / 2

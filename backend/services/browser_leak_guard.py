@@ -1,5 +1,5 @@
 """
-Browser Leak Guard — detects and kills orphaned Chromium/Playwright processes.
+Browser Leak Guard - detects and kills orphaned Chromium/Playwright processes.
 Prevents memory leaks from browser processes that survive after tasks complete.
 """
 import os
@@ -11,7 +11,7 @@ try:
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
-    logger.warning("psutil not installed — browser leak guard disabled")
+    logger.warning("psutil not installed - browser leak guard disabled")
 
 
 # Process names to look for (Playwright uses these)
@@ -130,7 +130,7 @@ async def periodic_leak_guard(interval_seconds: int = 120, max_age_seconds: int 
     Run as asyncio.create_task(periodic_leak_guard()) on startup.
     """
     import asyncio
-    logger.info(f"[LeakGuard] Started — checking every {interval_seconds}s for processes older than {max_age_seconds}s")
+    logger.info(f"[LeakGuard] Started - checking every {interval_seconds}s for processes older than {max_age_seconds}s")
 
     while True:
         try:

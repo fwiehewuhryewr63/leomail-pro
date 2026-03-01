@@ -1,5 +1,5 @@
 """
-Leomail v3 — Birth Helpers
+Leomail v3 - Birth Helpers
 Shared utility functions for all provider registration engines.
 """
 import asyncio
@@ -63,9 +63,9 @@ def export_account_to_file(account, extra_fields: dict = None):
         with open(ACCOUNTS_EXPORT_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-        logger.info(f"📋 Account exported: {email} → {ACCOUNTS_EXPORT_FILE}")
+        logger.info(f"Account exported: {email} -> {ACCOUNTS_EXPORT_FILE}")
     except Exception as e:
-        logger.warning(f"📋 Export failed for {getattr(account, 'email', '?')}: {e}")
+        logger.warning(f"Export failed for {getattr(account, 'email', '?')}: {e}")
 
 
 def get_sms_provider(provider_name: str):
@@ -106,7 +106,7 @@ def get_sms_chain(primary: str) -> list:
 
 # ── Shared Phone ↔ Country Mappings (used by Yahoo, AOL, Gmail) ──
 
-# SMS provider country code → phone prefix (e.g. "us" → "1", "br" → "55")
+# SMS provider country code -> phone prefix (e.g. "us" -> "1", "br" -> "55")
 PHONE_COUNTRY_MAP = {
     "ru": "7", "ua": "380", "kz": "7", "cn": "86", "ph": "63", "id": "62",
     "my": "60", "ke": "254", "tz": "255", "br": "55", "us": "1", "us_v": "1",
@@ -122,7 +122,7 @@ PHONE_COUNTRY_MAP = {
     "hr": "385", "si": "386", "lv": "371", "lt": "370", "uy": "598", "bo": "591",
 }
 
-# Reverse: phone prefix → SMS provider country code (e.g. "55" → "br", "1" → "us")
+# Reverse: phone prefix -> SMS provider country code (e.g. "55" -> "br", "1" -> "us")
 PREFIX_TO_SMS_COUNTRY = {}
 for _sms_cc, _prefix in PHONE_COUNTRY_MAP.items():
     if _prefix not in PREFIX_TO_SMS_COUNTRY:
@@ -132,7 +132,7 @@ for _sms_cc, _prefix in PHONE_COUNTRY_MAP.items():
 PREFIX_TO_SMS_COUNTRY["1"] = "us"   # +1 = US (not Canada or US Virtual)
 PREFIX_TO_SMS_COUNTRY["7"] = "ru"   # +7 = Russia (not Kazakhstan)
 
-# ISO2 → SMS provider country code (e.g. "BR" → "br", "US" → "us")
+# ISO2 -> SMS provider country code (e.g. "BR" -> "br", "US" -> "us")
 ISO2_TO_SMS_COUNTRY = {
     "RU": "ru", "UA": "ua", "KZ": "kz", "CN": "cn", "PH": "ph", "ID": "id",
     "MY": "my", "KE": "ke", "TZ": "tz", "BR": "br", "US": "us",
@@ -148,7 +148,7 @@ ISO2_TO_SMS_COUNTRY = {
     "HR": "hr", "SI": "si", "LV": "lv", "LT": "lt", "UY": "uy", "BO": "bo",
 }
 
-# Reverse: SMS provider country code → ISO2 (e.g. "br" → "BR", "uk" → "GB")
+# Reverse: SMS provider country code -> ISO2 (e.g. "br" -> "BR", "uk" -> "GB")
 COUNTRY_TO_ISO2 = {v: k for k, v in ISO2_TO_SMS_COUNTRY.items()}
 
 # Priority order when no specific country detected
@@ -270,7 +270,7 @@ async def order_sms_with_chain(
         _err(f"{service.upper()} requires SMS but no SMS provider configured")
         return None, None, []
 
-    # Exponential backoff — wait if previous attempts failed
+    # Exponential backoff - wait if previous attempts failed
     backoff_delay = _get_sms_backoff_delay(service)
     if backoff_delay > 0:
         _log(f"[WAIT] SMS backoff: waiting {backoff_delay:.0f}с before ordering ({_sms_backoff.get(service, {}).get('fails', 0)} consecutive fails)")
@@ -285,9 +285,9 @@ async def order_sms_with_chain(
         proxy_sms = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
         if proxy_sms:
             expanded_countries.append(proxy_sms)
-            _log(f"Proxy geo {proxy_geo} → SMS country: {proxy_sms}")
+            _log(f"Proxy geo {proxy_geo} -> SMS country: {proxy_sms}")
 
-    # Priority 2: dropdown scraping (Yahoo/AOL — detect page's displayed country)
+    # Priority 2: dropdown scraping (Yahoo/AOL - detect page's displayed country)
     dropdown_countries = []
     if scrape_dropdown and page:
         prefixes = await scrape_phone_dropdown(page, _log)
@@ -347,7 +347,7 @@ async def order_sms_with_chain(
                     provider.order_number_from_countries, service, expanded_countries
                 )
                 if order and "error" not in order:
-                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} — {order.get('number', '')}")
+                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} - {order.get('number', '')}")
                     _reset_sms_backoff(service)
                     return order, provider, expanded_countries
                 _log(f"{provider_name} from_countries: {order.get('error', '') if order else 'empty'}")
@@ -359,7 +359,7 @@ async def order_sms_with_chain(
             try:
                 order = await asyncio.to_thread(provider.order_number, service, country)
                 if order and "error" not in order:
-                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} — {order.get('number', '')}")
+                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} - {order.get('number', '')}")
                     _reset_sms_backoff(service)
                     return order, provider, expanded_countries
             except Exception as e:
@@ -406,7 +406,7 @@ async def order_sms_retry(
                 if number in used_numbers:
                     _log(f"Number {number} already used, skipping")
                     continue
-                _log(f"[OK] Retry: number from {country} — {number}")
+                _log(f"[OK] Retry: number from {country} - {number}")
                 return order
         except Exception as e:
             _log(f"Retry {country}: {e}")
@@ -520,7 +520,7 @@ async def check_error_on_page(page) -> str | None:
 async def fluent_combobox_select(page, button_selectors: list[str], value: str, label: str, _log, timeout=5000):
     """Select a value from a Fluent UI combobox (button[role=combobox] + div[role=listbox]).
     
-    MS signup uses Fluent UI — dropdowns are buttons that open a listbox of div[role=option] items.
+    MS signup uses Fluent UI - dropdowns are buttons that open a listbox of div[role=option] items.
     """
     btn = None
     for sel in button_selectors:

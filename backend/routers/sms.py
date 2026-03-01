@@ -1,5 +1,5 @@
 """
-Leomail v2.2 — SMS API Router
+Leomail v2.2 - SMS API Router
 Pricing, country availability, and SMS service endpoints.
 """
 from fastapi import APIRouter

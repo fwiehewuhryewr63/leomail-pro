@@ -1,5 +1,5 @@
 """
-Leomail v4 — GEO Resolver
+Leomail v4 - GEO Resolver
 IP-based geo detection, SMS country auto-priority, GEO consistency validation.
 Ensures IP ↔ timezone ↔ language ↔ SMS country are all synchronized.
 """
@@ -9,9 +9,9 @@ from loguru import logger
 from ..data.geo_data import get_country, COUNTRIES, get_simsms_country_code
 
 
-# ── IP → Country detection ─────────────────────────────────────────────────────
+# ── IP -> Country detection ─────────────────────────────────────────────────────
 
-# Free GeoIP services (fallback chain — no API key needed)
+# Free GeoIP services (fallback chain - no API key needed)
 GEOIP_SERVICES = [
     {
         "url": "http://ip-api.com/json/{ip}?fields=countryCode,timezone,city,query",
@@ -56,7 +56,7 @@ def resolve_geo_from_ip(ip: str) -> dict | None:
                     "timezone": tz or "",
                     "city": data.get("city", ""),
                 }
-                logger.debug(f"GEO resolved: {ip} → {result['country']} ({tz})")
+                logger.debug(f"GEO resolved: {ip} -> {result['country']} ({tz})")
                 return result
         except Exception as e:
             logger.debug(f"GeoIP service failed ({service['url'][:30]}...): {e}")

@@ -1,5 +1,5 @@
 """
-Leomail v2.1 — Resource Calculator API
+Leomail v2.1 - Resource Calculator API
 Serves server health + thread recommendations + active thread listing + batch resource loading
 """
 from fastapi import APIRouter, Depends
@@ -61,7 +61,7 @@ async def active_threads(db: Session = Depends(get_db)):
     for t in threads:
         task = tasks_map.get(t.task_id)
 
-        # Extract provider from Task.details: "Registering 10 gmail accounts" → "gmail"
+        # Extract provider from Task.details: "Registering 10 gmail accounts" -> "gmail"
         provider = ""
         if task and task.details:
             details_lower = task.details.lower()

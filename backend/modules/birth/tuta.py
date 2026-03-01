@@ -1,7 +1,7 @@
 """
-Leomail v3 — Tuta (Tutanota) Registration Engine
+Leomail v3 - Tuta (Tutanota) Registration Engine
 Registers tuta.com / tutanota.com / tutamail.com accounts.
-Flow: tuta.com/#signup → plan → email+domain → password → clock-face CAPTCHA → recovery code
+Flow: tuta.com/#signup -> plan -> email+domain -> password -> clock-face CAPTCHA -> recovery code
 No phone verification required. Free accounts may require 48h activation wait.
 """
 import asyncio
@@ -267,7 +267,7 @@ async def register_single_tuta(
             # Look for clock captcha
             clock_captcha = page.locator('canvas, img[src*="captcha"], [class*="captcha"]').first
             if await clock_captcha.is_visible(timeout=10000):
-                _log("Clock CAPTCHA detected — solving via CaptchaChain...")
+                _log("Clock CAPTCHA detected - solving via CaptchaChain...")
                 captcha_input = page.locator('input[type="text"]').first
                 if await captcha_input.is_visible(timeout=5000):
                     captcha_chain = get_captcha_chain()

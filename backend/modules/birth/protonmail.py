@@ -1,7 +1,7 @@
 """
-Leomail v3 — ProtonMail Registration Engine
+Leomail v3 - ProtonMail Registration Engine
 Registers proton.me / protonmail.com accounts.
-Flow: account.proton.me/signup → username → password → hCaptcha → (optional recovery email)
+Flow: account.proton.me/signup -> username -> password -> hCaptcha -> (optional recovery email)
 No phone verification required for basic registration.
 """
 import asyncio
@@ -61,7 +61,7 @@ async def register_single_protonmail(
     password = generate_password()
     birthday = generate_birthday()
     username = generate_username(first_name, last_name)
-    # ProtonMail username — letters, numbers, dots, dashes, underscores
+    # ProtonMail username - letters, numbers, dots, dashes, underscores
     username = username.replace("_", ".").lower()
     email = f"{username}@proton.me"
 
@@ -232,7 +232,7 @@ async def register_single_protonmail(
             hcaptcha_frame = page.frame_locator('iframe[src*="hcaptcha"]')
             checkbox = hcaptcha_frame.locator('#checkbox')
             if await checkbox.is_visible(timeout=5000):
-                _log("hCaptcha detected — solving via CaptchaChain...")
+                _log("hCaptcha detected - solving via CaptchaChain...")
                 captcha_chain = get_captcha_chain()
                 if captcha_chain.providers:
                     try:
@@ -261,7 +261,7 @@ async def register_single_protonmail(
                                 timeout=120,
                             )
                             if solution:
-                                # Enhanced token injection — 3 strategies
+                                # Enhanced token injection - 3 strategies
                                 await page.evaluate(f"""
                                     (() => {{
                                         const token = "{solution}";
@@ -297,7 +297,7 @@ async def register_single_protonmail(
                     except Exception as ce:
                         _err(f"hCaptcha error: {ce}")
                 else:
-                    # No providers — try clicking checkbox manually
+                    # No providers - try clicking checkbox manually
                     await checkbox.click()
                     await _human_delay(3.0, 5.0)
                     _log("hCaptcha: clicking checkbox (no providers)")

@@ -63,7 +63,7 @@ async def health_check():
 
 @router.get("/health/resources")
 async def resource_health(db: Session = Depends(get_db)):
-    """Full system resource health check — polled by dashboard."""
+    """Full system resource health check - polled by dashboard."""
     from ..services.resource_auditor import check_system_health
     return check_system_health(db)
 
@@ -189,7 +189,7 @@ async def dashboard_stats(db: Session = Depends(get_db)):
     for rdb in all_dbs:
         sent_count = db.query(MailingStats).filter(
             MailingStats.status == "sent",
-        ).count()  # Global sent — ideally per-DB, but we track globally
+        ).count()  # Global sent - ideally per-DB, but we track globally
         database_progress.append({
             "id": rdb.id, "name": rdb.name,
             "total": rdb.total_count or 0,
@@ -250,7 +250,7 @@ async def dashboard_stats(db: Session = Depends(get_db)):
 @router.get("/dashboard/analytics")
 async def dashboard_analytics(db: Session = Depends(get_db)):
     """
-    Advanced analytics — IMAP rates, proxy cooldown, browser memory, SMS backoff.
+    Advanced analytics - IMAP rates, proxy cooldown, browser memory, SMS backoff.
     Covers all new features from Steps 1-9.
     """
     from sqlalchemy import func

@@ -1,5 +1,5 @@
 """
-Leomail v2.2 — Human-Like Engine
+Leomail v2.2 - Human-Like Engine
 Ensures natural, non-duplicate behavior with AI auto-config and manual delay overrides.
 """
 import random
@@ -180,7 +180,7 @@ class HumanEngine:
 
         # Strategy: conservative for small batches, aggressive for large
         if per_account <= 30:
-            # Low volume — can be faster
+            # Low volume - can be faster
             config = {
                 "per_day_min": max(5, int(per_account * 0.6)),
                 "per_day_max": max(10, int(per_account)),
@@ -193,7 +193,7 @@ class HumanEngine:
                 "risk_level": "low",
             }
         elif per_account <= 100:
-            # Medium — balanced
+            # Medium - balanced
             daily = min(50, int(per_account * 0.5))
             days_needed = max(1, int(per_account / daily))
             config = {
@@ -208,7 +208,7 @@ class HumanEngine:
                 "risk_level": "medium",
             }
         else:
-            # High volume — spread across days
+            # High volume - spread across days
             daily = min(40, int(per_account * 0.3))
             days_needed = max(2, int(per_account / daily))
             config = {

@@ -1,5 +1,5 @@
 """
-Leomail v2.2 — Human Engine API Router
+Leomail v2.2 - Human Engine API Router
 Auto-config, custom delays, identity generation.
 """
 from fastapi import APIRouter

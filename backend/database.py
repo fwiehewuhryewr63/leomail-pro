@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from pathlib import Path
 import sys
 
-# Resolve paths:  in EXE → next to Leomail.exe,  in dev → project root
+# Resolve paths:  in EXE -> next to Leomail.exe,  in dev -> project root
 if getattr(sys, 'frozen', False):
     PROJECT_ROOT = Path(sys.executable).parent  # e.g. Desktop/Leomail/
 else:

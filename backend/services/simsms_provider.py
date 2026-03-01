@@ -1,5 +1,5 @@
 """
-Leomail v3.0 — SimSMS.org Provider
+Leomail v3.0 - SimSMS.org Provider
 Full API integration based on https://simsms.org/new_theme_api.html
 Uses handler_api.php endpoint with text-based responses.
 """
@@ -194,7 +194,7 @@ class SimSmsProvider:
             available.sort(key=lambda c: all_prices.get(c, 0), reverse=True)
             if all_prices:
                 top3 = [(c, all_prices.get(c, "?")) for c in available[:3]]
-                logger.info(f"SimSMS: sorted by price DESC — top: {top3}")
+                logger.info(f"SimSMS: sorted by price DESC - top: {top3}")
         except Exception as e:
             logger.warning(f"SimSMS: price sort failed ({e}), using random")
             random.shuffle(available)
@@ -209,7 +209,7 @@ class SimSmsProvider:
                     parts = result.split(":")
                     if len(parts) >= 3:
                         cost = all_prices.get(country, "?") if 'all_prices' in dir() else "?"
-                        logger.info(f"SimSMS: [OK] PREMIUM {country} (${cost}) — {parts[2]}")
+                        logger.info(f"SimSMS: [OK] PREMIUM {country} (${cost}) - {parts[2]}")
                         self._last_country = country
                         return {
                             "id": parts[1],
@@ -217,7 +217,7 @@ class SimSmsProvider:
                             "country": country,
                             "service": service,
                         }
-                logger.debug(f"SimSMS: {country} ({country_code}) → {result}")
+                logger.debug(f"SimSMS: {country} ({country_code}) -> {result}")
 
             if attempt < 2:
                 logger.info(f"SimSMS: no numbers, retry {attempt+1}/3 in 5s...")
@@ -231,7 +231,7 @@ class SimSmsProvider:
     def order_best_number(self, service: str = "gmail") -> dict:
         """
         Auto-select MOST EXPENSIVE country for best quality real numbers.
-        Sorts by price descending — premium providers first.
+        Sorts by price descending - premium providers first.
         Falls back to hardcoded premium country list if prices unavailable.
         """
         service_code = SERVICE_CODES.get(service, "go")
@@ -246,7 +246,7 @@ class SimSmsProvider:
             all_countries.sort(key=lambda x: x["cost"], reverse=True)
             for entry in all_countries[:5]:
                 country_code = entry["country_code"]
-                logger.info(f"SimSMS: trying PREMIUM {entry['country']} ({country_code}) — ${entry['cost']}")
+                logger.info(f"SimSMS: trying PREMIUM {entry['country']} ({country_code}) - ${entry['cost']}")
                 result = self._request("getNumber", service=service_code, country=country_code)
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
@@ -259,7 +259,7 @@ class SimSmsProvider:
                             "cost": entry["cost"],
                             "service": service,
                         }
-                logger.info(f"SimSMS: {entry['country']} → {result}")
+                logger.info(f"SimSMS: {entry['country']} -> {result}")
 
         # Fallback: try hardcoded premium countries directly
         logger.info(f"SimSMS: prices unavailable, trying FALLBACK countries...")
@@ -271,7 +271,7 @@ class SimSmsProvider:
             if result.startswith("ACCESS_NUMBER:"):
                 parts = result.split(":")
                 if len(parts) >= 3:
-                    logger.info(f"SimSMS: [OK] FALLBACK {country} — {parts[2]}")
+                    logger.info(f"SimSMS: [OK] FALLBACK {country} - {parts[2]}")
                     self._last_country = country
                     return {
                         "id": parts[1],
@@ -279,14 +279,14 @@ class SimSmsProvider:
                         "country": country,
                         "service": service,
                     }
-            logger.debug(f"SimSMS fallback: {country} → {result}")
+            logger.debug(f"SimSMS fallback: {country} -> {result}")
 
         return {"error": "No available numbers (neither priced nor fallback)"}
 
     def order_number(self, service: str = "gmail", country: str = "auto") -> dict:
         """
         Order a phone number.
-        country="auto" → auto-select cheapest country.
+        country="auto" -> auto-select cheapest country.
         Response: ACCESS_NUMBER:$id:$number
         Errors: NO_NUMBERS, NO_BALANCE, BAD_KEY, BAD_SERVICE
         """
@@ -330,7 +330,7 @@ class SimSmsProvider:
         Wait for SMS code.
         Response: STATUS_OK:code
         Waiting: STATUS_WAIT_CODE
-        cancel_event: threading.Event — if set, abort immediately
+        cancel_event: threading.Event - if set, abort immediately
         """
         start = time.time()
         while time.time() - start < timeout:
@@ -373,7 +373,7 @@ class SimSmsProvider:
             else:
                 return {"error": f"SMS receive error: {text}"}
 
-        return {"error": f"Timeout {timeout}s — SMS not received", "timeout": True}
+        return {"error": f"Timeout {timeout}s - SMS not received", "timeout": True}
 
     def set_status(self, order_id: str, status: int) -> str:
         """

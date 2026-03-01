@@ -1,5 +1,5 @@
 """
-Leomail v3 — Resource Calculator
+Leomail v3 - Resource Calculator
 Accurate RAM estimates for browser-based (Playwright) operations.
 """
 import psutil

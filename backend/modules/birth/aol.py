@@ -1,5 +1,5 @@
 """
-Leomail v3 — AOL Registration Engine (with Vision CV)
+Leomail v3 - AOL Registration Engine (with Vision CV)
 Upgraded to Yahoo-level: country detection, phone retry, human behavior, challenge handling.
 """
 import asyncio
@@ -135,7 +135,7 @@ async def register_single_aol(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
+        # Fast warmup - just a quick Google visit (2-3s instead of 15-30s)
         _log("Quick session warmup...")
         try:
             await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
@@ -160,7 +160,7 @@ async def register_single_aol(
         # CRITICAL: Check if proxy is dead
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"[ERR] Proxy DEAD — page failed to load (URL: {current_url})")
+            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
             if proxy:
                 try:
                     proxy.status = ProxyStatus.DEAD
@@ -172,13 +172,13 @@ async def register_single_aol(
 
         # Check if AOL returned error page (E500, rate limit, etc.)
         if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
-            _err(f"[ERR] AOL returned error page — IP blocked or rate limited (URL: {current_url})")
+            _err(f"[ERR] AOL returned error page - IP blocked or rate limited (URL: {current_url})")
             return None
 
         await random_mouse_move(page, steps=3)
         _log(f"Page: {page.url}")
 
-        # AOL: all fields on one page — fill with human-like behavior
+        # AOL: all fields on one page - fill with human-like behavior
         _log(f"Entering data: {first_name} {last_name} / {username}")
 
         # ── FAST ERROR CHECK (2s vs 20s timeout) ──
@@ -211,7 +211,7 @@ async def register_single_aol(
             await _human_fill(page, ln_sel, last_name)
             await _human_delay(1.2, 2.8)
 
-        # Small scroll down — humans do this
+        # Small scroll down - humans do this
         await page.mouse.wheel(0, random.randint(50, 150))
         await _human_delay(0.5, 1.0)
 
@@ -236,7 +236,7 @@ async def register_single_aol(
             await _human_fill(page, pwd_sel, password)
             await _human_delay(1.0, 2.0)
 
-        # Birthday — scroll down a bit first
+        # Birthday - scroll down a bit first
         await page.mouse.wheel(0, random.randint(30, 80))
         await _human_delay(0.5, 1.0)
 
@@ -277,7 +277,7 @@ async def register_single_aol(
         await page.mouse.wheel(0, random.randint(100, 200))
         await _human_delay(0.8, 1.5)
 
-        # Click Next / Continue / Submit — with "Email not available" retry
+        # Click Next / Continue / Submit - with "Email not available" retry
         _log("Submitting form (Next)...")
         submit_btn = await _wait_for_any(page, [
             'button[name="signup"]',
@@ -291,7 +291,7 @@ async def register_single_aol(
                 await page.locator(submit_btn).first.wait_for(state="attached", timeout=3000)
                 await _human_click(page, submit_btn)
             except Exception:
-                _log("Button disabled — trying Enter...")
+                _log("Button disabled - trying Enter...")
                 await page.keyboard.press("Enter")
         else:
             await page.keyboard.press("Enter")
@@ -340,7 +340,7 @@ async def register_single_aol(
             else:
                 break
         else:
-            _err(f"AOL rejected 3 usernames in a row — try different names")
+            _err(f"AOL rejected 3 usernames in a row - try different names")
             return None
 
         # ── Post-submit: Handle AOL's "Add your phone number" page ──
@@ -433,7 +433,7 @@ async def register_single_aol(
             country_changed = not country_needs_change
 
             if country_needs_change:
-                _log(f"AOL shows +{aol_page_prefix}, SMS number +{sms_prefix} — need to change")
+                _log(f"AOL shows +{aol_page_prefix}, SMS number +{sms_prefix} - need to change")
                 try:
                     changed = await page.evaluate(f"""() => {{
                         const inputs = document.querySelectorAll('input');
@@ -459,7 +459,7 @@ async def register_single_aol(
                 if not country_changed:
                     page_country = PREFIX_TO_SMS_COUNTRY.get(aol_page_prefix)
                     if page_country:
-                        _log(f"[WARN] Не удалось сменить +{aol_page_prefix}→+{sms_prefix}. "
+                        _log(f"[WARN] Не удалось сменить +{aol_page_prefix}->+{sms_prefix}. "
                              f"Canceling number and ordering from {page_country}")
                         try:
                             await asyncio.to_thread(sms_provider.cancel_order, order_id)
@@ -485,7 +485,7 @@ async def register_single_aol(
                             _err(f"Failed to order number for +{aol_page_prefix}")
                             return None
                     else:
-                        _log(f"[WARN] Failed to change code, unknown prefix +{aol_page_prefix} — entering full number")
+                        _log(f"[WARN] Failed to change code, unknown prefix +{aol_page_prefix} - entering full number")
                         local_number = f"{sms_prefix}{local_number}"
 
             # Human-like: read the page text first
@@ -607,14 +607,14 @@ async def register_single_aol(
                             phone_still_visible = False
 
                         if phone_still_visible:
-                            _log("[WARN] Phone form still visible — number not accepted, trying another")
+                            _log("[WARN] Phone form still visible - number not accepted, trying another")
                             is_rejected = True
                         else:
                             phone_accepted = True
                             break
 
-                    # Phone rejected — cancel old number and get a new one
-                    _log(f"AOL rejected number {display_phone} — getting new one")
+                    # Phone rejected - cancel old number and get a new one
+                    _log(f"AOL rejected number {display_phone} - getting new one")
                     await _debug_screenshot(page, f"aol_phone_rejected_{phone_attempt}", _log)
                     try:
                         await asyncio.to_thread(sms_provider.cancel_number, order_id)
@@ -666,14 +666,14 @@ async def register_single_aol(
                         return None
 
                 if not phone_accepted:
-                    _err(f"AOL rejected {max_phone_retries} numbers in a row — proxy or SMS service issue")
+                    _err(f"AOL rejected {max_phone_retries} numbers in a row - proxy or SMS service issue")
                     return None
             else:
-                _log("[WARN] Get code by text button not found — trying Enter")
+                _log("[WARN] Get code by text button not found - trying Enter")
                 await page.keyboard.press("Enter")
                 await _human_delay(4, 7)
         else:
-            _log("[WARN] Phone page not found — AOL may not have moved to next step")
+            _log("[WARN] Phone page not found - AOL may not have moved to next step")
             await _debug_screenshot(page, "4_aol_no_phone_page", _log)
             return None
 
@@ -718,7 +718,7 @@ async def register_single_aol(
             if first_digit:
                 _log(f"[OK] SMS code field found: {first_digit}")
             else:
-                _log("[WARN] SMS code field NOT FOUND — AOL did not show verification form!")
+                _log("[WARN] SMS code field NOT FOUND - AOL did not show verification form!")
                 _log(f"Current URL: {page.url}")
                 await _debug_screenshot(page, "aol_no_sms_field", _log)
                 try:
@@ -807,7 +807,7 @@ async def register_single_aol(
                 on_success = "/account/create/success" in final_url
                 if not on_create or on_success:
                     registration_success = True
-                    _log("[OK] Left registration page — counting as success")
+                    _log("[OK] Left registration page - counting as success")
 
             # Final check: look for error indicators
             if registration_success:
@@ -867,7 +867,7 @@ async def register_single_aol(
         except Exception as imap_e:
             logger.debug(f"[AOL] IMAP check skipped: {imap_e}")
 
-        # Post-registration warmup — visit inbox/settings to age the session
+        # Post-registration warmup - visit inbox/settings to age the session
         try:
             from ..human_behavior import post_registration_warmup
             _log("[OK] Post-reg session warmup...")

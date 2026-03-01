@@ -1,5 +1,5 @@
 """
-Leomail v4 — Resource Auditor
+Leomail v4 - Resource Auditor
 Standalone health check for all system resources.
 Polled by dashboard for real-time status.
 """

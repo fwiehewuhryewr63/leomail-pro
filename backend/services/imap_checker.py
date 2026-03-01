@@ -1,5 +1,5 @@
 """
-IMAP Login Verification — checks that a freshly created account can actually login.
+IMAP Login Verification - checks that a freshly created account can actually login.
 Runs as a quick post-birth check to separate "registered" from "verified working".
 """
 import imaplib
@@ -42,7 +42,7 @@ def imap_login_check(email: str, password: str, provider: str, timeout: int = 15
                 except Exception:
                     pass
                 imap.logout()
-                logger.info(f"[IMAP] [OK] {email} — login OK (inbox: {inbox_count})")
+                logger.info(f"[IMAP] [OK] {email} - login OK (inbox: {inbox_count})")
                 return {"success": True, "error": None, "inbox_count": inbox_count}
             else:
                 imap.logout()
@@ -51,7 +51,7 @@ def imap_login_check(email: str, password: str, provider: str, timeout: int = 15
             error_msg = str(e)
             # Yahoo-specific: "LOGIN Web login required" means app password needed
             if "Web login" in error_msg or "LOGIN" in error_msg:
-                logger.warning(f"[IMAP] [WARN] {email} — {error_msg} (may need app password)")
+                logger.warning(f"[IMAP] [WARN] {email} - {error_msg} (may need app password)")
             return {"success": False, "error": error_msg[:200], "inbox_count": None}
         finally:
             try:
@@ -65,7 +65,7 @@ def imap_login_check(email: str, password: str, provider: str, timeout: int = 15
 
 
 async def imap_login_check_async(email: str, password: str, provider: str, timeout: int = 15) -> dict:
-    """Async wrapper — runs IMAP check in a thread to avoid blocking the event loop."""
+    """Async wrapper - runs IMAP check in a thread to avoid blocking the event loop."""
     return await asyncio.to_thread(imap_login_check, email, password, provider, timeout)
 
 
@@ -79,7 +79,7 @@ async def verify_account_imap(account, db, _log=None, _err=None) -> bool:
 
     log_fn(f"IMAP check: {account.email}...")
 
-    # Wait a bit after birth — servers need time to propagate
+    # Wait a bit after birth - servers need time to propagate
     await asyncio.sleep(5)
 
     result = await imap_login_check_async(
@@ -98,7 +98,7 @@ async def verify_account_imap(account, db, _log=None, _err=None) -> bool:
             pass
         return True
     else:
-        err_fn(f"[WARN] IMAP fail: {account.email} — {result['error']}")
+        err_fn(f"[WARN] IMAP fail: {account.email} - {result['error']}")
         account.imap_verified = False
         account.imap_checked_at = datetime.utcnow()
         try:

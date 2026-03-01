@@ -1,5 +1,5 @@
 """
-Leomail v4 — Update Router
+Leomail v4 - Update Router
 EXE auto-update via GitHub Releases.
 """
 import os
@@ -127,7 +127,7 @@ async def download_and_apply():
 
         asyncio.create_task(_exit())
     else:
-        # Dev mode — just report ready
+        # Dev mode - just report ready
         result["success"] = True
         result["steps"].append("ready_dev_mode")
         result["message"] = "Update extracted. In dev mode, manually replace files."

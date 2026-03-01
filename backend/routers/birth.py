@@ -1,5 +1,5 @@
 """
-Leomail v3 — Birth Router
+Leomail v3 - Birth Router
 Pooled registration of Gmail/Outlook accounts with captcha, SMS, profiles.
 """
 from fastapi import APIRouter, Depends, BackgroundTasks
@@ -40,13 +40,13 @@ from ..services.engine_manager import engine_manager, EngineType
 
 router = APIRouter(prefix="/api/birth", tags=["birth"])
 
-# Global registry for active browser pages — allows screenshot/control from UI
+# Global registry for active browser pages - allows screenshot/control from UI
 ACTIVE_PAGES: dict[int, dict] = {}  # thread_log_id -> {"page": Page, "context": ctx}
 
 # Global cancel flag for birth tasks
 BIRTH_CANCEL: set = set()  # Set of task_ids to cancel
 
-# Global cancel event — interrupts blocking SMS waits instantly
+# Global cancel event - interrupts blocking SMS waits instantly
 import threading
 BIRTH_CANCEL_EVENT = threading.Event()
 
@@ -91,7 +91,7 @@ async def run_birth_task(request: BirthRequest):
         db.add(task)
         db.commit()
 
-        # Get proxy pool — filter by device type + provider usage limit (NO FALLBACK)
+        # Get proxy pool - filter by device type + provider usage limit (NO FALLBACK)
         proxy_manager = ProxyManager(db)
         proxy_pool = proxy_manager.get_proxy_pool(
             request.quantity,
@@ -103,11 +103,11 @@ async def run_birth_task(request: BirthRequest):
         if not proxy_pool:
             device_label = "MOBILE" if request.device_type.startswith("phone") else "SOCKS5/HTTP"
             task = Task(type="birth", status=TaskStatus.STOPPED, total_items=request.quantity,
-                        stop_reason=f"Process stopped — no suitable proxies ({device_label}) for {request.provider}. Load the required proxy type or reset counters.")
+                        stop_reason=f"Process stopped - no suitable proxies ({device_label}) for {request.provider}. Load the required proxy type or reset counters.")
             db.add(task); db.commit()
             return {"status": "error", "message": task.stop_reason}
 
-        # Create farm — auto-generate descriptive name: Date - Provider - GEO(names) - Lvl0
+        # Create farm - auto-generate descriptive name: Date - Provider - GEO(names) - Lvl0
         if request.farm_name:
             farm_name = request.farm_name
         else:
@@ -125,7 +125,7 @@ async def run_birth_task(request: BirthRequest):
         db.add(farm)
         db.commit()
 
-        # Load name pool from selected packs — COMBINATORIAL approach
+        # Load name pool from selected packs - COMBINATORIAL approach
         # Instead of using fixed (first,last) pairs, we collect ALL first names
         # and ALL last names separately, then combine randomly for near-infinite variations.
         # Example: 500 firsts × 500 lasts = 250,000 unique name combinations
@@ -201,7 +201,7 @@ async def run_birth_task(request: BirthRequest):
         if not name_pool or not first_names_list:
             logger.error(f"[Birth] [FAIL] Name pack empty or not selected! Registration impossible.")
             task.status = TaskStatus.STOPPED
-            task.stop_reason = "Process stopped — name pack empty or not selected"
+            task.stop_reason = "Process stopped - name pack empty or not selected"
             db.commit()
             return
 
@@ -209,11 +209,11 @@ async def run_birth_task(request: BirthRequest):
         browser_manager = BrowserManager(headless=False)
         await browser_manager.start()
 
-        # REQUIRE proxies — registration without proxy is forbidden
+        # REQUIRE proxies - registration without proxy is forbidden
         if not proxy_pool:
             logger.error("[Birth] [FAIL] No proxies available! Registration requires at least 1 proxy.")
             task.status = TaskStatus.STOPPED
-            task.stop_reason = "Process stopped — no proxies for registration"
+            task.stop_reason = "Process stopped - no proxies for registration"
             db.commit()
             return
 
@@ -237,10 +237,10 @@ async def run_birth_task(request: BirthRequest):
                         if success_counter[0] >= request.quantity:
                             return
                         if attempt_counter[0] >= max_attempts:
-                            task.stop_reason = f"Process stopped — attempt limit reached ({max_attempts}). Registered {success_counter[0]} of {request.quantity}"
+                            task.stop_reason = f"Process stopped - attempt limit reached ({max_attempts}). Registered {success_counter[0]} of {request.quantity}"
                             return
                         if consecutive_failures[0] >= 30:
-                            task.stop_reason = f"Process stopped because — 30 errors in a row. Registered {success_counter[0]} of {request.quantity}. Check proxies and SMS."
+                            task.stop_reason = f"Process stopped because - 30 errors in a row. Registered {success_counter[0]} of {request.quantity}. Check proxies and SMS."
                             return
                         if consecutive_failures[0] >= 15 and consecutive_failures[0] % 15 == 0:
                             needs_cooldown = True
@@ -277,7 +277,7 @@ async def run_birth_task(request: BirthRequest):
                                 # Try clearing blacklist after cooldown instead of stopping
                                 logger.warning(f"[Birth] Worker {worker_id}: all proxies blacklisted ({len(proxy_blacklist)}), cooldown 5min then retry...")
                                 await asyncio.sleep(300)  # 5 min cooldown
-                                proxy_blacklist.clear()  # Reset blacklist — give proxies another chance
+                                proxy_blacklist.clear()  # Reset blacklist - give proxies another chance
                                 continue
                             elif proxy_pool:
                                 logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting...")
@@ -310,7 +310,7 @@ async def run_birth_task(request: BirthRequest):
                         worker_name_pool = [name_pair]
 
                         # Thread-safe SMS: create per-worker COPY of sms provider
-                        # (fixes race condition — each worker gets own object)
+                        # (fixes race condition - each worker gets own object)
                         worker_sms = None
                         if sms:
                             worker_sms = copy.deepcopy(sms)
@@ -450,10 +450,10 @@ async def run_birth_task(request: BirthRequest):
                                     logger.info(f"[Birth] Proxy {proxy.host}: {attr} maxed to {limit} (burned for {request.provider})")
 
                             # Smart retry: blacklist country if SMS actually timed out
-                            # (NOT for "no numbers" or user cancel — only real delivery failure)
+                            # (NOT for "no numbers" or user cancel - only real delivery failure)
                             if worker_sms and hasattr(worker_sms, '_last_country') and worker_sms._last_country:
                                 sms_countries_list = getattr(worker_sms, '_sms_countries', []) or []
-                                # Don't blacklist if only 1 country selected — nowhere else to go
+                                # Don't blacklist if only 1 country selected - nowhere else to go
                                 if len(sms_countries_list) > 1:
                                     # Only blacklist on actual SMS delivery timeout, not other errors
                                     if "timeout" in err_msg and "sms not received" in err_msg:
@@ -500,7 +500,7 @@ async def run_birth_task(request: BirthRequest):
                 task.status = TaskStatus.COMPLETED
             else:
                 task.status = TaskStatus.STOPPED
-                task.stop_reason = f"Process stopped — registered {success_counter[0]} of {request.quantity} (rest — errors)"
+                task.stop_reason = f"Process stopped - registered {success_counter[0]} of {request.quantity} (rest - errors)"
             task.completed_at = datetime.utcnow()
             db.commit()
 
@@ -514,7 +514,7 @@ async def run_birth_task(request: BirthRequest):
         if task and task.id:
             try:
                 task.status = TaskStatus.FAILED
-                task.stop_reason = f"Process stopped — critical error: {str(e)[:200]}"
+                task.stop_reason = f"Process stopped - critical error: {str(e)[:200]}"
                 task.completed_at = datetime.utcnow()
                 db.commit()
             except Exception:
@@ -535,17 +535,17 @@ async def start_registration(request: BirthRequest, background_tasks: Background
 
 
 SMS_COUNTRY_NAMES = {
-    "ru": ("Russia", ""), "ua": ("Ukraine", "🇺🇦"), "kz": ("Kazakhstan", "🇰🇿"),
-    "cn": ("China", "🇨🇳"), "ph": ("Philippines", "🇵🇭"), "id": ("Indonesia", "🇮🇩"),
-    "ke": ("Kenya", "🇰🇪"), "br": ("Brazil", "🇧🇷"), "us": ("USA", "🇺🇸"),
-    "il": ("Israel", "🇮🇱"), "pl": ("Poland", "🇵🇱"), "uk": ("UK", "🇬🇧"),
-    "us_v": ("USA Virtual", "🇺🇸"), "ng": ("Nigeria", "🇳🇬"), "eg": ("Egypt", "🇪🇬"),
-    "fr": ("France", "🇫🇷"), "ie": ("Ireland", "🇮🇪"), "za": ("South Africa", "🇿🇦"),
-    "ro": ("Romania", "🇷🇴"), "se": ("Sweden", "🇸🇪"), "ee": ("Estonia", "🇪🇪"),
-    "ca": ("Canada", "🇨🇦"), "de": ("Germany", "🇩🇪"), "nl": ("Netherlands", "🇳🇱"),
-    "at": ("Austria", "🇦🇹"), "th": ("Thailand", "🇹🇭"), "mx": ("Mexico", "🇲🇽"),
-    "es": ("Spain", "🇪🇸"), "tr": ("Turkey", "🇹🇷"), "cz": ("Czechia", "🇨🇿"),
-    "pe": ("Peru", "🇵🇪"), "nz": ("New Zealand", "🇳🇿"),
+    "ru": ("Russia", ""), "ua": ("Ukraine", ""), "kz": ("Kazakhstan", ""),
+    "cn": ("China", ""), "ph": ("Philippines", ""), "id": ("Indonesia", ""),
+    "ke": ("Kenya", ""), "br": ("Brazil", ""), "us": ("USA", ""),
+    "il": ("Israel", ""), "pl": ("Poland", ""), "uk": ("UK", ""),
+    "us_v": ("USA Virtual", ""), "ng": ("Nigeria", ""), "eg": ("Egypt", ""),
+    "fr": ("France", ""), "ie": ("Ireland", ""), "za": ("South Africa", ""),
+    "ro": ("Romania", ""), "se": ("Sweden", ""), "ee": ("Estonia", ""),
+    "ca": ("Canada", ""), "de": ("Germany", ""), "nl": ("Netherlands", ""),
+    "at": ("Austria", ""), "th": ("Thailand", ""), "mx": ("Mexico", ""),
+    "es": ("Spain", ""), "tr": ("Turkey", ""), "cz": ("Czechia", ""),
+    "pe": ("Peru", ""), "nz": ("New Zealand", ""),
 }
 
 
@@ -555,7 +555,7 @@ async def get_sms_countries():
     from backend.services.simsms_provider import COUNTRY_CODES
     countries = []
     for code in COUNTRY_CODES:
-        name, flag = SMS_COUNTRY_NAMES.get(code, (code, "🏳️"))
+        name, flag = SMS_COUNTRY_NAMES.get(code, (code, ""))
         countries.append({"code": code, "name": name, "flag": flag})
     return {"countries": countries}
 

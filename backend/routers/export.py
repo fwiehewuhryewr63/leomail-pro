@@ -1,7 +1,7 @@
 """
-Export / Import router — full data portability.
-GET  /api/export  → download JSON with all accounts, proxies, farms, settings
-POST /api/import  → restore from uploaded JSON
+Export / Import router - full data portability.
+GET  /api/export  -> download JSON with all accounts, proxies, farms, settings
+POST /api/import  -> restore from uploaded JSON
 """
 from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import JSONResponse
@@ -22,7 +22,7 @@ def export_all(db: Session = Depends(get_db)):
     proxies = db.query(Proxy).all()
     farms = db.query(Farm).all()
 
-    # Build farm → account mapping
+    # Build farm -> account mapping
     farm_data = []
     for farm in farms:
         farm_accs = [a.email for a in farm.accounts] if farm.accounts else []

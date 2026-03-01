@@ -175,7 +175,7 @@ def parse_proxy_line(line: str) -> dict | None:
                 except ValueError:
                     return None
             elif p0_is_ip and p2_is_ip:
-                # Both IPs — default to host:port:user:pass
+                # Both IPs - default to host:port:user:pass
                 host = parts[0]
                 try:
                     port = int(parts[1])
@@ -183,7 +183,7 @@ def parse_proxy_line(line: str) -> dict | None:
                     return None
                 username, password = parts[2], parts[3]
             else:
-                # Neither is IP — check hostnames (with dots like proxy.com)
+                # Neither is IP - check hostnames (with dots like proxy.com)
                 p0_is_host = _looks_like_host(parts[0])
                 p2_is_host = _looks_like_host(parts[2])
                 if p0_is_host:
@@ -204,7 +204,7 @@ def parse_proxy_line(line: str) -> dict | None:
                     return None
 
         elif len(parts) == 3:
-            # host:port:user (no password) — rare but handle it
+            # host:port:user (no password) - rare but handle it
             if _looks_like_host(parts[0]):
                 host = parts[0]
                 try:
@@ -491,7 +491,7 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
 
 @router.post("/reset-counters")
 async def reset_counters(db: Session = Depends(get_db)):
-    """Reset per-provider usage counters on all proxies. Re-activates exhausted → active."""
+    """Reset per-provider usage counters on all proxies. Re-activates exhausted -> active."""
     pm = ProxyManager(db)
     result = pm.reset_all_counters()
     return result

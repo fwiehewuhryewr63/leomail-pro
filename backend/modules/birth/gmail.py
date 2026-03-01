@@ -1,5 +1,5 @@
 """
-Leomail v3 — Gmail Registration Engine (with Vision CV)
+Leomail v3 - Gmail Registration Engine (with Vision CV)
 """
 import asyncio
 import random
@@ -101,7 +101,7 @@ async def register_single_gmail(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Enhanced pre-registration warmup — builds trust with Google
+        # Enhanced pre-registration warmup - builds trust with Google
         _log("Session warmup (realistic)...")
         warmup_sites = [
             ("https://www.google.com", 2, 4),
@@ -135,7 +135,7 @@ async def register_single_gmail(
         # CRITICAL: Check if proxy is dead
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"[ERR] Proxy DEAD — page failed to load (URL: {current_url})")
+            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
             if proxy:
                 try:
                     proxy.status = ProxyStatus.DEAD
@@ -218,7 +218,7 @@ async def register_single_gmail(
 
             gender_sel = await _wait_for_any(page, ['select#gender', '#gender', 'select[name="gender"]'], timeout=5000)
             if gender_sel:
-                gender_val = random.choice(["1", "2"])  # 1=Male, 2=Female — randomize
+                gender_val = random.choice(["1", "2"])  # 1=Male, 2=Female - randomize
                 await page.locator(gender_sel).first.select_option(gender_val)
 
             await _human_delay(0.5, 1)
@@ -320,14 +320,14 @@ async def register_single_gmail(
         # Step 6: Phone verification (may or may not appear)
         _log("Checking SMS verification...")
 
-        # First check for "Skip" option — Google sometimes allows skipping phone
+        # First check for "Skip" option - Google sometimes allows skipping phone
         skip_phone = await _wait_for_any(page, [
             'button:has-text("Skip")', 'button:has-text("Пропустить")',
             'a:has-text("Skip")', 'a:has-text("Пропустить")',
             'span:has-text("Skip")', 'div[role="button"]:has-text("Skip")',
         ], timeout=3000)
         if skip_phone:
-            _log("[OK] Google offers to skip SMS — skipping!")
+            _log("[OK] Google offers to skip SMS - skipping!")
             await page.locator(skip_phone).first.click()
             await _human_delay(2, 4)
         else:
@@ -453,7 +453,7 @@ async def register_single_gmail(
             await page.locator(agree_btn).first.click()
             await _human_delay(3, 5)
 
-        # Verify success — check URL
+        # Verify success - check URL
         final_url = page.url.lower()
         _log(f"Final URL: {final_url}")
 
@@ -466,7 +466,7 @@ async def register_single_gmail(
             registration_success = True
             _log("[OK] Left registration page")
         else:
-            _err(f"[FAIL] Registration not confirmed — URL: {final_url}")
+            _err(f"[FAIL] Registration not confirmed - URL: {final_url}")
             await _debug_screenshot(page, "gmail_not_confirmed", _log)
             return None
 

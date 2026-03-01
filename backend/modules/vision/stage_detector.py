@@ -1,5 +1,5 @@
 """
-Leomail Vision — Stage Detector for email registration flows.
+Leomail Vision - Stage Detector for email registration flows.
 Uses OCR text analysis to determine current registration stage.
 """
 import re

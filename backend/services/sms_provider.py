@@ -1,5 +1,5 @@
 """
-Leomail v3 — SMS Provider
+Leomail v3 - SMS Provider
 Abstract base + GrizzlySMS implementation.
 SimSMS is in a separate file: simsms_provider.py
 
@@ -173,7 +173,7 @@ GRIZZLY_COUNTRY_CODES = {
 
 class GrizzlySMS(SMSProvider):
     """
-    GrizzlySMS API — https://grizzlysms.com/docs
+    GrizzlySMS API - https://grizzlysms.com/docs
     Compatible with sms-activate API format.
     """
 
@@ -234,7 +234,7 @@ class GrizzlySMS(SMSProvider):
             available.sort(key=lambda c: all_prices.get(c, 0), reverse=True)
             if all_prices:
                 top3 = [(c, all_prices.get(c, "?")) for c in available[:3]]
-                logger.info(f"GrizzlySMS: sorted by price DESC — top: {top3}")
+                logger.info(f"GrizzlySMS: sorted by price DESC - top: {top3}")
         except Exception as e:
             logger.warning(f"GrizzlySMS: price sort failed ({e}), using random")
             random.shuffle(available)
@@ -249,7 +249,7 @@ class GrizzlySMS(SMSProvider):
                     parts = result.split(":")
                     if len(parts) >= 3:
                         cost = all_prices.get(country, "?")
-                        logger.info(f"GrizzlySMS: [OK] PREMIUM {country} (${cost}) — {parts[2]}")
+                        logger.info(f"GrizzlySMS: [OK] PREMIUM {country} (${cost}) - {parts[2]}")
                         self._last_country = country
                         return {
                             "id": parts[1],
@@ -257,7 +257,7 @@ class GrizzlySMS(SMSProvider):
                             "country": country,
                             "service": service,
                         }
-                logger.debug(f"GrizzlySMS: {country} ({country_code}) → {result}")
+                logger.debug(f"GrizzlySMS: {country} ({country_code}) -> {result}")
 
             if attempt < 2:
                 logger.info(f"GrizzlySMS: no numbers, retry {attempt+1}/3 in 5s...")
@@ -281,7 +281,7 @@ class GrizzlySMS(SMSProvider):
         service_code = GRIZZLY_SERVICE_CODES.get(service, "go")
 
         if country == "auto":
-            # Try REAL countries only (not virtual) — shuffle for variety
+            # Try REAL countries only (not virtual) - shuffle for variety
             real_order = list(self.REAL_COUNTRIES)
             random.shuffle(real_order)
 
@@ -296,7 +296,7 @@ class GrizzlySMS(SMSProvider):
                         logger.info(f"GrizzlySMS: got REAL number from {c} (auto)")
                         self._last_country = c
                         return {"id": parts[1], "number": parts[2], "country": c, "service": service}
-                logger.debug(f"GrizzlySMS auto: {c} ({country_code}) → {result}")
+                logger.debug(f"GrizzlySMS auto: {c} ({country_code}) -> {result}")
 
             error_map = {
                 "NO_NUMBERS": "No available real numbers",
@@ -309,10 +309,10 @@ class GrizzlySMS(SMSProvider):
 
         # Specific country
         if country == "us_v":
-            return {"error": "Virtual numbers disabled — use real numbers"}
+            return {"error": "Virtual numbers disabled - use real numbers"}
         country_code = GRIZZLY_COUNTRY_CODES.get(country, country)
         if country_code in self.VIRTUAL_COUNTRY_CODES:
-            return {"error": f"Country {country} — virtual numbers, skipping"}
+            return {"error": f"Country {country} - virtual numbers, skipping"}
         result = self._request("getNumber", service=service_code, country=country_code)
         if result.startswith("ACCESS_NUMBER:"):
             parts = result.split(":")
@@ -331,7 +331,7 @@ class GrizzlySMS(SMSProvider):
         """
         Wait for SMS code with support for cancellation.
         timeout: seconds to wait (default 5 minutes)
-        cancel_event: threading.Event — if set, abort immediately
+        cancel_event: threading.Event - if set, abort immediately
         Response: STATUS_OK:code
         Waiting: STATUS_WAIT_CODE
         """
@@ -379,7 +379,7 @@ class GrizzlySMS(SMSProvider):
                 logger.warning(f"GrizzlySMS unexpected status: {result}")
                 return {"error": f"Error: {result}"}
 
-        return {"error": f"Timeout {timeout}s — SMS not received", "timeout": True}
+        return {"error": f"Timeout {timeout}s - SMS not received", "timeout": True}
 
     def set_status(self, order_id: str, status: int) -> str:
         """Set activation status: 1=ready, 3=retry, 6=complete, 8=cancel."""

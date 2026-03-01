@@ -1,5 +1,5 @@
 """
-Leomail v3 — Proxy Health Monitor
+Leomail v3 - Proxy Health Monitor
 Correct checking for all 3 proxy types: SOCKS5, HTTP, Mobile.
 Uses aiohttp-socks for SOCKS5, standard aiohttp for HTTP/Mobile.
 """
@@ -10,7 +10,7 @@ from loguru import logger
 from ..database import SessionLocal
 from ..models import Proxy, ProxyStatus
 
-# Multiple check endpoints — if one is down, try next
+# Multiple check endpoints - if one is down, try next
 CHECK_ENDPOINTS = [
     ("http://ip-api.com/json", "query"),       # Returns {"query": "1.2.3.4", ...}
     ("http://httpbin.org/ip", "origin"),        # Returns {"origin": "1.2.3.4"}
@@ -63,7 +63,7 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                                     "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                                 }
                 except ImportError:
-                    logger.warning("aiohttp-socks not installed — cannot check SOCKS5 proxies")
+                    logger.warning("aiohttp-socks not installed - cannot check SOCKS5 proxies")
                     return {"alive": False, "response_time_ms": None, "external_ip": None}
             else:
                 # HTTP / Mobile: standard aiohttp proxy
@@ -106,7 +106,7 @@ async def resolve_geo(ip: str) -> str:
 async def monitor_all_proxies(max_fails: int = 3):
     """
     Check all non-dead proxies concurrently.
-    Proxy that fails max_fails times total → marked DEAD.
+    Proxy that fails max_fails times total -> marked DEAD.
     """
     db = SessionLocal()
     try:
@@ -208,7 +208,7 @@ async def monitor_all_proxies(max_fails: int = 3):
                     revived_count += 1
                     logger.info(
                         f"[RETRY] Proxy REVIVED: {proxy.host}:{proxy.port} ({proxy.proxy_type}) "
-                        f"{result['response_time_ms']}ms — back to ACTIVE"
+                        f"{result['response_time_ms']}ms - back to ACTIVE"
                     )
 
             if revived_count > 0:
@@ -240,8 +240,8 @@ async def monitor_all_proxies(max_fails: int = 3):
 
 async def check_proxy_once(proxy_id: int) -> dict:
     """
-    Check a single proxy by ID — for manual check from UI.
-    If fails → increment fail_count but don't immediately kill.
+    Check a single proxy by ID - for manual check from UI.
+    If fails -> increment fail_count but don't immediately kill.
     """
     db = SessionLocal()
     try:
@@ -267,7 +267,7 @@ async def check_proxy_once(proxy_id: int) -> dict:
             if proxy.fail_count >= 3:
                 proxy.status = ProxyStatus.DEAD
             proxy.response_time_ms = None
-            logger.warning(f"Proxy manually checked: {proxy.host}:{proxy.port} ({proxy.proxy_type}) — {'DEAD' if proxy.fail_count >= 3 else f'FAIL #{proxy.fail_count}'}")
+            logger.warning(f"Proxy manually checked: {proxy.host}:{proxy.port} ({proxy.proxy_type}) - {'DEAD' if proxy.fail_count >= 3 else f'FAIL #{proxy.fail_count}'}")
         db.commit()
         return {
             "proxy_id": proxy_id,
