@@ -49,10 +49,10 @@ async def register_single_gmail(
     if BIRTH_CANCEL_EVENT is None:
         BIRTH_CANCEL_EVENT = threading.Event()
     if not name_pool:
-        logger.error("[Gmail] ❌ Нет имён! Загрузите пакет имён перед регистрацией.")
+        logger.error("[Gmail] [FAIL] No names! Load a name pack before registration.")
         if thread_log:
             thread_log.status = "error"
-            thread_log.error_message = "Нет имён! Загрузите пакет имён."
+            thread_log.error_message = "No names! Load a name pack."
             try: db.commit()
             except: pass
         return None
@@ -69,9 +69,9 @@ async def register_single_gmail(
 
     def _log(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
-        logger.info(f"[Gmail][Поток {n}] {msg}")
+        logger.info(f"[Gmail][Thread {n}] {msg}")
         if thread_log:
-            thread_log.current_action = f"Поток {n}: {msg}"
+            thread_log.current_action = f"Thread {n}: {msg}"
             try:
                 db.commit()
             except Exception:
@@ -79,9 +79,9 @@ async def register_single_gmail(
 
     def _err(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
-        logger.error(f"[Gmail][Поток {n}] {msg}")
+        logger.error(f"[Gmail][Thread {n}] {msg}")
         if thread_log:
-            thread_log.error_message = f"Поток {n}: {msg}"[:500]
+            thread_log.error_message = f"Thread {n}: {msg}"[:500]
             try:
                 db.commit()
             except Exception:
@@ -92,7 +92,7 @@ async def register_single_gmail(
     try:
         from ..vision import VisionEngine
         vision = VisionEngine("gmail", debug=True)
-        _log("👁️ Vision Engine активен")
+        _log("[Vision] Vision Engine active")
     except Exception as ve:
         logger.debug(f"[Gmail] Vision not available: {ve}")
 
@@ -102,7 +102,7 @@ async def register_single_gmail(
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
         # Enhanced pre-registration warmup — builds trust with Google
-        _log("Прогрев сессии (реалистичный)...")
+        _log("Session warmup (realistic)...")
         warmup_sites = [
             ("https://www.google.com", 2, 4),
             ("https://www.youtube.com", 2, 3),
@@ -117,10 +117,10 @@ async def register_single_gmail(
                 await random_scroll(page)
             except Exception:
                 pass
-        _log("Прогрев завершён")
+        _log("Warmup completed")
 
         # Step 1: Navigate to Google signup
-        _log("Открытие страницы регистрации Google...")
+        _log("Opening Google registration page...")
         try:
             await page.goto(
                 "https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp",
@@ -135,7 +135,7 @@ async def register_single_gmail(
         # CRITICAL: Check if proxy is dead
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"🔴 Прокси МЁРТВ — страница не загрузилась (URL: {current_url})")
+            _err(f"[ERR] Proxy DEAD — page failed to load (URL: {current_url})")
             if proxy:
                 try:
                     proxy.status = ProxyStatus.DEAD
@@ -146,10 +146,10 @@ async def register_single_gmail(
             return None
 
         await random_mouse_move(page, steps=3)
-        _log(f"Страница: {page.url}")
+        _log(f"Page: {page.url}")
 
         # Step 2: First Name + Last Name
-        _log(f"Ввод имени: {first_name} {last_name}")
+        _log(f"Entering name: {first_name} {last_name}")
         fn_sel = await _wait_and_find(page, [
             'input[name="firstName"]', '#firstName',
             'input[aria-label*="irst"]', 'input[aria-label*="имя"]',
@@ -179,10 +179,10 @@ async def register_single_gmail(
 
         # Click Next
         next_btn = await _wait_for_any(page, [
-            'button:has-text("Next")', 'button:has-text("Далее")',
+            'button:has-text("Next")', 'button:has-text("Next")',
             '#accountDetailsNext button', 'button[type="button"]',
             '#accountDetailsNext', 'div[id*="Next"] button',
-            'span:has-text("Next")', 'span:has-text("Далее")',
+            'span:has-text("Next")', 'span:has-text("Next")',
         ], timeout=5000)
         if next_btn:
             await page.locator(next_btn).first.click()
@@ -195,7 +195,7 @@ async def register_single_gmail(
         await between_steps(page)
 
         # Step 3: Birthday + Gender
-        _log("Ввод даты рождения...")
+        _log("Entering date of birth...")
         birthday = generate_birthday()
         month_sel = await _wait_for_any(page, [
             'select#month', '#month', 'select[name="month"]',
@@ -222,7 +222,7 @@ async def register_single_gmail(
                 await page.locator(gender_sel).first.select_option(gender_val)
 
             await _human_delay(0.5, 1)
-            next_btn2 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")', '#birthdaygenderNext button'], timeout=5000)
+            next_btn2 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Next")', '#birthdaygenderNext button'], timeout=5000)
             if next_btn2:
                 await page.locator(next_btn2).first.click()
             else:
@@ -230,7 +230,7 @@ async def register_single_gmail(
             await _human_delay(3, 5)
 
         # Step 4: Choose username (Gmail may suggest or let you pick)
-        _log(f"Ввод username: {username}")
+        _log(f"Entering username: {username}")
         # Google may show "Create your own" option or suggested usernames
         create_own = page.locator('div[data-value="custom"], label:has-text("Create your own"), label:has-text("Создайте собственный")')
         try:
@@ -248,10 +248,10 @@ async def register_single_gmail(
             for char in username:
                 await page.locator(username_sel).first.type(char, delay=random.randint(50, 100))
         else:
-            _log("Username поле не найдено, возможно Google предложил автовыбор")
+            _log("Username field not found, Google may have offered auto-selection")
 
         await _human_delay(0.5, 1)
-        next_btn3 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")'], timeout=5000)
+        next_btn3 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Next")'], timeout=5000)
         if next_btn3:
             await page.locator(next_btn3).first.click()
         else:
@@ -260,7 +260,7 @@ async def register_single_gmail(
 
         # Check for username taken error
         err_text = None
-        err_el = page.locator('div[class*="error"], div[jsname*="error"], div:has-text("already taken"), div:has-text("уже занято")')
+        err_el = page.locator('div[class*="error"], div[jsname*="error"], div:has-text("already taken"), div:has-text("already takenо")')
         try:
             if await err_el.count() > 0:
                 err_text = await err_el.first.text_content()
@@ -268,7 +268,7 @@ async def register_single_gmail(
             pass
 
         if err_text and ("taken" in err_text.lower() or "занято" in err_text.lower()):
-            _log(f"Username занят, пробую другой...")
+            _log(f"Username taken, trying another...")
             username = generate_username(first_name, last_name) + str(random.randint(100, 999))
             if username_sel:
                 await page.locator(username_sel).first.fill(username)
@@ -280,10 +280,10 @@ async def register_single_gmail(
                 await _human_delay(3, 5)
 
         email = f"{username}@gmail.com"
-        _log(f"Email будет: {email}")
+        _log(f"Email will be: {email}")
 
         # Step 5: Password
-        _log("Ввод пароля...")
+        _log("Entering password...")
         pwd_sel = await _wait_and_find(page, [
             'input[name="Passwd"]', 'input[type="password"]', '#passwd',
             'input[aria-label*="assword"]', 'input[aria-label*="арол"]',
@@ -310,7 +310,7 @@ async def register_single_gmail(
                 await page.locator(confirm_sel).first.type(char, delay=random.randint(40, 90))
 
         await _human_delay(0.5, 1)
-        next_btn4 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")'], timeout=5000)
+        next_btn4 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Next")'], timeout=5000)
         if next_btn4:
             await page.locator(next_btn4).first.click()
         else:
@@ -318,7 +318,7 @@ async def register_single_gmail(
         await _human_delay(3, 5)
 
         # Step 6: Phone verification (may or may not appear)
-        _log("Проверка SMS верификации...")
+        _log("Checking SMS verification...")
 
         # First check for "Skip" option — Google sometimes allows skipping phone
         skip_phone = await _wait_for_any(page, [
@@ -327,7 +327,7 @@ async def register_single_gmail(
             'span:has-text("Skip")', 'div[role="button"]:has-text("Skip")',
         ], timeout=3000)
         if skip_phone:
-            _log("✨ Google предлагает пропустить SMS — пропускаем!")
+            _log("[OK] Google offers to skip SMS — skipping!")
             await page.locator(skip_phone).first.click()
             await _human_delay(2, 4)
         else:
@@ -338,10 +338,10 @@ async def register_single_gmail(
             ], timeout=10000)
             if phone_sel:
                 if not sms_provider:
-                    _err("Google требует SMS, но SMS провайдер не настроен (SimSMS/GrizzlySMS)")
+                    _err("Google requires SMS but no SMS provider configured (SimSMS/GrizzlySMS)")
                     return None
 
-                _log("Заказ номера для Gmail SMS...")
+                _log("Ordering number for Gmail SMS...")
                 # Use GEO resolver for smart SMS country priority
                 from ...services.geo_resolver import resolve_proxy_geo, get_sms_countries_priority
                 proxy_geo = resolve_proxy_geo(proxy) if proxy else None
@@ -362,7 +362,7 @@ async def register_single_gmail(
 
                 phone_number = order["number"]
                 order_id = order["id"]
-                _log(f"Номер: {phone_number}")
+                _log(f"Number: {phone_number}")
 
                 # Format phone for Google
                 display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
@@ -373,7 +373,7 @@ async def register_single_gmail(
                 await _human_delay(0.5, 1)
 
                 # Click Next / Send
-                send_btn = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")', '#next button'], timeout=5000)
+                send_btn = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Next")', '#next button'], timeout=5000)
                 if send_btn:
                     await page.locator(send_btn).first.click()
                 else:
@@ -386,14 +386,14 @@ async def register_single_gmail(
                 except Exception:
                     pass
 
-                _log("Ожидание SMS кода...")
+                _log("Waiting for SMS code...")
                 sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
 
                 sms_code = None
                 if isinstance(sms_result, dict):
                     sms_code = sms_result.get("code")
                     if sms_result.get("error"):
-                        _err(f"SMS ошибка: {sms_result['error']}")
+                        _err(f"SMS error: {sms_result['error']}")
                         try:
                             await asyncio.to_thread(sms_provider.cancel_number, order_id)
                         except Exception:
@@ -403,14 +403,14 @@ async def register_single_gmail(
                     sms_code = sms_result
 
                 if not sms_code:
-                    _err("SMS код не получен")
+                    _err("SMS code not received")
                     try:
                         await asyncio.to_thread(sms_provider.cancel_number, order_id)
                     except Exception:
                         pass
                     return None
 
-                _log(f"SMS код: {sms_code}")
+                _log(f"SMS code: {sms_code}")
                 code_sel = await _wait_for_any(page, ['input[type="tel"]', 'input[name="code"]', '#code'], timeout=15000)
                 if code_sel:
                     await page.locator(code_sel).first.fill(sms_code)
@@ -430,7 +430,7 @@ async def register_single_gmail(
 
                 await _human_delay(3, 5)
             else:
-                _log("SMS не потребовалась (хороший trust score!)")
+                _log("SMS not required (good trust score!)")
 
         # Handle recovery email/phone prompt (Google sometimes asks)
         recovery_skip = await _wait_for_any(page, [
@@ -439,12 +439,12 @@ async def register_single_gmail(
             'div[role="button"]:has-text("Skip")',
         ], timeout=3000)
         if recovery_skip:
-            _log("Пропускаем recovery email/phone...")
+            _log("Skipping recovery email/phone...")
             await page.locator(recovery_skip).first.click()
             await _human_delay(2, 4)
 
         # Step 7: Accept TOS (may show "I agree" button)
-        _log("Принятие условий...")
+        _log("Accepting terms...")
         agree_btn = await _wait_for_any(page, [
             'button:has-text("I agree")', 'button:has-text("Принимаю")',
             'button:has-text("Agree")', 'button:has-text("Next")',
@@ -455,18 +455,18 @@ async def register_single_gmail(
 
         # Verify success — check URL
         final_url = page.url.lower()
-        _log(f"Финальный URL: {final_url}")
+        _log(f"Final URL: {final_url}")
 
         registration_success = False
         success_indicators = ["myaccount.google.com", "mail.google.com", "/speedbump", "/interstitial", "/signinchooser"]
         if any(ind in final_url for ind in success_indicators):
             registration_success = True
-            _log("✅ URL подтверждает успешную регистрацию")
+            _log("[OK] URL confirms successful registration")
         elif "accounts.google.com/signup" not in final_url:
             registration_success = True
-            _log("✅ Покинули страницу регистрации")
+            _log("[OK] Left registration page")
         else:
-            _err(f"❌ Регистрация не подтверждена — URL: {final_url}")
+            _err(f"[FAIL] Registration not confirmed — URL: {final_url}")
             await _debug_screenshot(page, "gmail_not_confirmed", _log)
             return None
 
@@ -499,12 +499,12 @@ async def register_single_gmail(
             except Exception:
                 pass
 
-        logger.info(f"✅ Gmail registered: {email}")
+        logger.info(f"[OK] Gmail registered: {email}")
         export_account_to_file(account)
         return account
 
     except Exception as e:
-        logger.error(f"❌ Gmail registration failed: {e}", exc_info=True)
+        logger.error(f"[FAIL] Gmail registration failed: {e}", exc_info=True)
         _err(str(e)[:500])
         return None
     finally:

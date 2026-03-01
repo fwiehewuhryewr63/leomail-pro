@@ -20,8 +20,8 @@ async def stop_all_tasks(db: Session = Depends(get_db)):
     # Stop all tasks
     for t in running_tasks:
         t.status = TaskStatus.FAILED
-        t.details = "Остановлено пользователем"
-        t.stop_reason = "Остановлено пользователем (глобальная остановка)"
+        t.details = "Stopped by user"
+        t.stop_reason = "Stopped by user (global stop)"
         stopped_tasks += 1
 
         # If birth task, add to BIRTH_CANCEL set for in-flight workers
@@ -35,7 +35,7 @@ async def stop_all_tasks(db: Session = Depends(get_db)):
     # Clean up running threads
     for tl in running_threads:
         tl.status = "stopped"
-        tl.current_action = "Остановлено пользователем"
+        tl.current_action = "Stopped by user"
         stopped_threads += 1
 
     db.commit()

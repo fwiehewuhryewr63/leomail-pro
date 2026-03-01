@@ -286,7 +286,7 @@ async def warmup_single_account(
             db.commit()
         except Exception:
             pass
-        logger.info(f"✅ {account.email} fully warmed (day {day})")
+        logger.info(f"[OK] {account.email} fully warmed (day {day})")
         return result
 
     # Update status to current phase
@@ -305,7 +305,7 @@ async def warmup_single_account(
             pass
         return result
 
-    logger.info(f"🔥 Warming {account.email} (day {day}, phase {target_status.value}): {remaining} emails to send")
+    logger.info(f"[OK] Warming {account.email} (day {day}, phase {target_status.value}): {remaining} emails to send")
 
     config = get_warmup_config()
     delay_min = config.get("human_delay_min_sec", 2)
@@ -350,7 +350,7 @@ async def warmup_single_account(
             # If too many errors, reduce health score
             if result["errors"] >= 3:
                 account.health_score = max(0, (account.health_score or 100) - 10)
-                logger.warning(f"⚠️ {account.email}: health score dropped to {account.health_score}")
+                logger.warning(f"[WARN] {account.email}: health score dropped to {account.health_score}")
                 break
 
     # Check inbox (read received warmup emails)
@@ -369,7 +369,7 @@ async def warmup_single_account(
         pass
 
     logger.info(
-        f"✅ {account.email} warmup session: sent={result['sent']}, "
+        f"[OK] {account.email} warmup session: sent={result['sent']}, "
         f"received={result['received']}, errors={result['errors']}"
     )
     return result
@@ -424,5 +424,5 @@ async def run_warmup_batch(
     await asyncio.gather(*tasks, return_exceptions=True)
 
     engine_manager.finish_engine(EngineType.WARMUP)
-    logger.info(f"🔥 Warmup batch complete: {totals}")
+    logger.info(f"[OK] Warmup batch complete: {totals}")
     return totals

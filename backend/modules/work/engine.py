@@ -321,7 +321,7 @@ class WorkSession:
                 # Update thread log
                 if self.thread_log:
                     self.thread_log.current_action = (
-                        f"Отправка {i + 1}/{len(batch)} → {recipient['email']}"
+                        f"Sending {i + 1}/{len(batch)} → {recipient['email']}"
                     )
                     self.thread_log.updated_at = datetime.utcnow()
                     db.commit()
@@ -597,7 +597,7 @@ async def run_work_task(
         if not accounts:
             logger.error("Work: no eligible accounts")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Процесс завершился потому что — нет доступных аккаунтов в выбранных фермах")
+                        stop_reason="Process stopped because — no available accounts in selected farms")
             db.add(task); db.commit()
             return
 
@@ -613,7 +613,7 @@ async def run_work_task(
         if not all_recipients:
             logger.error("Work: no recipients loaded")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Процесс завершился потому что — нет получателей в выбранных базах (базы пусты или не найдены)")
+                        stop_reason="Process stopped because — no recipients in selected databases (empty or not found)")
             db.add(task); db.commit()
             return
 
@@ -631,7 +631,7 @@ async def run_work_task(
         if not all_recipients:
             logger.warning("Work: all recipients already sent")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Процесс завершился потому что — все получатели в выбранных базах уже получили письма (повторная отправка не нужна)")
+                        stop_reason="Process stopped — all recipients already received emails (no resend needed)")
             db.add(task); db.commit()
             return
 
@@ -656,7 +656,7 @@ async def run_work_task(
         if link_database_ids and not all_link_urls:
             logger.error("Work: link packs selected but no links loaded")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Процесс завершился потому что — выбраны паки ссылок, но ссылки не загружены (файлы пусты или не найдены)")
+                        stop_reason="Process stopped because — link packs selected but links not loaded (files empty or not found)")
             db.add(task); db.commit()
             return
 
@@ -669,7 +669,7 @@ async def run_work_task(
         if not template_triples:
             logger.error("Work: no templates")
             task = Task(type="work", status=TaskStatus.STOPPED, total_items=0,
-                        stop_reason="Процесс завершился потому что — нет шаблонов для рассылки")
+                        stop_reason="Process stopped — no templates for mailing")
             db.add(task); db.commit()
             return
 
@@ -684,7 +684,7 @@ async def run_work_task(
             status=TaskStatus.RUNNING,
             total_items=len(all_recipients),
             thread_count=threads,
-            details=f"Отправка {len(all_recipients)} получателям через {len(accounts)} аккаунтов",
+            details=f"Sending {len(all_recipients)} recipients via {len(accounts)} accounts",
         )
         db.add(task)
         db.commit()
@@ -729,7 +729,7 @@ async def run_work_task(
 
         if not account_batches:
             task.status = TaskStatus.STOPPED
-            task.stop_reason = "Процесс завершился потому что — нет данных для распределения по аккаунтам"
+            task.stop_reason = "Process stopped — no data for account distribution"
             task.completed_at = datetime.utcnow()
             db.commit()
             return
@@ -773,7 +773,7 @@ async def run_work_task(
 
                     thread_log.status = "done"
                     thread_log.current_action = (
-                        f"Готово: {result['sent']} отправлено, {result['errors']} ошибок"
+                        f"Done: {result['sent']} sent, {result['errors']} errors"
                     )
                     task.completed_items = (task.completed_items or 0) + result["sent"]
                     task.failed_items = (task.failed_items or 0) + result["errors"]
@@ -789,7 +789,7 @@ async def run_work_task(
                     # Check if links exhausted after this session
                     if link_database_ids and link_rotator.next() is None and max_link_uses > 0:
                         links_exhausted[0] = True
-                        exhaustion_reason[0] = "Поток завершился потому что — ссылки для писем закончились (все использованы до лимита)"
+                        exhaustion_reason[0] = "Thread завершился потому что — ссылки for писем закончились (все использованы до лимита)"
                         logger.warning(f"Work [{account.email}]: links exhausted — signaling stop")
 
             # Launch all account workers with staggered start
@@ -823,7 +823,7 @@ async def run_work_task(
         if task and task.id:
             try:
                 task.status = TaskStatus.FAILED
-                task.stop_reason = f"Процесс завершился потому что — критическая ошибка: {str(e)[:200]}"
+                task.stop_reason = f"Process stopped — critical error: {str(e)[:200]}"
                 task.completed_at = datetime.utcnow()
                 db.commit()
             except Exception:

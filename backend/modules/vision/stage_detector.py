@@ -183,7 +183,7 @@ class StageDetector:
         best_stage = "unknown"
         best_score = 0
         best_matches = []
-        best_desc = "Не удалось определить этап"
+        best_desc = "Failed to detect stage"
 
         for stage_name, stage_def in self.stages.items():
             matches = []

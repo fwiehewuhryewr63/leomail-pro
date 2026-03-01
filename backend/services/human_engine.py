@@ -28,7 +28,7 @@ class HumanEngine:
         "br": {"m": ["Miguel","Arthur","Heitor","Bernardo","Théo","Davi","Gabriel","Samuel","Pedro","Rafael"],
                "f": ["Helena","Alice","Laura","Maria","Valentina","Heloísa","Sophia","Isabella","Manuela","Júlia"]},
         "ru": {"m": ["Александр","Дмитрий","Максим","Артём","Михаил","Иван","Даниил","Кирилл","Андрей","Егор"],
-               "f": ["Анастасия","Мария","Анна","Виктория","Полина","Елизавета","Екатерина","Дарья","Алиса","София"]},
+               "f": ["Анастасия","Мария","Анна","Виктория","Полина","Елofавета","Екатерина","Дарья","Алиса","София"]},
         "pl": {"m": ["Antoni","Jakub","Jan","Szymon","Aleksander","Franciszek","Filip","Mikołaj","Wojciech","Kacper"],
                "f": ["Julia","Zuzanna","Zofia","Hanna","Maja","Lena","Alicja","Maria","Amelia","Oliwia"]},
         "tr": {"m": ["Yusuf","Eymen","Ömer","Mustafa","Emir","Ahmet","Kerem","Ali","Miraç","Hamza"],

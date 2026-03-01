@@ -249,7 +249,7 @@ class GrizzlySMS(SMSProvider):
                     parts = result.split(":")
                     if len(parts) >= 3:
                         cost = all_prices.get(country, "?")
-                        logger.info(f"GrizzlySMS: ✅ PREMIUM {country} (${cost}) — {parts[2]}")
+                        logger.info(f"GrizzlySMS: [OK] PREMIUM {country} (${cost}) — {parts[2]}")
                         self._last_country = country
                         return {
                             "id": parts[1],

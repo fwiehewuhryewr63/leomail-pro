@@ -623,7 +623,7 @@ SEARCH_QUERIES_GEO = {
     "BR": ["clima hoje", "notícias", "receitas fáceis", "melhores filmes 2026"],
     "ES": ["tiempo hoy", "noticias", "recetas fáciles", "mejores películas 2026"],
     "IT": ["meteo oggi", "notizie", "ricette facili", "migliori film 2026"],
-    "RU": ["погода сегодня", "новости", "рецепты", "лучшие фильмы 2026"],
+    "RU": ["weather today", "news", "recipes", "best movies 2026"],
     "JP": ["天気 今日", "ニュース", "簡単レシピ"],
 }
 

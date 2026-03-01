@@ -88,7 +88,7 @@ async def start_warmup(request: WarmupRequest, background_tasks: BackgroundTasks
     """Start the warm-up engine."""
     global _warmup_running
     if _warmup_running:
-        return {"error": "Warm-up уже запущен", "running": True}
+        return {"error": "Warmup already running", "running": True}
 
     background_tasks.add_task(
         _run_warmup_task,

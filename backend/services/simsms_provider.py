@@ -209,7 +209,7 @@ class SimSmsProvider:
                     parts = result.split(":")
                     if len(parts) >= 3:
                         cost = all_prices.get(country, "?") if 'all_prices' in dir() else "?"
-                        logger.info(f"SimSMS: ✅ PREMIUM {country} (${cost}) — {parts[2]}")
+                        logger.info(f"SimSMS: [OK] PREMIUM {country} (${cost}) — {parts[2]}")
                         self._last_country = country
                         return {
                             "id": parts[1],
@@ -251,7 +251,7 @@ class SimSmsProvider:
                 if result.startswith("ACCESS_NUMBER:"):
                     parts = result.split(":")
                     if len(parts) >= 3:
-                        logger.info(f"SimSMS: ✅ PREMIUM {entry['country']} (${entry['cost']})")
+                        logger.info(f"SimSMS: [OK] PREMIUM {entry['country']} (${entry['cost']})")
                         return {
                             "id": parts[1],
                             "number": parts[2],
@@ -271,7 +271,7 @@ class SimSmsProvider:
             if result.startswith("ACCESS_NUMBER:"):
                 parts = result.split(":")
                 if len(parts) >= 3:
-                    logger.info(f"SimSMS: ✅ FALLBACK {country} — {parts[2]}")
+                    logger.info(f"SimSMS: [OK] FALLBACK {country} — {parts[2]}")
                     self._last_country = country
                     return {
                         "id": parts[1],

@@ -116,11 +116,11 @@ async def stop_work(mode: str = "instant", db: Session = Depends(get_db)):
         WORK_CANCEL.add(t.id)
         if mode == "instant":
             t.status = TaskStatus.FAILED
-            t.details = "Остановлено пользователем (мгновенно)"
-            t.stop_reason = "Остановлено пользователем"
+            t.details = "Stopped by user (instant)"
+            t.stop_reason = "Stopped by user"
         else:
-            t.details = "Остановка: ждём завершения потоков..."
-            t.stop_reason = "Остановлено пользователем (ожидание потоков)"
+            t.details = "Stopping: waiting for threads to finish..."
+            t.stop_reason = "Stopped by user (waiting for threads)"
         stopped += 1
 
     if mode == "instant":
@@ -129,7 +129,7 @@ async def stop_work(mode: str = "instant", db: Session = Depends(get_db)):
         ).all()
         for tl in threads:
             tl.status = "stopped"
-            tl.current_action = "Остановлено"
+            tl.current_action = "Stopped"
 
     db.commit()
     # Also signal EngineManager
@@ -169,7 +169,7 @@ async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
     accounts = [a for a in all_accounts if a.status not in ("dead", "banned")]
     account_count = len(accounts)
     if account_count == 0:
-        warnings.append("❌ Нет живых аккаунтов в выбранных фермах")
+        warnings.append("No alive accounts in selected farms")
 
     # 2. Recipients
     total_recipients = 0
@@ -182,14 +182,14 @@ async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
     already_sent = db.query(MailingStats).filter(MailingStats.status == "sent").count()
     remaining = max(0, total_recipients - already_sent)
     if remaining == 0:
-        warnings.append("❌ Все получатели уже обработаны")
+        warnings.append("All recipients already processed")
 
     # 3. Templates
     template_count = db.query(Template).filter(Template.id.in_(request.template_ids)).count()
     if template_count == 0:
-        warnings.append("❌ Нет шаблонов")
+        warnings.append("No templates")
     elif template_count < 3:
-        warnings.append(f"⚠️ Мало шаблонов ({template_count}) — будут частые повторы")
+        warnings.append(f"Few templates ({template_count}) — frequent repeats")
 
     # 4. Links
     total_links = 0
@@ -212,13 +212,13 @@ async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
         effective_links = 0
 
     if request.link_database_ids and effective_links > 0 and effective_links < remaining:
-        warnings.append(f"⚠️ Ссылок ({effective_links}) меньше получателей ({remaining}) — часть писем будет без ссылок")
+        warnings.append(f"Links ({effective_links}) less than recipients ({remaining}) — some emails will have no links")
 
     # 5. Capacity calculation
     avg_emails = (request.emails_per_day_min + request.emails_per_day_max) / 2
     total_capacity = int(account_count * avg_emails)
     if total_capacity > 0 and total_capacity < remaining:
-        warnings.append(f"⚠️ Ёмкость ({total_capacity} писем) меньше получателей ({remaining}) — потребуется несколько дней")
+        warnings.append(f"Capacity ({total_capacity} emails) less than recipients ({remaining}) — will take multiple days")
 
     # 6. ETA
     avg_delay = (request.delay_min + request.delay_max) / 2
@@ -228,7 +228,7 @@ async def estimate_work(request: WorkRequest, db: Session = Depends(get_db)):
     else:
         estimated_hours = 0
 
-    has_critical = any(w.startswith("❌") for w in warnings)
+    has_critical = any(w.startswith("No ") or w.startswith("All ") for w in warnings)
 
     return {
         "accounts": account_count,

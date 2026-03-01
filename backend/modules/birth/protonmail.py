@@ -49,10 +49,10 @@ async def register_single_protonmail(
     if BIRTH_CANCEL_EVENT is None:
         BIRTH_CANCEL_EVENT = threading.Event()
     if not name_pool:
-        logger.error("[ProtonMail] ❌ Нет имён! Загрузите пакет имён перед регистрацией.")
+        logger.error("[ProtonMail] [FAIL] No names! Load a name pack before registration.")
         if thread_log:
             thread_log.status = "error"
-            thread_log.error_message = "Нет имён! Загрузите пакет имён."
+            thread_log.error_message = "No names! Load a name pack."
             try: db.commit()
             except: pass
         return None
@@ -73,9 +73,9 @@ async def register_single_protonmail(
 
     def _log(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
-        logger.info(f"[ProtonMail][Поток {n}] {msg}")
+        logger.info(f"[ProtonMail][Thread {n}] {msg}")
         if thread_log:
-            thread_log.current_action = f"Поток {n}: {msg}"
+            thread_log.current_action = f"Thread {n}: {msg}"
             try:
                 db.commit()
             except Exception:
@@ -83,9 +83,9 @@ async def register_single_protonmail(
 
     def _err(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
-        logger.error(f"[ProtonMail][Поток {n}] {msg}")
+        logger.error(f"[ProtonMail][Thread {n}] {msg}")
         if thread_log:
-            thread_log.error_message = f"Поток {n}: {msg}"[:500]
+            thread_log.error_message = f"Thread {n}: {msg}"[:500]
             try:
                 db.commit()
             except Exception:
@@ -98,7 +98,7 @@ async def register_single_protonmail(
         ACTIVE_PAGES[thread_id] = page
 
         # ── Step 1: Navigate to signup ──
-        _log("Переход на страницу регистрации...")
+        _log("Navigating to registration page...")
         await page.goto("https://account.proton.me/signup", wait_until="domcontentloaded", timeout=60000)
         await _human_delay(2.0, 4.0)
         await _debug_screenshot(page, "proton_signup_page", _log)
@@ -107,7 +107,7 @@ async def register_single_protonmail(
             return None
 
         # ── Step 2: Select Free plan ──
-        _log("Выбор бесплатного плана...")
+        _log("Selecting free plan...")
         # Try to find and click Free plan button
         free_plan_selectors = [
             'button:has-text("Get Proton Free")',
@@ -120,7 +120,7 @@ async def register_single_protonmail(
                 btn = page.locator(sel).first
                 if await btn.is_visible(timeout=3000):
                     await btn.click()
-                    _log("Выбран бесплатный план")
+                    _log("Free plan selected")
                     break
             except Exception:
                 continue
@@ -130,7 +130,7 @@ async def register_single_protonmail(
             return None
 
         # ── Step 3: Enter username ──
-        _log(f"Ввод имени пользователя: {username}")
+        _log(f"Entering username: {username}")
         username_selectors = [
             '#email',
             'input[name="email"]',
@@ -145,13 +145,13 @@ async def register_single_protonmail(
                 if await inp.is_visible(timeout=3000):
                     await _human_fill(page, sel, username)
                     username_filled = True
-                    _log(f"Username введён: {username}")
+                    _log(f"Username entered: {username}")
                     break
             except Exception:
                 continue
 
         if not username_filled:
-            _err("Не найдено поле username")
+            _err("Field not found username")
             await _debug_screenshot(page, "proton_no_username_field", _log)
             return None
 
@@ -161,7 +161,7 @@ async def register_single_protonmail(
             return None
 
         # ── Step 4: Enter password ──
-        _log("Ввод пароля...")
+        _log("Entering password...")
         password_selectors = [
             '#password',
             'input[name="password"]',
@@ -173,7 +173,7 @@ async def register_single_protonmail(
                 inp = page.locator(sel).first
                 if await inp.is_visible(timeout=3000):
                     await _human_fill(page, sel, password)
-                    _log("Пароль введён")
+                    _log("Password entered")
                     break
             except Exception:
                 continue
@@ -191,7 +191,7 @@ async def register_single_protonmail(
                 inp = page.locator(sel).first
                 if await inp.is_visible(timeout=3000):
                     await _human_fill(page, sel, password)
-                    _log("Пароль подтверждён")
+                    _log("Password confirmed")
                     break
             except Exception:
                 continue
@@ -202,20 +202,20 @@ async def register_single_protonmail(
             return None
 
         # ── Step 5: Submit form / Create account button ──
-        _log("Нажатие кнопки создания аккаунта...")
+        _log("Clicking create account button...")
         submit_selectors = [
             'button[type="submit"]',
             'button:has-text("Create account")',
             'button:has-text("Создать аккаунт")',
             'button:has-text("Next")',
-            'button:has-text("Далее")',
+            'button:has-text("Next")',
         ]
         for sel in submit_selectors:
             try:
                 btn = page.locator(sel).first
                 if await btn.is_visible(timeout=3000):
                     await btn.click()
-                    _log("Форма отправлена")
+                    _log("Form submitted")
                     break
             except Exception:
                 continue
@@ -227,12 +227,12 @@ async def register_single_protonmail(
             return None
 
         # ── Step 6: Handle hCaptcha via CaptchaChain ──
-        _log("Проверка hCaptcha...")
+        _log("Checking hCaptcha...")
         try:
             hcaptcha_frame = page.frame_locator('iframe[src*="hcaptcha"]')
             checkbox = hcaptcha_frame.locator('#checkbox')
             if await checkbox.is_visible(timeout=5000):
-                _log("hCaptcha обнаружена — решение через CaptchaChain...")
+                _log("hCaptcha detected — solving via CaptchaChain...")
                 captcha_chain = get_captcha_chain()
                 if captcha_chain.providers:
                     try:
@@ -275,7 +275,7 @@ async def register_single_protonmail(
                                         try {{ if (window.hcaptcha) window.hcaptcha.execute(); }} catch(e) {{}}
                                     }})()
                                 """)
-                                _log("hCaptcha решена через CaptchaChain ✅")
+                                _log("hCaptcha solved via CaptchaChain [OK]")
                                 await _human_delay(2.0, 4.0)
                                 
                                 # Re-submit form after captcha
@@ -289,25 +289,25 @@ async def register_single_protonmail(
                                         continue
                                 await _human_delay(3.0, 5.0)
                             else:
-                                _err("hCaptcha: CaptchaChain не смог решить")
+                                _err("hCaptcha: CaptchaChain failed to solve")
                         else:
-                            _err("hCaptcha: не найден sitekey")
+                            _err("hCaptcha: not found sitekey")
                     except asyncio.TimeoutError:
-                        _err("hCaptcha: таймаут 120с")
+                        _err("hCaptcha: timeout 120s")
                     except Exception as ce:
-                        _err(f"hCaptcha ошибка: {ce}")
+                        _err(f"hCaptcha error: {ce}")
                 else:
                     # No providers — try clicking checkbox manually
                     await checkbox.click()
                     await _human_delay(3.0, 5.0)
-                    _log("hCaptcha: клик по checkbox (нет провайдеров)")
+                    _log("hCaptcha: clicking checkbox (no providers)")
         except Exception:
-            _log("hCaptcha не обнаружена, пропуск")
+            _log("hCaptcha not detected, skipping")
 
         await _human_delay(2.0, 4.0)
 
         # ── Step 7: Skip recovery / Complete registration ──
-        _log("Пропуск восстановления...")
+        _log("Skipping recovery...")
         skip_selectors = [
             'button:has-text("Skip")',
             'button:has-text("Пропустить")',
@@ -319,7 +319,7 @@ async def register_single_protonmail(
                 btn = page.locator(sel).first
                 if await btn.is_visible(timeout=5000):
                     await btn.click()
-                    _log("Пропущено")
+                    _log("Skipped")
                     break
             except Exception:
                 continue
@@ -327,7 +327,7 @@ async def register_single_protonmail(
         await _human_delay(3.0, 5.0)
 
         # ── Step 8: Verify success ──
-        _log("Проверка результата...")
+        _log("Checking result...")
         await _debug_screenshot(page, "proton_result", _log)
 
         final_url = page.url
@@ -361,13 +361,13 @@ async def register_single_protonmail(
             try:
                 error_text = await page.inner_text("body", timeout=3000)
                 if "already used" in error_text.lower() or "not available" in error_text.lower():
-                    _err(f"Username '{username}' уже занят")
+                    _err(f"Username '{username}' already taken")
                     return None
             except Exception:
                 pass
 
         if not registration_success:
-            _err(f"❌ Регистрация НЕ подтверждена! URL: {final_url}")
+            _err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
             await _debug_screenshot(page, "proton_not_confirmed", _log)
             return None
 
@@ -400,12 +400,12 @@ async def register_single_protonmail(
             except Exception:
                 pass
 
-        logger.info(f"✅ ProtonMail registered: {email}")
+        logger.info(f"[OK] ProtonMail registered: {email}")
         export_account_to_file(account)
         return account
 
     except Exception as e:
-        logger.error(f"❌ ProtonMail registration failed: {e}", exc_info=True)
+        logger.error(f"[FAIL] ProtonMail registration failed: {e}", exc_info=True)
         _err(str(e)[:500])
         return None
     finally:

@@ -108,18 +108,18 @@ class VisionEngine:
             el = page.get_by_text(text, exact=False)
             if await el.count() > 0:
                 await el.first.click(timeout=timeout * 1000)
-                logger.info(f"[Vision] ✅ Playwright fallback clicked '{text}'")
+                logger.info(f"[Vision] [OK] Playwright fallback clicked '{text}'")
                 return True
         except Exception:
             pass
 
-        logger.warning(f"[Vision] ❌ Could not find '{text}' on screen")
+        logger.warning(f"[Vision] [FAIL] Could not find '{text}' on screen")
         return False
 
     async def click_button(self, page, button_texts: list[str], timeout: float = 2.0) -> bool:
         """
         Try clicking a button by trying multiple possible texts.
-        Example: click_button(page, ["Next", "Continue", "Далее"])
+        Example: click_button(page, ["Next", "Continue", "Next"])
         """
         for text in button_texts:
             if await self.click_text(page, text, timeout):
@@ -151,12 +151,12 @@ class VisionEngine:
             el = page.get_by_label(label, exact=False)
             if await el.count() > 0:
                 await el.first.fill(value)
-                logger.info(f"[Vision] ✅ Playwright fallback filled '{label}'")
+                logger.info(f"[Vision] [OK] Playwright fallback filled '{label}'")
                 return True
         except Exception:
             pass
 
-        logger.warning(f"[Vision] ❌ Could not fill '{label}'")
+        logger.warning(f"[Vision] [FAIL] Could not fill '{label}'")
         return False
 
     async def fill_by_placeholder(self, page, placeholder: str, value: str) -> bool:
@@ -245,10 +245,10 @@ class VisionEngine:
         # Fallback to CSS selector
         try:
             await page.click(css_selector, timeout=3000)
-            logger.info(f"[Vision] ✅ CSS fallback clicked '{css_selector}'")
+            logger.info(f"[Vision] [OK] CSS fallback clicked '{css_selector}'")
             return True
         except Exception:
-            logger.warning(f"[Vision] ❌ Both OCR('{ocr_text}') and CSS('{css_selector}') failed")
+            logger.warning(f"[Vision] [FAIL] Both OCR('{ocr_text}') and CSS('{css_selector}') failed")
             return False
 
     async def smart_fill(self, page, css_selector: str, value: str, ocr_label: str = None) -> bool:
@@ -269,8 +269,8 @@ class VisionEngine:
         # Fallback to CSS
         try:
             await page.fill(css_selector, value, timeout=3000)
-            logger.info(f"[Vision] ✅ CSS fallback filled '{css_selector}'")
+            logger.info(f"[Vision] [OK] CSS fallback filled '{css_selector}'")
             return True
         except Exception:
-            logger.warning(f"[Vision] ❌ Both OCR('{ocr_label}') and CSS('{css_selector}') failed")
+            logger.warning(f"[Vision] [FAIL] Both OCR('{ocr_label}') and CSS('{css_selector}') failed")
             return False

@@ -26,7 +26,7 @@ GEO_LABELS = {
     "us_uk": "🇺🇸 US / UK — English (200)",
     "latam_es": "🇲🇽 LATAM — Español (200)",
     "brazil_pt": "🇧🇷 Brazil — Português (200)",
-    "ru_cis": "🇷🇺 Россия / СНГ",
+    "ru_cis": " Russia / CIS",
     "arab": "🇪🇬 Arab / Middle East",
     "europe_de_fr_it": "🇪🇺 Europe — DE / FR / IT",
     "africa": "🇳🇬 Africa — NG / ZA / ZM",
@@ -124,7 +124,7 @@ def seed_builtin_names():
 
         if seeded:
             db.commit()
-            logger.info(f"[Names] ✅ Seeded {seeded} built-in GEO name packs")
+            logger.info(f"[Names] [OK] Seeded {seeded} built-in GEO name packs")
 
         # Save marker file with all seeded filenames
         with open(marker_path, "w", encoding="utf-8") as f:
@@ -225,7 +225,7 @@ async def upload_name_pack(file: UploadFile = File(...), db: Session = Depends(g
             names.append(parsed)
 
     if not names:
-        return {"error": "Не найдено имён в файле"}
+        return {"error": "No names found in file"}
 
     # Save file
     pack_name = os.path.splitext(file.filename)[0]
@@ -270,7 +270,7 @@ async def upload_names_text(req: NameTextUpload, db: Session = Depends(get_db)):
             names.append(parsed)
 
     if not names:
-        return {"error": "Не найдено имён. Формат: first,last (по одному на строку)"}
+        return {"error": "No names found. Format: first,last (one per line)"}
 
     import time
     pack_name = req.name.strip() or f"paste_{len(names)}_names"

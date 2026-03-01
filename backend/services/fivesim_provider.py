@@ -153,7 +153,7 @@ class FiveSimProvider:
                     # 5sim returns phone with + prefix
                     if phone.startswith("+"):
                         phone = phone[1:]
-                    logger.info(f"5sim: ✅ got number from {c} — {phone}")
+                    logger.info(f"5sim: [OK] got number from {c} — {phone}")
                     self._last_country = c
                     return {
                         "id": str(result["id"]),
@@ -203,7 +203,7 @@ class FiveSimProvider:
                     phone = result["phone"]
                     if phone.startswith("+"):
                         phone = phone[1:]
-                    logger.info(f"5sim: ✅ {c} — {phone}")
+                    logger.info(f"5sim: [OK] {c} — {phone}")
                     self._last_country = c
                     return {
                         "id": str(result["id"]),
@@ -289,7 +289,7 @@ class FiveSimProvider:
             self.cancel_number(order_id)
         except Exception:
             pass
-        return {"error": f"Таймаут {timeout}с — SMS не получено", "timeout": True}
+        return {"error": f"Timeout {timeout}с — SMS not received", "timeout": True}
 
     def cancel_number(self, order_id: str) -> bool:
         """Cancel an order."""

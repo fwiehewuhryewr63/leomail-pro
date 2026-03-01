@@ -42,7 +42,7 @@ def imap_login_check(email: str, password: str, provider: str, timeout: int = 15
                 except Exception:
                     pass
                 imap.logout()
-                logger.info(f"[IMAP] ✅ {email} — login OK (inbox: {inbox_count})")
+                logger.info(f"[IMAP] [OK] {email} — login OK (inbox: {inbox_count})")
                 return {"success": True, "error": None, "inbox_count": inbox_count}
             else:
                 imap.logout()
@@ -51,7 +51,7 @@ def imap_login_check(email: str, password: str, provider: str, timeout: int = 15
             error_msg = str(e)
             # Yahoo-specific: "LOGIN Web login required" means app password needed
             if "Web login" in error_msg or "LOGIN" in error_msg:
-                logger.warning(f"[IMAP] ⚠️ {email} — {error_msg} (may need app password)")
+                logger.warning(f"[IMAP] [WARN] {email} — {error_msg} (may need app password)")
             return {"success": False, "error": error_msg[:200], "inbox_count": None}
         finally:
             try:
@@ -89,7 +89,7 @@ async def verify_account_imap(account, db, _log=None, _err=None) -> bool:
     )
 
     if result["success"]:
-        log_fn(f"✅ IMAP OK: {account.email} (inbox: {result['inbox_count']})")
+        log_fn(f"[OK] IMAP OK: {account.email} (inbox: {result['inbox_count']})")
         account.imap_verified = True
         account.imap_checked_at = datetime.utcnow()
         try:
@@ -98,7 +98,7 @@ async def verify_account_imap(account, db, _log=None, _err=None) -> bool:
             pass
         return True
     else:
-        err_fn(f"⚠️ IMAP fail: {account.email} — {result['error']}")
+        err_fn(f"[WARN] IMAP fail: {account.email} — {result['error']}")
         account.imap_verified = False
         account.imap_checked_at = datetime.utcnow()
         try:

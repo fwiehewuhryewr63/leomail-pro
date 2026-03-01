@@ -207,7 +207,7 @@ async def monitor_all_proxies(max_fails: int = 3):
                         proxy.geo = result["geo"]
                     revived_count += 1
                     logger.info(
-                        f"🔄 Proxy REVIVED: {proxy.host}:{proxy.port} ({proxy.proxy_type}) "
+                        f"[RETRY] Proxy REVIVED: {proxy.host}:{proxy.port} ({proxy.proxy_type}) "
                         f"{result['response_time_ms']}ms — back to ACTIVE"
                     )
 

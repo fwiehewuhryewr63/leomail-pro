@@ -223,7 +223,7 @@ async def _startup():
     stuck = db.query(ThreadLog).filter(ThreadLog.status == "running").all()
     for t in stuck:
         t.status = "error"
-        t.error_message = "Сервер был перезапущен"
+        t.error_message = "Server was restarted"
     if stuck:
         db.commit()
         logger.info(f"Cleaned up {len(stuck)} stuck thread(s) from previous session")
@@ -232,7 +232,7 @@ async def _startup():
     stuck_tasks = db.query(Task).filter(Task.status.in_(["running", "pending"])).all()
     for t in stuck_tasks:
         t.status = "failed"
-        t.details = "Сервер был перезапущен"
+        t.details = "Server was restarted"
     if stuck_tasks:
         db.commit()
         logger.info(f"Cleaned up {len(stuck_tasks)} stuck task(s) from previous session")

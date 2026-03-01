@@ -184,8 +184,8 @@ async def test_service(service: str):
             sms = SimSmsProvider(key)
             balance = sms.get_balance()
             if balance < 0:
-                return {"status": "error", "message": "Неверный API ключ SimSMS"}
-            return {"status": "ok", "message": f"Connected! Баланс: {balance}₽"}
+                return {"status": "error", "message": "Invalid SimSMS API key"}
+            return {"status": "ok", "message": f"Connected! Balance: {balance} RUB"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
@@ -222,8 +222,8 @@ async def test_service(service: str):
             sms = FiveSimProvider(key)
             balance = sms.get_balance()
             if balance <= 0:
-                return {"status": "error", "message": "Неверный API ключ 5sim или нулевой баланс"}
-            return {"status": "ok", "message": f"Connected! Баланс: {balance}₽"}
+                return {"status": "error", "message": "Invalid 5sim API key or zero balance"}
+            return {"status": "ok", "message": f"Connected! Balance: {balance} RUB"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     elif service in ("asocks", "proxy6", "belurk", "iproyal"):

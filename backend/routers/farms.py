@@ -258,7 +258,7 @@ async def import_accounts(farm_id: int, req: AccountImportRequest, db: Session =
     """Import accounts from text lines: email:pass or email:pass:recovery:recpass."""
     farm = db.query(Farm).filter(Farm.id == farm_id).first()
     if not farm:
-        return {"error": "Ферма не найдена"}
+        return {"error": "Farm not found"}
 
     imported = 0
     skipped = 0

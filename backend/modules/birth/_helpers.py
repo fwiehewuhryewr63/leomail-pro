@@ -189,7 +189,7 @@ async def scrape_phone_dropdown(page, _log=None) -> list[str]:
             return [...new Set(prefixes)];
         }""")
         if prefixes and _log:
-            _log(f"Dropdown: {len(prefixes)} стран (примеры: +{', +'.join(prefixes[:5])})")
+            _log(f"Dropdown: {len(prefixes)} countries (examples: +{', +'.join(prefixes[:5])})")
         return prefixes or []
     except Exception as e:
         if _log:
@@ -267,13 +267,13 @@ async def order_sms_with_chain(
         _err = lambda msg: logger.error(msg)
 
     if not sms_provider:
-        _err(f"{service.upper()} требует SMS, но SMS провайдер не настроен")
+        _err(f"{service.upper()} requires SMS but no SMS provider configured")
         return None, None, []
 
     # Exponential backoff — wait if previous attempts failed
     backoff_delay = _get_sms_backoff_delay(service)
     if backoff_delay > 0:
-        _log(f"⏳ SMS backoff: ждём {backoff_delay:.0f}с перед заказом ({_sms_backoff.get(service, {}).get('fails', 0)} подряд фейлов)")
+        _log(f"[WAIT] SMS backoff: waiting {backoff_delay:.0f}с before ordering ({_sms_backoff.get(service, {}).get('fails', 0)} consecutive fails)")
         await asyncio.sleep(backoff_delay)
 
     # ── Step 1: Build ordered country list ──
@@ -321,7 +321,7 @@ async def order_sms_with_chain(
             if c not in expanded_countries:
                 expanded_countries.append(c)
 
-    _log(f"SMS страны (приоритет): {expanded_countries[:8]}...")
+    _log(f"SMS countries (priority): {expanded_countries[:8]}...")
 
     # ── Step 2: Build provider chain ──
     _cls = type(sms_provider).__name__.lower()
@@ -338,7 +338,7 @@ async def order_sms_with_chain(
 
     # ── Step 3: Try each provider with expanded country list ──
     for provider_name, provider in sms_chain:
-        _log(f"📱 Пробуем SMS: {provider_name}")
+        _log(f"[SMS] Trying SMS: {provider_name}")
 
         # Method 1: order_number_from_countries (tries all countries internally)
         if hasattr(provider, 'order_number_from_countries'):
@@ -347,7 +347,7 @@ async def order_sms_with_chain(
                     provider.order_number_from_countries, service, expanded_countries
                 )
                 if order and "error" not in order:
-                    _log(f"✅ {provider_name}: номер из {order.get('country', '?')} — {order.get('number', '')}")
+                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} — {order.get('number', '')}")
                     _reset_sms_backoff(service)
                     return order, provider, expanded_countries
                 _log(f"{provider_name} from_countries: {order.get('error', '') if order else 'empty'}")
@@ -359,16 +359,16 @@ async def order_sms_with_chain(
             try:
                 order = await asyncio.to_thread(provider.order_number, service, country)
                 if order and "error" not in order:
-                    _log(f"✅ {provider_name}: номер из {order.get('country', '?')} — {order.get('number', '')}")
+                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} — {order.get('number', '')}")
                     _reset_sms_backoff(service)
                     return order, provider, expanded_countries
             except Exception as e:
                 _log(f"{provider_name}/{country}: {e}")
 
-        _log(f"❌ {provider_name}: все страны исчерпаны")
+        _log(f"[FAIL] {provider_name}: all countries exhausted")
 
     _record_sms_fail(service)
-    _err(f"Не удалось заказать SMS ни через одного провайдера для {service} (след. попытка через {_get_sms_backoff_delay(service):.0f}с)")
+    _err(f"Failed to order SMS from any provider for {service} (next attempt in {_get_sms_backoff_delay(service):.0f}с)")
     return None, None, expanded_countries
 
 
@@ -389,13 +389,13 @@ async def order_sms_retry(
         _log = lambda msg: logger.info(msg)
 
     if not active_provider:
-        _log("Retry: нет активного SMS провайдера")
+        _log("Retry: no active SMS provider")
         return None
 
     if not used_numbers:
         used_numbers = set()
 
-    _log(f"🔄 Повторный заказ SMS для {service}...")
+    _log(f"[RETRY] Retry SMS order for {service}...")
 
     # Try from expanded countries
     for country in expanded_countries[:8]:
@@ -404,14 +404,14 @@ async def order_sms_retry(
             if order and "error" not in order:
                 number = order.get("number", "")
                 if number in used_numbers:
-                    _log(f"Номер {number} уже использовался, пропуск")
+                    _log(f"Number {number} already used, skipping")
                     continue
-                _log(f"✅ Retry: номер из {country} — {number}")
+                _log(f"[OK] Retry: number from {country} — {number}")
                 return order
         except Exception as e:
             _log(f"Retry {country}: {e}")
 
-    _log("❌ Retry: все страны исчерпаны")
+    _log("[FAIL] Retry: all countries exhausted")
     return None
 
 
@@ -429,11 +429,11 @@ async def debug_screenshot(page, label: str, _log=None):
         path = str(Path(DEBUG_SCREENSHOT_DIR) / fname)
         await page.screenshot(path=path, full_page=False)
         if _log:
-            _log(f"📸 Скриншот: {fname}")
+            _log(f"[SNAP] Screenshot: {fname}")
         return path
     except Exception as e:
         if _log:
-            _log(f"📸 Скриншот не удался: {e}")
+            _log(f"[SNAP] Screenshot failed: {e}")
         return None
 
 
@@ -532,7 +532,7 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
             continue
     
     if not btn:
-        _log(f"⚠️ Fluent combobox '{label}' не найден")
+        _log(f"[WARN] Fluent combobox '{label}' not found")
         return False
     
     try:
@@ -545,13 +545,13 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
             await page.locator(btn).first.evaluate("el => el.click()")
             await human_delay(0.3, 0.6)
         except Exception:
-            _log(f"⚠️ Не удалось кликнуть combobox '{label}': {e}")
+            _log(f"[WARN] Failed to click combobox '{label}': {e}")
             return False
     
     try:
         await page.wait_for_selector('[role="listbox"]', timeout=3000)
     except Exception:
-        _log(f"⚠️ Listbox для '{label}' не появился")
+        _log(f"[WARN] Listbox for '{label}' did not appear")
         return False
     
     options = page.locator('[role="listbox"] [role="option"]')
@@ -562,7 +562,7 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
             text = (await options.nth(i).inner_text()).strip()
             if text == value or text.startswith(value):
                 await options.nth(i).click()
-                _log(f"✅ {label}: выбрано '{text}'")
+                _log(f"[OK] {label}: selected '{text}'")
                 await human_delay(0.2, 0.4)
                 return True
         except Exception:
@@ -573,13 +573,13 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
         if 0 <= idx < count:
             text = (await options.nth(idx).inner_text()).strip()
             await options.nth(idx).click()
-            _log(f"✅ {label}: выбрано по индексу '{text}'")
+            _log(f"[OK] {label}: selected by index '{text}'")
             await human_delay(0.2, 0.4)
             return True
     except (ValueError, Exception):
         pass
     
-    _log(f"⚠️ Не удалось выбрать '{value}' в combobox '{label}' (найдено {count} опций)")
+    _log(f"[WARN] Failed to select '{value}' in combobox '{label}' (found {count} options)")
     try:
         await page.keyboard.press("Escape")
     except Exception:
@@ -632,9 +632,9 @@ async def wait_and_find(page, selectors: list[str], step_name: str,
     found = await wait_for_any(page, selectors, timeout=timeout)
     if not found and required:
         ss = await step_screenshot(page, f"FAIL_{step_name}", username)
-        msg = f"Не найдено поле '{step_name}'. URL: {page.url}"
+        msg = f"Field not found '{step_name}'. URL: {page.url}"
         if ss and _log_fn:
-            _log_fn(f"📸 Скриншот: {ss}")
+            _log_fn(f"[SNAP] Screenshot: {ss}")
         if _err_fn:
             _err_fn(msg)
         else:
@@ -668,7 +668,7 @@ async def detect_and_solve_recaptcha(page, captcha_provider, log_fn=None):
         if captcha_count == 0:
             return False
 
-        _log("🔐 reCAPTCHA обнаружена! Решаем...")
+        _log("[CAPTCHA] reCAPTCHA detected! Solving...")
 
         sitekey = None
         try:
@@ -688,7 +688,7 @@ async def detect_and_solve_recaptcha(page, captcha_provider, log_fn=None):
                 pass
 
         if not sitekey:
-            _log("Sitekey не найден")
+            _log("Sitekey not found")
             return False
 
         _log(f"Sitekey: {sitekey[:20]}...")
@@ -699,10 +699,10 @@ async def detect_and_solve_recaptcha(page, captcha_provider, log_fn=None):
         )
 
         if not token:
-            _log("❌ Не удалось решить CAPTCHA")
+            _log("[FAIL] Failed to solve CAPTCHA")
             return False
 
-        _log("✅ CAPTCHA решена! Вставляем токен...")
+        _log("[OK] CAPTCHA solved! Injecting token...")
 
         await page.evaluate(f"""
             (function() {{

@@ -42,10 +42,10 @@ async def debug_screenshot(page, label: str, account_email: str = "", engine: st
         fname = f"{ts}_{prefix}{safe_email}_{label}.png"
         path = str(Path(SCREENSHOT_DIR) / fname)
         await page.screenshot(path=path, full_page=False)
-        logger.debug(f"📸 Screenshot saved: {fname}")
+        logger.debug(f"[SNAP] Screenshot saved: {fname}")
         return path
     except Exception as e:
-        logger.debug(f"📸 Screenshot failed ({label}): {e}")
+        logger.debug(f"[SNAP] Screenshot failed ({label}): {e}")
         return None
 
 

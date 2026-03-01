@@ -103,7 +103,7 @@ async def run_birth_task(request: BirthRequest):
         if not proxy_pool:
             device_label = "MOBILE" if request.device_type.startswith("phone") else "SOCKS5/HTTP"
             task = Task(type="birth", status=TaskStatus.STOPPED, total_items=request.quantity,
-                        stop_reason=f"Процесс завершился потому что — нет подходящих прокси ({device_label}) для {request.provider}. Загрузите прокси нужного типа или сбросьте счётчики.")
+                        stop_reason=f"Process stopped — no suitable proxies ({device_label}) for {request.provider}. Load the required proxy type or reset counters.")
             db.add(task); db.commit()
             return {"status": "error", "message": task.stop_reason}
 
@@ -165,7 +165,7 @@ async def run_birth_task(request: BirthRequest):
                                 if last:
                                     all_last_names.add(last)
                 else:
-                    logger.error(f"[Birth] ❌ Файл пакета имён не найден: {file_path}")
+                    logger.error(f"[Birth] [FAIL] Name pack file not found: {file_path}")
 
         # Convert to lists for random access
         first_names_list = list(all_first_names)
@@ -199,9 +199,9 @@ async def run_birth_task(request: BirthRequest):
 
         # CRITICAL: Abort if no names loaded
         if not name_pool or not first_names_list:
-            logger.error(f"[Birth] ❌ Пакет имён пуст или не выбран! Регистрация невозможна.")
+            logger.error(f"[Birth] [FAIL] Name pack empty or not selected! Registration impossible.")
             task.status = TaskStatus.STOPPED
-            task.stop_reason = "Процесс завершился потому что — пакет имён пуст или не выбран"
+            task.stop_reason = "Process stopped — name pack empty or not selected"
             db.commit()
             return
 
@@ -211,9 +211,9 @@ async def run_birth_task(request: BirthRequest):
 
         # REQUIRE proxies — registration without proxy is forbidden
         if not proxy_pool:
-            logger.error("[Birth] ❌ No proxies available! Registration requires at least 1 proxy.")
+            logger.error("[Birth] [FAIL] No proxies available! Registration requires at least 1 proxy.")
             task.status = TaskStatus.STOPPED
-            task.stop_reason = "Процесс завершился потому что — нет прокси для регистрации"
+            task.stop_reason = "Process stopped — no proxies for registration"
             db.commit()
             return
 
@@ -237,10 +237,10 @@ async def run_birth_task(request: BirthRequest):
                         if success_counter[0] >= request.quantity:
                             return
                         if attempt_counter[0] >= max_attempts:
-                            task.stop_reason = f"Процесс завершился потому что — достигнут лимит попыток ({max_attempts}). Зарегистрировано {success_counter[0]} из {request.quantity}"
+                            task.stop_reason = f"Process stopped — attempt limit reached ({max_attempts}). Registered {success_counter[0]} of {request.quantity}"
                             return
                         if consecutive_failures[0] >= 30:
-                            task.stop_reason = f"Процесс завершился потому что — 30 ошибок подряд. Зарегистрировано {success_counter[0]} из {request.quantity}. Проверьте прокси и SMS."
+                            task.stop_reason = f"Process stopped because — 30 errors in a row. Registered {success_counter[0]} of {request.quantity}. Check proxies and SMS."
                             return
                         if consecutive_failures[0] >= 15 and consecutive_failures[0] % 15 == 0:
                             needs_cooldown = True
@@ -342,7 +342,7 @@ async def run_birth_task(request: BirthRequest):
                         elif request.provider == "gmail":
                             if not worker_sms:
                                 thread_log.status = "error"
-                                thread_log.error_message = "Gmail требует SMS провайдер"
+                                thread_log.error_message = "Gmail requires SMS provider"
                                 db.commit()
                                 return
                             account = await register_single_gmail(
@@ -354,7 +354,7 @@ async def run_birth_task(request: BirthRequest):
                         elif request.provider == "yahoo":
                             if not worker_sms:
                                 thread_log.status = "error"
-                                thread_log.error_message = "Yahoo требует SMS провайдер"
+                                thread_log.error_message = "Yahoo requires SMS provider"
                                 db.commit()
                                 return
                             account = await register_single_yahoo(
@@ -367,7 +367,7 @@ async def run_birth_task(request: BirthRequest):
                         elif request.provider == "aol":
                             if not worker_sms:
                                 thread_log.status = "error"
-                                thread_log.error_message = "AOL требует SMS провайдер"
+                                thread_log.error_message = "AOL requires SMS provider"
                                 db.commit()
                                 return
                             account = await register_single_aol(
@@ -393,7 +393,7 @@ async def run_birth_task(request: BirthRequest):
                             )
                         else:
                             thread_log.status = "error"
-                            thread_log.error_message = f"Провайдер '{request.provider}' не поддерживается"
+                            thread_log.error_message = f"Provider '{request.provider}' not supported"
                             db.commit()
                             return
 
@@ -413,7 +413,7 @@ async def run_birth_task(request: BirthRequest):
                                 task.completed_items = success_counter[0]
 
                             db.commit()
-                            logger.info(f"[Birth] ✅ Worker {worker_id}: {account.email} "
+                            logger.info(f"[Birth] [OK] Worker {worker_id}: {account.email} "
                                         f"({success_counter[0]}/{request.quantity})")
                         else:
                             task.failed_items = (task.failed_items or 0) + 1
@@ -421,11 +421,11 @@ async def run_birth_task(request: BirthRequest):
                                 consecutive_failures[0] += 1
                             thread_log.status = "error"
                             if not thread_log.error_message:
-                                thread_log.error_message = "Регистрация не завершена"
+                                thread_log.error_message = "Registration not completed"
 
                             # Smart retry: blacklist proxy if E500/IP blocked
                             err_msg = (thread_log.error_message or "").lower()
-                            if proxy and ("ip" in err_msg or "e500" in err_msg or "заблокирован" in err_msg):
+                            if proxy and ("ip" in err_msg or "e500" in err_msg or "blocked" in err_msg):
                                 proxy_blacklist.add(proxy.id)
                                 logger.info(f"[Birth] Proxy {proxy.host} blacklisted for this task")
                                 # Permanently burn this proxy for the provider:
@@ -456,12 +456,12 @@ async def run_birth_task(request: BirthRequest):
                                 # Don't blacklist if only 1 country selected — nowhere else to go
                                 if len(sms_countries_list) > 1:
                                     # Only blacklist on actual SMS delivery timeout, not other errors
-                                    if "таймаут" in err_msg and "sms не получено" in err_msg:
+                                    if "timeout" in err_msg and "sms not received" in err_msg:
                                         country_blacklist.add(worker_sms._last_country)
                                         logger.info(f"[Birth] Country '{worker_sms._last_country}' blacklisted (SMS timeout)")
 
                             db.commit()
-                            logger.info(f"[Birth] ❌ Worker {worker_id}: attempt {current_attempt} failed, retrying...")
+                            logger.info(f"[Birth] [FAIL] Worker {worker_id}: attempt {current_attempt} failed, retrying...")
                             await asyncio.sleep(random.uniform(2, 5))
 
                     except Exception as e:
@@ -481,7 +481,7 @@ async def run_birth_task(request: BirthRequest):
                                 consecutive_failures[0] += 1
                             if thread_log:
                                 thread_log.status = "error"
-                                thread_log.error_message = f"{'🔄 Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
+                                thread_log.error_message = f"{'[RETRY] Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
                             db.commit()
                         except Exception:
                             pass
@@ -500,7 +500,7 @@ async def run_birth_task(request: BirthRequest):
                 task.status = TaskStatus.COMPLETED
             else:
                 task.status = TaskStatus.STOPPED
-                task.stop_reason = f"Процесс завершился потому что — зарегистрировано {success_counter[0]} из {request.quantity} (остальные — ошибки)"
+                task.stop_reason = f"Process stopped — registered {success_counter[0]} of {request.quantity} (rest — errors)"
             task.completed_at = datetime.utcnow()
             db.commit()
 
@@ -514,7 +514,7 @@ async def run_birth_task(request: BirthRequest):
         if task and task.id:
             try:
                 task.status = TaskStatus.FAILED
-                task.stop_reason = f"Процесс завершился потому что — критическая ошибка: {str(e)[:200]}"
+                task.stop_reason = f"Process stopped — critical error: {str(e)[:200]}"
                 task.completed_at = datetime.utcnow()
                 db.commit()
             except Exception:
@@ -535,17 +535,17 @@ async def start_registration(request: BirthRequest, background_tasks: Background
 
 
 SMS_COUNTRY_NAMES = {
-    "ru": ("Россия", "🇷🇺"), "ua": ("Украина", "🇺🇦"), "kz": ("Казахстан", "🇰🇿"),
-    "cn": ("Китай", "🇨🇳"), "ph": ("Филиппины", "🇵🇭"), "id": ("Индонезия", "🇮🇩"),
-    "ke": ("Кения", "🇰🇪"), "br": ("Бразилия", "🇧🇷"), "us": ("США", "🇺🇸"),
-    "il": ("Израиль", "🇮🇱"), "pl": ("Польша", "🇵🇱"), "uk": ("Англия", "🇬🇧"),
-    "us_v": ("США Virtual", "🇺🇸"), "ng": ("Нигерия", "🇳🇬"), "eg": ("Египет", "🇪🇬"),
-    "fr": ("Франция", "🇫🇷"), "ie": ("Ирландия", "🇮🇪"), "za": ("ЮАР", "🇿🇦"),
-    "ro": ("Румыния", "🇷🇴"), "se": ("Швеция", "🇸🇪"), "ee": ("Эстония", "🇪🇪"),
-    "ca": ("Канада", "🇨🇦"), "de": ("Германия", "🇩🇪"), "nl": ("Нидерланды", "🇳🇱"),
-    "at": ("Австрия", "🇦🇹"), "th": ("Таиланд", "🇹🇭"), "mx": ("Мексика", "🇲🇽"),
-    "es": ("Испания", "🇪🇸"), "tr": ("Турция", "🇹🇷"), "cz": ("Чехия", "🇨🇿"),
-    "pe": ("Перу", "🇵🇪"), "nz": ("Н. Зеландия", "🇳🇿"),
+    "ru": ("Russia", ""), "ua": ("Ukraine", "🇺🇦"), "kz": ("Kazakhstan", "🇰🇿"),
+    "cn": ("China", "🇨🇳"), "ph": ("Philippines", "🇵🇭"), "id": ("Indonesia", "🇮🇩"),
+    "ke": ("Kenya", "🇰🇪"), "br": ("Brazil", "🇧🇷"), "us": ("USA", "🇺🇸"),
+    "il": ("Israel", "🇮🇱"), "pl": ("Poland", "🇵🇱"), "uk": ("UK", "🇬🇧"),
+    "us_v": ("USA Virtual", "🇺🇸"), "ng": ("Nigeria", "🇳🇬"), "eg": ("Egypt", "🇪🇬"),
+    "fr": ("France", "🇫🇷"), "ie": ("Ireland", "🇮🇪"), "za": ("South Africa", "🇿🇦"),
+    "ro": ("Romania", "🇷🇴"), "se": ("Sweden", "🇸🇪"), "ee": ("Estonia", "🇪🇪"),
+    "ca": ("Canada", "🇨🇦"), "de": ("Germany", "🇩🇪"), "nl": ("Netherlands", "🇳🇱"),
+    "at": ("Austria", "🇦🇹"), "th": ("Thailand", "🇹🇭"), "mx": ("Mexico", "🇲🇽"),
+    "es": ("Spain", "🇪🇸"), "tr": ("Turkey", "🇹🇷"), "cz": ("Czechia", "🇨🇿"),
+    "pe": ("Peru", "🇵🇪"), "nz": ("New Zealand", "🇳🇿"),
 }
 
 
@@ -615,11 +615,11 @@ async def stop_registration(mode: str = "instant", db: Session = Depends(get_db)
         BIRTH_CANCEL.add(t.id)
         if mode == "instant":
             t.status = TaskStatus.FAILED
-            t.details = "Остановлено пользователем (мгновенно)"
-            t.stop_reason = "Остановлено пользователем"
+            t.details = "Stopped by user (instant)"
+            t.stop_reason = "Stopped by user"
         else:
-            t.details = "Остановка: ждём завершения потоков..."
-            t.stop_reason = "Остановлено пользователем (ожидание потоков)"
+            t.details = "Stopping: waiting for threads to finish..."
+            t.stop_reason = "Stopped by user (waiting for threads)"
         stopped += 1
 
     # Signal all blocking SMS waits to abort
@@ -632,7 +632,7 @@ async def stop_registration(mode: str = "instant", db: Session = Depends(get_db)
         ).all()
         for tl in threads_running:
             tl.status = "stopped"
-            tl.current_action = "Остановлено"
+            tl.current_action = "Stopped"
 
     db.commit()
 
@@ -666,13 +666,13 @@ async def get_thread_screenshot(thread_id: int):
     import base64
     entry = ACTIVE_PAGES.get(thread_id)
     if not entry:
-        return {"error": "Поток не найден или браузер закрыт", "active_threads": list(ACTIVE_PAGES.keys())}
+        return {"error": "Thread not found or browser closed", "active_threads": list(ACTIVE_PAGES.keys())}
     try:
         page = entry["page"]
         screenshot_bytes = await page.screenshot(type="png")
         return Response(content=screenshot_bytes, media_type="image/png")
     except Exception as e:
-        return {"error": f"Скриншот не удался: {str(e)[:200]}"}
+        return {"error": f"Screenshot failed: {str(e)[:200]}"}
 
 
 @router.get("/active-pages")
