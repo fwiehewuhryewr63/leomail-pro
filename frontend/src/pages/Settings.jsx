@@ -257,7 +257,7 @@ export default function Settings() {
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6' }} />
                     <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Providers (API)</span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                     {PROXY_API_SERVICES.map(svc => {
                         const status = getStatus(svc);
                         const maskedVal = getKeyValue(svc.configPath);
@@ -266,7 +266,7 @@ export default function Settings() {
                         const sr = syncResult[svc.service];
 
                         return (
-                            <div key={svc.key} className="card" style={{ padding: '16px 18px' }}>
+                            <div key={svc.key} className="card" style={{ padding: '12px 14px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: svc.color, flexShrink: 0 }} />
@@ -392,28 +392,29 @@ export default function Settings() {
                 </div>
             </div>
 
-            {/* ═══ PROXY LIMITS (compact strip) ═══ */}
+            {/* PROXY LIMITS */}
             <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B' }} />
                     <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Limits</span>
                 </div>
-                <div className="card" style={{ padding: '14px 20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 20, justifyContent: 'space-between' }}>
+                <div className="card" style={{ padding: '20px 24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                         {PROXY_PROVIDERS.map(p => (
-                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                                <ProviderLogo provider={p.id} size={22} />
-                                <span style={{ fontSize: '0.78em', fontWeight: 700, color: p.color, whiteSpace: 'nowrap' }}>{p.name}</span>
+                            <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                                <ProviderLogo provider={p.id} size={32} />
+                                <span style={{ fontSize: '0.88em', fontWeight: 700, color: p.color, whiteSpace: 'nowrap' }}>{p.name}</span>
                                 <input
                                     type="number"
                                     className="form-input"
                                     value={proxyLimits[p.id] ?? 3}
                                     onChange={e => setProxyLimits(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 0 }))}
                                     onBlur={e => saveProxyLimit(p.id, e.target.value)}
-                                    style={{ width: 44, textAlign: 'center', fontSize: '0.85em', padding: '4px 2px', flexShrink: 0 }}
+                                    style={{ width: 56, textAlign: 'center', fontSize: '1em', padding: '6px 4px', fontWeight: 700 }}
                                     min={0}
                                     max={20}
                                 />
+                                <span style={{ fontSize: '0.65em', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.5 }}>max uses</span>
                             </div>
                         ))}
                     </div>
