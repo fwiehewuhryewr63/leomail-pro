@@ -122,7 +122,7 @@ async def download_and_apply():
 
         async def _exit():
             await asyncio.sleep(2)  # Let response be sent
-            logger.info("👋 Exiting for update...")
+            logger.info("Exiting for update...")
             os._exit(0)
 
         asyncio.create_task(_exit())
@@ -141,7 +141,7 @@ async def restart_server():
     """Restart the server process."""
     import asyncio
 
-    logger.info("🔄 Server restart requested via API")
+    logger.info("[Update] Server restart requested via API")
 
     async def _do_restart():
         await asyncio.sleep(2)

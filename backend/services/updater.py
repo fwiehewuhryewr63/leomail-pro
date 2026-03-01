@@ -154,7 +154,7 @@ def download_update(download_url: str) -> dict:
 
     try:
         set_progress("downloading", 0, "Connecting...")
-        logger.info(f"⬇️ Downloading update from {download_url}...")
+        logger.info(f"[Update] Downloading from {download_url}...")
         resp = requests.get(download_url, stream=True, timeout=300)
         resp.raise_for_status()
 
@@ -173,7 +173,7 @@ def download_update(download_url: str) -> dict:
                 update_progress["percent"] = pct
                 update_progress["detail"] = f"{dl_mb} / {total_mb} MB"
 
-        logger.info(f"✅ Downloaded {downloaded / (1024*1024):.1f} MB")
+        logger.info(f"[Update] Downloaded {downloaded / (1024*1024):.1f} MB")
         return {"success": True, "zip_path": str(zip_path)}
 
     except Exception as e:
@@ -194,7 +194,7 @@ def extract_and_prepare(zip_path: str) -> dict:
 
     try:
         # Extract ZIP
-        logger.info("📦 Extracting update...")
+        logger.info("[Update] Extracting update...")
         with zipfile.ZipFile(zip_path, 'r') as zf:
             zf.extractall(str(extract_dir))
 
@@ -212,16 +212,16 @@ def extract_and_prepare(zip_path: str) -> dict:
         if not internal_dir.exists():
             return {"success": False, "error": "_internal/ not found in ZIP"}
 
-        logger.info(f"✅ Found update in: {exe_found}")
+        logger.info(f"[Update] Found update in: {exe_found}")
 
         # Generate updater.bat
         # Uses relative paths from EXE directory
         exe_rel = exe_found.relative_to(root) if exe_found.is_relative_to(root) else exe_found
         bat_content = f"""@echo off
 chcp 65001 >nul
-echo ══════════════════════════════════════════
+echo ==========================================
 echo   Leomail Auto-Updater
-echo ══════════════════════════════════════════
+echo ==========================================
 echo.
 echo Waiting for Leomail.exe to close...
 
@@ -256,9 +256,9 @@ if exist "_update_tmp" rmdir /s /q "_update_tmp"
 if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"
 
 echo.
-echo ══════════════════════════════════════════
+echo ==========================================
 echo   Update complete! Starting Leomail...
-echo ══════════════════════════════════════════
+echo ==========================================
 timeout /t 2 /nobreak >nul
 
 :: Start new version
@@ -269,7 +269,7 @@ start "" "Leomail.exe"
 """
         bat_path = root / "_updater.bat"
         bat_path.write_text(bat_content, encoding="utf-8")
-        logger.info(f"✅ Updater script ready: {bat_path}")
+        logger.info(f"[Update] Updater script ready: {bat_path}")
 
         return {"success": True, "bat_path": str(bat_path)}
 
@@ -292,13 +292,13 @@ def backup_user_data() -> str | None:
 
     try:
         shutil.copytree(str(user_data), str(backup_dir))
-        logger.info(f"✅ user_data backed up to {backup_dir}")
+        logger.info(f"[Backup] user_data backed up to {backup_dir}")
 
         db_path = backup_dir / "leomail.db"
         if db_path.exists():
             logger.info(f"   leomail.db size: {db_path.stat().st_size} bytes")
         else:
-            logger.warning("   ⚠️ leomail.db NOT in backup!")
+            logger.warning("   [WARN] leomail.db NOT in backup!")
 
         return str(backup_dir)
     except Exception as e:
