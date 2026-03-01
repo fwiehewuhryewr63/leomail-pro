@@ -1,6 +1,6 @@
 """
 Leomail v4 - Proxy Provider API Clients
-Supports: ASocks, Proxy6, Belurk, IPRoyal
+Supports: ASocks, Proxy6, Belurk
 Each provider: fetch balance, list active proxies, buy new proxies.
 """
 import requests
@@ -132,95 +132,6 @@ class ASocksProvider(ProxyProviderBase):
             logger.error(f"[ASocks] Buy proxies error: {e}")
             return []
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# IPRoyal - residential proxies
-# API: https://resi-api.iproyal.com/v1/
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class IPRoyalProvider(ProxyProviderBase):
-    """IPRoyal - residential proxies with reseller API."""
-    name = "iproyal"
-    BASE_URL = "https://resi-api.iproyal.com/v1"
-
-    def _headers(self):
-        return {"X-Access-Token": self.api_key}
-
-    def get_balance(self) -> float:
-        try:
-            r = requests.get(
-                f"{self.BASE_URL}/access/traffic-balance",
-                headers=self._headers(),
-                timeout=10,
-            )
-            r.raise_for_status()
-            data = r.json()
-            # Returns traffic balance in bytes, convert to GB
-            balance_bytes = float(data.get("traffic_remaining", data.get("balance", 0)))
-            return round(balance_bytes / (1024 ** 3), 2)
-        except Exception as e:
-            logger.error(f"[IPRoyal] Balance error: {e}")
-            return -1
-
-    def list_proxies(self) -> list[dict]:
-        """
-        IPRoyal residential uses a gateway model (single endpoint, rotating IPs).
-        Generate a proxy list with their API.
-        """
-        try:
-            r = requests.post(
-                f"{self.BASE_URL}/access/generate-proxy-list",
-                headers=self._headers(),
-                json={
-                    "format": "{ip}:{port}:{username}:{password}",
-                    "hostname": "geo.iproyal.com",
-                    "port": 12321,
-                    "rotation": "random",
-                    "count": 20,
-                },
-                timeout=15,
-            )
-            r.raise_for_status()
-            data = r.json()
-
-            proxies = []
-            proxy_lines = data if isinstance(data, list) else data.get("proxies", [])
-            for line in proxy_lines:
-                if isinstance(line, str):
-                    parts = line.strip().split(":")
-                    if len(parts) >= 4:
-                        proxies.append({
-                            "host": parts[0],
-                            "port": int(parts[1]),
-                            "username": parts[2],
-                            "password": parts[3],
-                            "protocol": "http",
-                            "geo": "",
-                            "expires_at": None,
-                            "proxy_type": "residential",
-                            "external_id": "",
-                        })
-                elif isinstance(line, dict):
-                    proxies.append({
-                        "host": line.get("ip", line.get("host", "")),
-                        "port": int(line.get("port", 0)),
-                        "username": line.get("username", ""),
-                        "password": line.get("password", ""),
-                        "protocol": "http",
-                        "geo": (line.get("country", "") or "").upper(),
-                        "expires_at": None,
-                        "proxy_type": "residential",
-                        "external_id": str(line.get("id", "")),
-                    })
-            return proxies
-        except Exception as e:
-            logger.error(f"[IPRoyal] List proxies error: {e}")
-            return []
-
-    def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
-                    proxy_type: str = "residential") -> list[dict]:
-        """IPRoyal residential is pay-per-GB. Generate proxy list entries."""
-        return self.list_proxies()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -472,18 +383,16 @@ PROVIDERS = {
     "asocks": ASocksProvider,
     "proxy6": Proxy6Provider,
     "belurk": BelurkProvider,
-    "iproyal": IPRoyalProvider,
 }
 
 # Tiered auto-buy order:
-# Gmail -> ASocks (mobile)
-# Everything else -> tier 1 (Proxy6, Belurk) -> tier 2 (IPRoyal)
+# Gmail -> ASocks (mobile 4G)
+# Everything else (desktop) -> Proxy6 -> Belurk (fallback)
 AUTO_BUY_TIERS = {
     "gmail": [("asocks", "mobile")],
     "default": [
         ("proxy6", "residential"),
         ("belurk", "residential"),
-        ("iproyal", "residential"),
     ],
 }
 
@@ -513,7 +422,7 @@ def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict
     """
     Tiered auto-buy:
       Gmail -> ASocks (mobile 4G)
-      Others -> Proxy6 + Belurk (tier 1) -> IPRoyal (tier 2)
+      Desktop -> Proxy6 -> Belurk (fallback)
     
     Tries each provider in order until count proxies are acquired.
     """

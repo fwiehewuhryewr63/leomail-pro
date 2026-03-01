@@ -27,7 +27,6 @@ class SettingsUpdate(BaseModel):
     asocks_key: Optional[str] = None
     proxy6_key: Optional[str] = None
     belurk_key: Optional[str] = None
-    iproyal_key: Optional[str] = None
     auto_buy_enabled: Optional[bool] = None
     auto_buy_max_spend: Optional[float] = None
     headless: Optional[bool] = None
@@ -86,11 +85,6 @@ async def get_settings():
             },
             "belurk": {
                 "api_key": mask_key(config.get("proxy_providers", {}).get("belurk", {}).get("api_key", "")),
-                "enabled": config.get("proxy_providers", {}).get("belurk", {}).get("enabled", True)
-            },
-            "iproyal": {
-                "api_key": mask_key(config.get("proxy_providers", {}).get("iproyal", {}).get("api_key", "")),
-                "enabled": config.get("proxy_providers", {}).get("iproyal", {}).get("enabled", True)
             }
         },
         "auto_buy": config.get("auto_buy", {"enabled": False, "max_spend_usd": 10.0}),
@@ -127,8 +121,6 @@ async def update_settings(update: SettingsUpdate):
         config.setdefault("proxy_providers", {}).setdefault("proxy6", {})["api_key"] = update.proxy6_key
     if update.belurk_key is not None:
         config.setdefault("proxy_providers", {}).setdefault("belurk", {})["api_key"] = update.belurk_key
-    if update.iproyal_key is not None:
-        config.setdefault("proxy_providers", {}).setdefault("iproyal", {})["api_key"] = update.iproyal_key
     if update.auto_buy_enabled is not None:
         config.setdefault("auto_buy", {})["enabled"] = update.auto_buy_enabled
     if update.auto_buy_max_spend is not None:
@@ -226,7 +218,7 @@ async def test_service(service: str):
             return {"status": "ok", "message": f"Connected! Balance: {balance} RUB"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    elif service in ("asocks", "proxy6", "belurk", "iproyal"):
+    elif service in ("asocks", "proxy6", "belurk"):
         try:
             from ..services.proxy_providers import get_proxy_provider
             provider = get_proxy_provider(service)
@@ -235,8 +227,7 @@ async def test_service(service: str):
             balance = provider.get_balance()
             if balance < 0:
                 return {"status": "error", "message": f"Invalid API key or connection error"}
-            unit = "GB" if service == "iproyal" else "$"
-            return {"status": "ok", "message": f"Connected! Balance: {balance:.2f} {unit}"}
+            return {"status": "ok", "message": f"Connected! Balance: {balance:.2f} $"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
