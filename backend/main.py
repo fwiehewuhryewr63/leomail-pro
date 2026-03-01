@@ -128,6 +128,8 @@ async def _startup():
                 "total_births": "INTEGER DEFAULT 0",
                 "total_fails": "INTEGER DEFAULT 0",
                 "last_used_at": "DATETIME",
+                "source": "VARCHAR DEFAULT 'manual'",
+                "external_id": "VARCHAR",
             }
             for col, col_type in proxy_extra.items():
                 if col not in proxy_cols2:
