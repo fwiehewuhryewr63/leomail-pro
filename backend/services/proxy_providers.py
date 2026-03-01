@@ -233,77 +233,70 @@ class Proxy6Provider(ProxyProviderBase):
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Belurk.ru - IPv4/IPv6 proxies
-# API: https://belurk.com/api/v1/
+# API docs: https://dev.belurk.ru/
+# Auth: x-api-token header
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class BelurkProvider(ProxyProviderBase):
-    """Belurk.ru - IPv4/IPv6 proxies with order-based API."""
+    """Belurk.ru - IPv4/IPv6 proxies via dev.belurk.ru API."""
     name = "belurk"
-    BASE_URL = "https://api.belurk.com"
+    BASE_URL = "https://api.belurk.ru"
 
     def _headers(self):
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {"x-api-token": self.api_key, "Content-Type": "application/json"}
 
     def get_balance(self) -> float:
+        """GET /accounts/get-balance → {"data": {"balance": "123.45"}}"""
         try:
             r = requests.get(
-                f"{self.BASE_URL}/balance",
+                f"{self.BASE_URL}/accounts/get-balance",
                 headers=self._headers(),
                 timeout=10,
             )
             r.raise_for_status()
             data = r.json()
-            return float(data.get("balance", data.get("amount", 0)))
+            return float(data.get("data", {}).get("balance", 0))
         except Exception as e:
             logger.error(f"[Belurk] Balance error: {e}")
             return -1
 
     def list_proxies(self) -> list[dict]:
-        """List active proxies from Belurk orders."""
+        """GET /proxy/get-all → {"data": {"items": {"ipv4": [...], "ipv6": [...]}}}"""
         try:
             r = requests.get(
-                f"{self.BASE_URL}/orders",
+                f"{self.BASE_URL}/proxy/get-all",
                 headers=self._headers(),
-                params={"status": "active"},
                 timeout=15,
             )
             r.raise_for_status()
             data = r.json()
-            orders = data if isinstance(data, list) else data.get("data", data.get("orders", []))
+            items = data.get("data", {}).get("items", {})
 
             proxies = []
-            for order in orders:
-                order_proxies = order.get("proxies", order.get("list", []))
-                if isinstance(order_proxies, dict):
-                    order_proxies = list(order_proxies.values())
-                for p in order_proxies:
-                    if isinstance(p, str):
-                        # Format: host:port:user:pass or host:port
-                        parts = p.strip().split(":")
-                        if len(parts) >= 2:
-                            proxies.append({
-                                "host": parts[0],
-                                "port": int(parts[1]),
-                                "username": parts[2] if len(parts) > 2 else "",
-                                "password": parts[3] if len(parts) > 3 else "",
-                                "protocol": "http",
-                                "geo": "", 
-                                "expires_at": order.get("expires_at", order.get("date_end")),
-                                "proxy_type": "residential",
-                                "external_id": str(order.get("id", "")),
-                            })
-                    elif isinstance(p, dict):
-                        proxies.append({
-                            "host": p.get("ip", p.get("host", "")),
-                            "port": int(p.get("port", 0)),
-                            "username": p.get("login", p.get("user", p.get("username", ""))),
-                            "password": p.get("password", p.get("pass", "")),
-                            "protocol": p.get("type", "http").lower().replace("https", "http"),
-                            "geo": (p.get("country", "") or "").upper(),
-                            "expires_at": p.get("date_end", order.get("expires_at")),
-                            "proxy_type": "residential",
-                            "external_id": str(p.get("id", "")),
-                        })
+            # Iterate all proxy types: ipv4, ipv6, ipv4_shared
+            for proxy_type, proxy_list in items.items():
+                if not isinstance(proxy_list, list):
+                    continue
+                for p in proxy_list:
+                    if p.get("is_expired"):
+                        continue
+                    ports = p.get("ports", {})
+                    http_port = ports.get("http", 0)
+                    socks_port = ports.get("socks", 0)
+                    country = p.get("country", {})
+                    geo = country.get("code", "") if isinstance(country, dict) else str(country)
+
+                    proxies.append({
+                        "host": p.get("ip_address", ""),
+                        "port": int(http_port) if http_port else int(socks_port),
+                        "username": p.get("login", ""),
+                        "password": p.get("password", ""),
+                        "protocol": "socks5" if not http_port and socks_port else "http",
+                        "geo": geo.upper(),
+                        "expires_at": p.get("expired_at"),
+                        "proxy_type": proxy_type,
+                        "external_id": str(p.get("credential_id", "")),
+                    })
             return proxies
         except Exception as e:
             logger.error(f"[Belurk] List proxies error: {e}")
@@ -311,68 +304,64 @@ class BelurkProvider(ProxyProviderBase):
 
     def buy_proxies(self, count: int, country: str = "ru", period_days: int = 7,
                     proxy_type: str = "residential") -> list[dict]:
-        """Buy proxies via Belurk order API."""
+        """
+        1. GET /products/get-all → find matching product variant_id
+        2. POST /orders/create {"product_id": variant_id, "quantity": count}
+        """
         try:
-            # First get available products
+            # Get available products
             r = requests.get(
-                f"{self.BASE_URL}/products",
+                f"{self.BASE_URL}/products/get-all",
                 headers=self._headers(),
                 timeout=10,
             )
             r.raise_for_status()
-            products = r.json()
-            prod_list = products if isinstance(products, list) else products.get("data", [])
+            products = r.json().get("data", {})
 
-            # Find IPv4 product
-            product_id = None
-            for prod in prod_list:
-                if "ipv4" in str(prod.get("name", "")).lower() or prod.get("type") == "ipv4":
-                    product_id = prod.get("id")
+            # Find IPv4 product with matching country
+            variant_id = None
+            country_upper = country.upper()
+            # Prefer ipv4, then ipv4_shared, then ipv6
+            for ptype in ("ipv4", "ipv4_shared", "ipv6"):
+                cat = products.get(ptype, {})
+                variants = cat.get("variants", [])
+                for v in variants:
+                    if v.get("country_code", "").upper() == country_upper:
+                        variant_id = v.get("variant_id")
+                        break
+                if variant_id:
                     break
-            if not product_id and prod_list:
-                product_id = prod_list[0].get("id")
 
-            if not product_id:
+            # Fallback: first available ipv4 variant
+            if not variant_id:
+                for ptype in ("ipv4", "ipv4_shared"):
+                    cat = products.get(ptype, {})
+                    variants = cat.get("variants", [])
+                    if variants:
+                        variant_id = variants[0].get("variant_id")
+                        break
+
+            if not variant_id:
                 logger.error("[Belurk] No products available")
                 return []
 
             # Create order
             r = requests.post(
-                f"{self.BASE_URL}/orders",
+                f"{self.BASE_URL}/orders/create",
                 headers=self._headers(),
-                json={"product_id": product_id, "quantity": count},
+                json={"product_id": variant_id, "quantity": count},
                 timeout=20,
             )
             r.raise_for_status()
             order = r.json()
-            order_data = order.get("data", order)
+            order_id = order.get("data", {}).get("order_id")
+            logger.info(f"[Belurk] Order created: {order_id}")
 
-            # Extract proxies from order
-            return self._parse_order_proxies(order_data)
+            # Fetch the new proxies
+            return self.list_proxies()
         except Exception as e:
             logger.error(f"[Belurk] Buy error: {e}")
             return []
-
-    def _parse_order_proxies(self, order: dict) -> list[dict]:
-        """Parse proxy list from an order response."""
-        proxy_list = order.get("proxies", order.get("list", []))
-        if isinstance(proxy_list, dict):
-            proxy_list = list(proxy_list.values())
-        proxies = []
-        for p in proxy_list:
-            if isinstance(p, dict):
-                proxies.append({
-                    "host": p.get("ip", p.get("host", "")),
-                    "port": int(p.get("port", 0)),
-                    "username": p.get("login", p.get("user", "")),
-                    "password": p.get("password", p.get("pass", "")),
-                    "protocol": "http",
-                    "geo": (p.get("country", "") or "").upper(),
-                    "expires_at": p.get("date_end"),
-                    "proxy_type": "residential",
-                    "external_id": str(p.get("id", "")),
-                })
-        return proxies
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
