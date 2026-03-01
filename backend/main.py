@@ -1,13 +1,30 @@
 import sys
 import os
+import io
 import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Force UTF-8 encoding on Windows to prevent charmap crashes with non-ASCII data
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+
+# Remove default loguru stderr sink (uses charmap on Windows) and add UTF-8 safe one
+logger.remove()
+logger.add(sys.stderr, level="DEBUG", format="{time:HH:mm:ss} | {level: <8} | {message}",
+           colorize=True)
 
 from .database import engine as db_engine, Base
 from .config import init_directories, load_config
