@@ -336,17 +336,6 @@ class CapSolverProvider:
         })
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CapMonster Cloud — same createTask API as CapSolver, different endpoint
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class CapMonsterProvider(CapSolverProvider):
-    """CapMonster.cloud — same API structure as CapSolver, different base URL."""
-
-    def __init__(self, api_key: str = ""):
-        super().__init__(api_key)
-        self.base_url = "https://api.capmonster.cloud"
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CaptchaChain — tries solvers in priority order with auto-fallback
@@ -373,7 +362,6 @@ class CaptchaChain:
         PROVIDER_ORDER = [
             ("capguru", CaptchaProvider, "capguru"),
             ("capsolver", CapSolverProvider, "capsolver"),
-            ("capmonster", CapMonsterProvider, "capmonster"),
             ("twocaptcha", TwoCaptchaProvider, "twocaptcha"),
         ]
         for name, cls, config_key in PROVIDER_ORDER:
@@ -446,12 +434,6 @@ def get_capsolver_provider() -> CapSolverProvider | None:
     """Get CapSolver provider instance."""
     key = get_api_key("capsolver")
     return CapSolverProvider(api_key=key) if key else None
-
-
-def get_capmonster_provider() -> CapMonsterProvider | None:
-    """Get CapMonster provider instance."""
-    key = get_api_key("capmonster")
-    return CapMonsterProvider(api_key=key) if key else None
 
 
 def get_captcha_chain() -> CaptchaChain:

@@ -22,8 +22,7 @@ DEFAULT_CONFIG = {
     "captcha": {
         "capguru": {"api_key": "", "enabled": True},
         "twocaptcha": {"api_key": "", "enabled": True},
-        "capsolver": {"api_key": "", "enabled": True},
-        "capmonster": {"api_key": "", "enabled": True}
+        "capsolver": {"api_key": "", "enabled": True}
     },
 
     "proxies": [],
@@ -114,9 +113,6 @@ def get_api_key(service: str) -> str | None:
         return key if key else None
     elif service == "capsolver":
         key = config.get("captcha", {}).get("capsolver", {}).get("api_key", "")
-        return key if key else None
-    elif service == "capmonster":
-        key = config.get("captcha", {}).get("capmonster", {}).get("api_key", "")
         return key if key else None
     elif service == "5sim":
         key = config.get("sms", {}).get("5sim", {}).get("api_key", "")

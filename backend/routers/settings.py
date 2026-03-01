@@ -23,7 +23,6 @@ class SettingsUpdate(BaseModel):
     capguru_key: Optional[str] = None
     twocaptcha_key: Optional[str] = None
     capsolver_key: Optional[str] = None
-    capmonster_key: Optional[str] = None
     headless: Optional[bool] = None
     threads: Optional[int] = None
     # Proxy usage limits per provider group
@@ -63,10 +62,6 @@ async def get_settings():
             "capsolver": {
                 "api_key": mask_key(config.get("captcha", {}).get("capsolver", {}).get("api_key", "")),
                 "enabled": config.get("captcha", {}).get("capsolver", {}).get("enabled", True)
-            },
-            "capmonster": {
-                "api_key": mask_key(config.get("captcha", {}).get("capmonster", {}).get("api_key", "")),
-                "enabled": config.get("captcha", {}).get("capmonster", {}).get("enabled", True)
             }
         },
 
@@ -98,8 +93,6 @@ async def update_settings(update: SettingsUpdate):
         config.setdefault("captcha", {}).setdefault("twocaptcha", {})["api_key"] = update.twocaptcha_key
     if update.capsolver_key is not None:
         config.setdefault("captcha", {}).setdefault("capsolver", {})["api_key"] = update.capsolver_key
-    if update.capmonster_key is not None:
-        config.setdefault("captcha", {}).setdefault("capmonster", {})["api_key"] = update.capmonster_key
     if update.headless is not None:
         config.setdefault("browser", {})["headless"] = update.headless
     if update.threads is not None:
@@ -179,15 +172,6 @@ async def test_service(service: str):
             from ..services.captcha_provider import CapSolverProvider
             cs = CapSolverProvider(key)
             balance = cs.get_balance()
-            return {"status": "ok", "message": f"Connected! Balance: ${balance:.2f}"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    
-    elif service == "capmonster":
-        try:
-            from ..services.captcha_provider import CapMonsterProvider
-            cm = CapMonsterProvider(key)
-            balance = cm.get_balance()
             return {"status": "ok", "message": f"Connected! Balance: ${balance:.2f}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
