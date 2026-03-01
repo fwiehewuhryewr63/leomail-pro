@@ -53,7 +53,7 @@ class ASocksProvider(ProxyProviderBase):
     def get_balance(self) -> float:
         try:
             r = requests.get(
-                f"{self.BASE_URL}/balance",
+                f"{self.BASE_URL}/user/balance",
                 params={"apiKey": self.api_key},
                 timeout=10,
             )
@@ -68,7 +68,7 @@ class ASocksProvider(ProxyProviderBase):
         """List active proxy ports from ASocks account."""
         try:
             r = requests.get(
-                f"{self.BASE_URL}/proxy/ports",
+                f"{self.BASE_URL}/proxy/port-list",
                 params={"apiKey": self.api_key},
                 timeout=15,
             )
@@ -102,7 +102,7 @@ class ASocksProvider(ProxyProviderBase):
             results = []
             for _ in range(count):
                 r = requests.post(
-                    f"{self.BASE_URL}/proxy/ports",
+                    f"{self.BASE_URL}/proxy/create-port",
                     params={"apiKey": self.api_key},
                     json={
                         "country": country.upper(),
@@ -328,7 +328,7 @@ class Proxy6Provider(ProxyProviderBase):
 class BelurkProvider(ProxyProviderBase):
     """Belurk.ru - IPv4/IPv6 proxies with order-based API."""
     name = "belurk"
-    BASE_URL = "https://belurk.com/api/v1"
+    BASE_URL = "https://api.belurk.com"
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
