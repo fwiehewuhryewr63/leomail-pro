@@ -25,6 +25,8 @@ class SettingsUpdate(BaseModel):
     capsolver_key: Optional[str] = None
     # Proxy providers
     asocks_key: Optional[str] = None
+    proxy6_key: Optional[str] = None
+    belurk_key: Optional[str] = None
     webshare_key: Optional[str] = None
     iproyal_key: Optional[str] = None
     auto_buy_enabled: Optional[bool] = None
@@ -79,13 +81,21 @@ async def get_settings():
                 "api_key": mask_key(config.get("proxy_providers", {}).get("asocks", {}).get("api_key", "")),
                 "enabled": config.get("proxy_providers", {}).get("asocks", {}).get("enabled", True)
             },
-            "webshare": {
-                "api_key": mask_key(config.get("proxy_providers", {}).get("webshare", {}).get("api_key", "")),
-                "enabled": config.get("proxy_providers", {}).get("webshare", {}).get("enabled", True)
+            "proxy6": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("proxy6", {}).get("api_key", "")),
+                "enabled": config.get("proxy_providers", {}).get("proxy6", {}).get("enabled", True)
+            },
+            "belurk": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("belurk", {}).get("api_key", "")),
+                "enabled": config.get("proxy_providers", {}).get("belurk", {}).get("enabled", True)
             },
             "iproyal": {
                 "api_key": mask_key(config.get("proxy_providers", {}).get("iproyal", {}).get("api_key", "")),
                 "enabled": config.get("proxy_providers", {}).get("iproyal", {}).get("enabled", True)
+            },
+            "webshare": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("webshare", {}).get("api_key", "")),
+                "enabled": config.get("proxy_providers", {}).get("webshare", {}).get("enabled", True)
             }
         },
         "auto_buy": config.get("auto_buy", {"enabled": False, "max_spend_usd": 10.0}),
@@ -118,6 +128,10 @@ async def update_settings(update: SettingsUpdate):
     # Proxy providers
     if update.asocks_key is not None:
         config.setdefault("proxy_providers", {}).setdefault("asocks", {})["api_key"] = update.asocks_key
+    if update.proxy6_key is not None:
+        config.setdefault("proxy_providers", {}).setdefault("proxy6", {})["api_key"] = update.proxy6_key
+    if update.belurk_key is not None:
+        config.setdefault("proxy_providers", {}).setdefault("belurk", {})["api_key"] = update.belurk_key
     if update.webshare_key is not None:
         config.setdefault("proxy_providers", {}).setdefault("webshare", {})["api_key"] = update.webshare_key
     if update.iproyal_key is not None:
@@ -219,7 +233,7 @@ async def test_service(service: str):
             return {"status": "ok", "message": f"Connected! Баланс: {balance}₽"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    elif service in ("asocks", "webshare", "iproyal"):
+    elif service in ("asocks", "proxy6", "belurk", "webshare", "iproyal"):
         try:
             from ..services.proxy_providers import get_proxy_provider
             provider = get_proxy_provider(service)
