@@ -1,6 +1,7 @@
 """
 Browser Leak Guard - detects and kills orphaned Chromium/Playwright processes.
 Prevents memory leaks from browser processes that survive after tasks complete.
+IMPORTANT: Never kills the main Leomail UI window or its child processes.
 """
 import os
 import time
@@ -20,17 +21,36 @@ BROWSER_PROCESS_NAMES = {
     "playwright", "node",
 }
 
-# Keywords in command line that indicate Playwright-spawned processes
+# Keywords that indicate Playwright-spawned birth/task processes (NOT the UI)
 PLAYWRIGHT_CMDLINE_MARKERS = [
-    "playwright", "--remote-debugging", "chromium", "--headless",
-    "--disable-blink-features", "browser_profiles",
+    "playwright", "--remote-debugging", "--headless",
+    "--disable-blink-features",
 ]
+
+# Keywords that indicate this is the main UI window or its child processes
+# These processes must NEVER be killed
+UI_PROTECTION_MARKERS = [
+    "--app=",
+    "chromium_profile",  # user-data-dir for the UI window
+]
+
+
+def _is_ui_process(cmdline: str) -> bool:
+    """Check if a chrome process belongs to the main Leomail UI window."""
+    return any(marker in cmdline for marker in UI_PROTECTION_MARKERS)
+
+
+def _is_playwright_task_process(cmdline: str) -> bool:
+    """Check if a chrome process was spawned by Playwright for birth/warmup tasks."""
+    if "browser_profiles" in cmdline:
+        return True
+    return any(marker in cmdline for marker in PLAYWRIGHT_CMDLINE_MARKERS)
 
 
 def get_orphaned_browser_pids(max_age_seconds: int = 300) -> list[int]:
     """
     Find browser processes that have been running longer than max_age_seconds.
-    Returns list of PIDs that are likely orphaned.
+    Only returns PIDs of Playwright task processes - NEVER UI processes.
     """
     if not HAS_PSUTIL:
         return []
@@ -54,16 +74,15 @@ def get_orphaned_browser_pids(max_age_seconds: int = 300) -> list[int]:
             if not is_browser:
                 continue
 
-            # Check command line for Playwright markers
+            # Get command line
             cmdline = " ".join(proc.info.get("cmdline") or []).lower()
 
-            # NEVER kill the Leomail app window (launched with --app=)
-            if "--app=" in cmdline:
+            # NEVER kill UI processes (main window + its renderers/GPU/etc)
+            if _is_ui_process(cmdline):
                 continue
 
-            is_playwright = any(marker in cmdline for marker in PLAYWRIGHT_CMDLINE_MARKERS)
-
-            if is_playwright:
+            # Only kill processes that are clearly Playwright task processes
+            if _is_playwright_task_process(cmdline):
                 orphans.append(pid)
 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -116,7 +135,8 @@ def get_browser_memory_usage_mb() -> float:
             is_browser = any(bn in name for bn in BROWSER_PROCESS_NAMES)
             if is_browser:
                 cmdline = " ".join(proc.info.get("cmdline") or []).lower()
-                if any(m in cmdline for m in PLAYWRIGHT_CMDLINE_MARKERS):
+                # Only count Playwright task processes, not the UI
+                if _is_playwright_task_process(cmdline) and not _is_ui_process(cmdline):
                     total_bytes += proc.info["memory_info"].rss
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
