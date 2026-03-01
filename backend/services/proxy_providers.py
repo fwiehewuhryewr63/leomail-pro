@@ -1,6 +1,6 @@
 """
 Leomail v4 — Proxy Provider API Clients
-Supports: ASocks, IPRoyal, Webshare
+Supports: ASocks, Proxy6, Belurk, IPRoyal
 Each provider: fetch balance, list active proxies, buy new proxies.
 """
 import requests
@@ -131,83 +131,6 @@ class ASocksProvider(ProxyProviderBase):
         except Exception as e:
             logger.error(f"[ASocks] Buy proxies error: {e}")
             return []
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Webshare — residential proxies
-# API: https://proxy.webshare.io/api/v2/
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class WebshareProvider(ProxyProviderBase):
-    """Webshare.io — residential proxies with free tier."""
-    name = "webshare"
-    BASE_URL = "https://proxy.webshare.io/api/v2"
-
-    def _headers(self):
-        return {"Authorization": f"Token {self.api_key}"}
-
-    def get_balance(self) -> float:
-        try:
-            r = requests.get(
-                f"{self.BASE_URL}/subscription/",
-                headers=self._headers(),
-                timeout=10,
-            )
-            r.raise_for_status()
-            data = r.json()
-            # Webshare returns bandwidth info
-            bw = data.get("bandwidth_remaining_gb", data.get("bandwidth", 0))
-            return float(bw)
-        except Exception as e:
-            logger.error(f"[Webshare] Balance error: {e}")
-            return -1
-
-    def list_proxies(self) -> list[dict]:
-        """Fetch all proxies from Webshare account (paginated)."""
-        proxies = []
-        page = 1
-        try:
-            while True:
-                r = requests.get(
-                    f"{self.BASE_URL}/proxy/list/",
-                    headers=self._headers(),
-                    params={"mode": "direct", "page": page, "page_size": 100},
-                    timeout=15,
-                )
-                r.raise_for_status()
-                data = r.json()
-                results = data.get("results", [])
-                if not results:
-                    break
-
-                for p in results:
-                    proxies.append({
-                        "host": p.get("proxy_address", ""),
-                        "port": int(p.get("port", 0)),
-                        "username": p.get("username", ""),
-                        "password": p.get("password", ""),
-                        "protocol": "http",
-                        "geo": (p.get("country_code", "") or "").upper(),
-                        "expires_at": None,
-                        "proxy_type": "residential",
-                        "external_id": str(p.get("id", "")),
-                    })
-
-                # Check if there's a next page
-                if not data.get("next"):
-                    break
-                page += 1
-
-            return proxies
-        except Exception as e:
-            logger.error(f"[Webshare] List proxies error: {e}")
-            return []
-
-    def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
-                    proxy_type: str = "residential") -> list[dict]:
-        """Webshare is subscription-based. Use list_proxies instead."""
-        logger.warning("[Webshare] Auto-buy not supported — subscription model. Use Sync.")
-        return []
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -550,7 +473,6 @@ PROVIDERS = {
     "proxy6": Proxy6Provider,
     "belurk": BelurkProvider,
     "iproyal": IPRoyalProvider,
-    "webshare": WebshareProvider,
 }
 
 # Tiered auto-buy order:
@@ -562,7 +484,6 @@ AUTO_BUY_TIERS = {
         ("proxy6", "residential"),
         ("belurk", "residential"),
         ("iproyal", "residential"),
-        ("webshare", "residential"),
     ],
 }
 

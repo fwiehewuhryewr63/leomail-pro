@@ -33,7 +33,6 @@ const PROXY_API_SERVICES = [
     { key: 'proxy6_key', configPath: ['proxy_providers', 'proxy6', 'api_key'], name: 'Proxy6', service: 'proxy6', desc: 'IPv4 → Tier 1', color: '#F59E0B', icon: '6️⃣' },
     { key: 'belurk_key', configPath: ['proxy_providers', 'belurk', 'api_key'], name: 'Belurk', service: 'belurk', desc: 'IPv4 → Tier 1', color: '#EF4444', icon: '🛡️' },
     { key: 'iproyal_key', configPath: ['proxy_providers', 'iproyal', 'api_key'], name: 'IPRoyal', service: 'iproyal', desc: 'Residential → Tier 2', color: '#3B82F6', icon: '🏠' },
-    { key: 'webshare_key', configPath: ['proxy_providers', 'webshare', 'api_key'], name: 'Webshare', service: 'webshare', desc: 'Residential → Tier 2', color: '#10B981', icon: '🌐' },
 ];
 
 export default function Settings() {

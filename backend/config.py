@@ -29,8 +29,7 @@ DEFAULT_CONFIG = {
         "asocks": {"api_key": "", "enabled": True},
         "proxy6": {"api_key": "", "enabled": True},
         "belurk": {"api_key": "", "enabled": True},
-        "iproyal": {"api_key": "", "enabled": True},
-        "webshare": {"api_key": "", "enabled": True}
+        "iproyal": {"api_key": "", "enabled": True}
     },
     "auto_buy": {
         "enabled": False,
@@ -131,7 +130,7 @@ def get_api_key(service: str) -> str | None:
     elif service == "5sim":
         key = config.get("sms", {}).get("5sim", {}).get("api_key", "")
         return key if key else None
-    elif service in ("asocks", "proxy6", "belurk", "webshare", "iproyal"):
+    elif service in ("asocks", "proxy6", "belurk", "iproyal"):
         key = config.get("proxy_providers", {}).get(service, {}).get("api_key", "")
         return key if key else None
 
