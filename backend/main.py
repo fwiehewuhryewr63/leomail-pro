@@ -81,6 +81,41 @@ async def _startup():
     Base.metadata.create_all(bind=db_engine)
     logger.info("Database tables created/verified")
 
+    # Auto-install Playwright Chromium if missing (critical for EXE distribution)
+    try:
+        from playwright._impl._driver import compute_driver_executable
+        driver_exec = compute_driver_executable()
+        driver_dir = Path(driver_exec).parent
+        browsers_dir = driver_dir / "package" / ".local-browsers"
+        # Check if any chromium directory with chrome.exe exists
+        chromium_ok = False
+        if browsers_dir.exists():
+            for d in browsers_dir.iterdir():
+                if d.is_dir() and d.name.startswith("chromium"):
+                    chrome_exe = d / "chrome-win64" / "chrome.exe"
+                    if chrome_exe.exists():
+                        chromium_ok = True
+                        break
+        if not chromium_ok:
+            logger.info("Playwright Chromium not found — downloading automatically...")
+            import subprocess
+            node_exe = driver_dir / "node.exe"
+            cli_js = driver_dir / "package" / "cli.js"
+            env = os.environ.copy()
+            env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
+            result = subprocess.run(
+                [str(node_exe), str(cli_js), "install", "chromium"],
+                env=env, capture_output=True, text=True, timeout=300
+            )
+            if result.returncode == 0:
+                logger.info("Playwright Chromium installed successfully")
+            else:
+                logger.warning(f"Playwright install returned code {result.returncode}: {result.stderr[:300]}")
+        else:
+            logger.info("Playwright Chromium: OK")
+    except Exception as e:
+        logger.warning(f"Playwright auto-install check skipped: {e}")
+
     # Auto-migrate: add missing columns to existing tables
     from sqlalchemy import text, inspect
     with db_engine.connect() as conn:
