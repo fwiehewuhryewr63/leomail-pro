@@ -263,7 +263,7 @@ class GrizzlySMS(SMSProvider):
                 logger.info(f"GrizzlySMS: no numbers, retry {attempt+1}/3 in 5s...")
                 time.sleep(5)
 
-        return {"error": f"Нет номеров ни в одной из {len(available)} стран"}
+        return {"error": f"No numbers in any of {len(available)} countries"}
 
     # Countries known to have REAL (physical) numbers that work for SMS verification
     REAL_COUNTRIES = [
@@ -299,20 +299,20 @@ class GrizzlySMS(SMSProvider):
                 logger.debug(f"GrizzlySMS auto: {c} ({country_code}) → {result}")
 
             error_map = {
-                "NO_NUMBERS": "Нет свободных реальных номеров",
-                "NO_BALANCE": "Недостаточно средств",
-                "BAD_KEY": "Неверный API ключ",
-                "BAD_SERVICE": "Неверный сервис",
-                "BAD_ACTION": "Неверное действие",
+                "NO_NUMBERS": "No available real numbers",
+                "NO_BALANCE": "Insufficient balance",
+                "BAD_KEY": "Invalid API key",
+                "BAD_SERVICE": "Invalid service",
+                "BAD_ACTION": "Invalid action",
             }
-            return {"error": error_map.get(result, f"GrizzlySMS: нет реальных номеров")}
+            return {"error": error_map.get(result, f"GrizzlySMS: no real numbers")}
 
         # Specific country
         if country == "us_v":
-            return {"error": "Виртуальные номера отключены — используйте реальные"}
+            return {"error": "Virtual numbers disabled — use real numbers"}
         country_code = GRIZZLY_COUNTRY_CODES.get(country, country)
         if country_code in self.VIRTUAL_COUNTRY_CODES:
-            return {"error": f"Страна {country} — виртуальные номера, пропуск"}
+            return {"error": f"Country {country} — virtual numbers, skipping"}
         result = self._request("getNumber", service=service_code, country=country_code)
         if result.startswith("ACCESS_NUMBER:"):
             parts = result.split(":")
@@ -321,9 +321,9 @@ class GrizzlySMS(SMSProvider):
                 return {"id": parts[1], "number": parts[2], "country": country, "service": service}
 
         error_map = {
-            "NO_NUMBERS": "Нет свободных номеров",
-            "NO_BALANCE": "Недостаточно средств",
-            "BAD_KEY": "Неверный API ключ",
+            "NO_NUMBERS": "No available numbers",
+            "NO_BALANCE": "Insufficient balance",
+            "BAD_KEY": "Invalid API key",
         }
         return {"error": error_map.get(result, f"GrizzlySMS: {result}")}
 
@@ -346,7 +346,7 @@ class GrizzlySMS(SMSProvider):
                     self.cancel_number(order_id)
                 except Exception:
                     pass
-                return {"error": "Отменено пользователем", "cancelled": True}
+                return {"error": "Cancelled by user", "cancelled": True}
 
             result = self._request("getStatus", id=order_id)
 
@@ -367,19 +367,19 @@ class GrizzlySMS(SMSProvider):
                             self.cancel_number(order_id)
                         except Exception:
                             pass
-                        return {"error": "Отменено пользователем", "cancelled": True}
+                        return {"error": "Cancelled by user", "cancelled": True}
                     time.sleep(0.5)
                 continue
             elif "STATUS_WAIT_RETRY" in result:
                 time.sleep(3)
                 continue
             elif result == "STATUS_CANCEL":
-                return {"error": "Активация отменена"}
+                return {"error": "Activation cancelled"}
             else:
                 logger.warning(f"GrizzlySMS unexpected status: {result}")
-                return {"error": f"Ошибка: {result}"}
+                return {"error": f"Error: {result}"}
 
-        return {"error": f"Таймаут {timeout}с — SMS не получено", "timeout": True}
+        return {"error": f"Timeout {timeout}s — SMS not received", "timeout": True}
 
     def set_status(self, order_id: str, status: int) -> str:
         """Set activation status: 1=ready, 3=retry, 6=complete, 8=cancel."""

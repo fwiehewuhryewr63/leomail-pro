@@ -372,7 +372,7 @@ export default function Settings() {
                                     body: JSON.stringify({ auto_buy_enabled: v })
                                 });
                             }} />
-                        <span style={{ fontSize: '0.82em', fontWeight: 700 }}>🛒 Auto-Buy при нехватке</span>
+                        <span style={{ fontSize: '0.82em', fontWeight: 700 }}>🛒 Auto-Buy when low</span>
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>Max $</span>
@@ -529,7 +529,7 @@ export default function Settings() {
                                     </span>
                                 </div>
                                 <button className="btn btn-success" onClick={async () => {
-                                    if (!confirm(`Обновить до v${updateInfo.remote_version}?\nПриложение перезапустится.`)) return;
+                                    if (!confirm(`Update to v${updateInfo.remote_version}?\nApp will restart.`)) return;
                                     setUpdateApplying(true);
                                     setUpdateStatus('');
                                     // Start polling progress
@@ -538,33 +538,33 @@ export default function Settings() {
                                             const r = await fetch(`${API}/update/progress`);
                                             const p = await r.json();
                                             if (p.active) {
-                                                const labels = { checking: '🔍 Проверка...', backing_up: '💾 Бэкап данных...', downloading: '⬇️ Скачивание...', extracting: '📦 Распаковка...', applying: '🚀 Применение...', error: '❌ Ошибка' };
+                                                const labels = { checking: '🔍 Checking...', backing_up: '💾 Backing up...', downloading: '⬇️ Downloading...', extracting: '📦 Extracting...', applying: '🚀 Applying...', error: '❌ Error' };
                                                 setUpdateStatus(`${labels[p.step] || p.step}  ${p.detail || ''}`);
                                                 setUpdateProgress(p);
                                             }
                                             if (p.step === 'applying' || p.step === 'error' || p.step === 'done') {
                                                 clearInterval(pollId);
-                                                if (p.step === 'applying') setUpdateStatus('🚀 Обновление загружено! Перезапуск...');
+                                                if (p.step === 'applying') setUpdateStatus('🚀 Update downloaded! Restarting...');
                                             }
-                                        } catch { /* server may be restarting */ clearInterval(pollId); setUpdateStatus('🔄 Перезапуск...'); }
+                                        } catch { /* server may be restarting */ clearInterval(pollId); setUpdateStatus('🔄 Restarting...'); }
                                     }, 500);
                                     try {
                                         const r = await fetch(`${API}/update/download-and-apply`, { method: 'POST' });
                                         const d = await r.json();
                                         clearInterval(pollId);
                                         if (d.success) {
-                                            setUpdateStatus('✅ Обновление загружено! Приложение перезапускается...');
+                                            setUpdateStatus('✅ Update downloaded! App is restarting...');
                                         } else {
                                             setUpdateStatus(`❌ ${(d.errors || []).join(', ')}`);
                                             setUpdateApplying(false);
                                         }
                                     } catch {
                                         clearInterval(pollId);
-                                        setUpdateStatus('🔄 Приложение перезапускается...');
+                                        setUpdateStatus('🔄 App is restarting...');
                                     }
                                 }} disabled={updateApplying}
                                     style={{ borderRadius: 20, padding: '8px 20px', fontSize: '0.85em', fontWeight: 700 }}>
-                                    <Download size={14} /> Обновить
+                                    <Download size={14} /> Update
                                 </button>
                             </div>
                             {updateInfo.release_notes && (

@@ -77,7 +77,7 @@ async def verify_account_imap(account, db, _log=None, _err=None) -> bool:
     log_fn = _log or (lambda msg: logger.info(f"[IMAP] {msg}"))
     err_fn = _err or (lambda msg: logger.error(f"[IMAP] {msg}"))
 
-    log_fn(f"IMAP проверка: {account.email}...")
+    log_fn(f"IMAP check: {account.email}...")
 
     # Wait a bit after birth — servers need time to propagate
     await asyncio.sleep(5)

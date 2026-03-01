@@ -223,7 +223,7 @@ class SimSmsProvider:
                 logger.info(f"SimSMS: no numbers, retry {attempt+1}/3 in 5s...")
                 time.sleep(5)
 
-        return {"error": f"Нет номеров ни в одной из {len(available)} стран"}
+        return {"error": f"No numbers in any of {len(available)} countries"}
 
     # Countries known to have real SIM numbers (ordered by quality)
     FALLBACK_COUNTRIES = ["us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr", "es", "ru"]
@@ -281,7 +281,7 @@ class SimSmsProvider:
                     }
             logger.debug(f"SimSMS fallback: {country} → {result}")
 
-        return {"error": "Нет доступных номеров (ни по ценам, ни по fallback)"}
+        return {"error": "No available numbers (neither priced nor fallback)"}
 
     def order_number(self, service: str = "gmail", country: str = "auto") -> dict:
         """
@@ -315,14 +315,14 @@ class SimSmsProvider:
 
         # Error mapping
         error_map = {
-            "NO_NUMBERS": "Нет свободных номеров",
-            "NO_BALANCE": "Недостаточно средств",
-            "BAD_KEY": "Неверный API ключ",
-            "BAD_SERVICE": "Неверный сервис",
-            "BAD_ACTION": "Неверное действие",
-            "ERROR_SQL": "Ошибка сервера SimSMS",
+            "NO_NUMBERS": "No available numbers",
+            "NO_BALANCE": "Insufficient balance",
+            "BAD_KEY": "Invalid API key",
+            "BAD_SERVICE": "Invalid service",
+            "BAD_ACTION": "Invalid action",
+            "ERROR_SQL": "SimSMS server error",
         }
-        error_msg = error_map.get(text, f"Ошибка SimSMS: {text}")
+        error_msg = error_map.get(text, f"SimSMS error: {text}")
         return {"error": error_msg}
 
     def get_sms_code(self, order_id: str, timeout: int = 300, cancel_event=None) -> dict:
@@ -340,7 +340,7 @@ class SimSmsProvider:
                     self.cancel_order(order_id)
                 except Exception:
                     pass
-                return {"error": "Отменено пользователем", "cancelled": True}
+                return {"error": "Cancelled by user", "cancelled": True}
 
             text = self._request("getStatus", id=order_id)
 
@@ -361,7 +361,7 @@ class SimSmsProvider:
                             self.cancel_order(order_id)
                         except Exception:
                             pass
-                        return {"error": "Отменено пользователем", "cancelled": True}
+                        return {"error": "Cancelled by user", "cancelled": True}
                     time.sleep(0.5)
                 continue
             elif text == "STATUS_WAIT_RETRY":
@@ -369,11 +369,11 @@ class SimSmsProvider:
                 time.sleep(3)
                 continue
             elif text == "STATUS_CANCEL":
-                return {"error": "Активация отменена"}
+                return {"error": "Activation cancelled"}
             else:
-                return {"error": f"Ошибка получения SMS: {text}"}
+                return {"error": f"SMS receive error: {text}"}
 
-        return {"error": f"Таймаут {timeout}с — SMS не получено", "timeout": True}
+        return {"error": f"Timeout {timeout}s — SMS not received", "timeout": True}
 
     def set_status(self, order_id: str, status: int) -> str:
         """

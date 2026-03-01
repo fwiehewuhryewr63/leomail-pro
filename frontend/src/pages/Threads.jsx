@@ -3,7 +3,7 @@ import { API } from '../api';
 import { ProviderLogo } from '../components/ProviderLogos';
 
 
-const TASK_TYPE_LABELS = { birth: 'Авторег', warmup: 'Прогрев', work: 'Рассылка' };
+const TASK_TYPE_LABELS = { birth: 'Autoreg', warmup: 'Warmup', work: 'Mailing' };
 
 function getStatusStyle(status, action) {
     if (status === 'done') return { color: '#10B981', icon: '✓' };
@@ -19,7 +19,7 @@ function getStatusStyle(status, action) {
 function formatTime(startTime) {
     if (!startTime) return '';
     const diff = Math.max(0, Math.floor((Date.now() - new Date(startTime).getTime()) / 1000));
-    if (diff > 86400) return `${Math.floor(diff / 86400)}д`;
+    if (diff > 86400) return `${Math.floor(diff / 86400)}d`;
     const m = Math.floor(diff / 60), s = diff % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
@@ -35,7 +35,7 @@ function maskProxy(proxy) {
 // Clean up action text: remove "Поток N:" prefix
 function cleanAction(action) {
     if (!action) return '';
-    return action.replace(/^Поток\s*\d+:\s*/i, '').trim();
+    return action.replace(/^\u041f\u043e\u0442\u043e\u043a\s*\d+:\s*/i, '').trim();
 }
 
 
@@ -153,7 +153,7 @@ export default function Threads() {
                     fontSize: '0.75em', color: si.color, fontWeight: 600,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
-                    {action || (t.status === 'error' ? (t.error || 'Ошибка') : t.status === 'done' ? 'Готово ✓' : '...')}
+                    {action || (t.status === 'error' ? (t.error || 'Error') : t.status === 'done' ? 'Done ✓' : '...')}
                 </span>
 
                 {/* Proxy */}
@@ -222,7 +222,7 @@ export default function Threads() {
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <h2 style={{ margin: 0, fontSize: '1.3em', fontWeight: 300, fontStyle: 'italic', color: 'var(--text-primary)' }}>
-                        Потоки
+                        Threads
                         {running > 0 && (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.45em', padding: '2px 10px', borderRadius: 20, color: '#10B981', fontWeight: 700, marginLeft: 10 }}>
                                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 5px #10B981', animation: 'pulse 1.5s infinite' }} />
@@ -249,8 +249,8 @@ export default function Threads() {
                     {sortedActiveGroups.length === 0 && !showHistory && (
                         <div className="card" style={{ textAlign: 'center', padding: 50, color: 'var(--text-muted)' }}>
                             <div style={{ fontSize: '2em', marginBottom: 6 }}>⊘</div>
-                            <div style={{ fontSize: '0.9em' }}>Нет активных потоков</div>
-                            <div style={{ fontSize: '0.75em', marginTop: 3, opacity: 0.5 }}>Запустите авторег для отслеживания</div>
+                            <div style={{ fontSize: '0.9em' }}>No active threads</div>
+                            <div style={{ fontSize: '0.75em', marginTop: 3, opacity: 0.5 }}>Start autoreg to begin tracking</div>
                         </div>
                     )}
                     {sortedActiveGroups.map(g => renderGroup(g))}
@@ -269,7 +269,7 @@ export default function Threads() {
                             >
                                 <div style={{ flex: 1, height: 1, background: 'var(--border-default)' }} />
                                 <span style={{ fontWeight: 600 }}>
-                                    {showHistory ? '▾' : '▸'} История ({doneThreads.length})
+                                    {showHistory ? '▾' : '▸'} History ({doneThreads.length})
                                 </span>
                                 <div style={{ flex: 1, height: 1, background: 'var(--border-default)' }} />
                             </div>
@@ -286,7 +286,7 @@ export default function Threads() {
                     <div className="card" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontWeight: 700, fontSize: '0.85em', color: 'var(--text-primary)' }}>🖥 Live Preview</span>
-                            <span style={{ fontSize: '0.7em', color: 'var(--text-muted)' }}>#{selectedThread} · 2с</span>
+                            <span style={{ fontSize: '0.7em', color: 'var(--text-muted)' }}>#{selectedThread} · 2s</span>
                         </div>
                         <div style={{
                             flex: 1, borderRadius: 6, overflow: 'hidden',
@@ -297,17 +297,17 @@ export default function Threads() {
                             {screenshotError ? (
                                 <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8em' }}>
                                     <div style={{ fontSize: '1.3em', marginBottom: 4 }}>📷</div>
-                                    Браузер закрыт
+                                    Browser closed
                                 </div>
                             ) : screenshotUrl ? (
                                 <img src={screenshotUrl} alt="Browser" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                             ) : (
-                                <span style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>Загрузка...</span>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>Loading...</span>
                             )}
                         </div>
                         <button className="btn" onClick={() => { setSelectedThread(null); setScreenshotUrl(null); }}
                             style={{ padding: '4px 12px', fontSize: '0.75em', border: '1px solid var(--border-default)', background: 'transparent', alignSelf: 'flex-end' }}>
-                            Закрыть
+                            Close
                         </button>
                     </div>
                 </div>

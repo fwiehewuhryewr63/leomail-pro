@@ -116,7 +116,7 @@ class FiveSimProvider:
             elif resp.status_code == 400:
                 return {"error": resp.json().get("message", "Bad request")}
             elif resp.status_code == 401:
-                return {"error": "Неверный API ключ 5sim"}
+                return {"error": "Invalid 5sim API key"}
             else:
                 return {"error": f"HTTP {resp.status_code}: {resp.text[:100]}"}
         except Exception as e:
@@ -164,7 +164,7 @@ class FiveSimProvider:
                 err = result.get("error", "") if result else ""
                 logger.debug(f"5sim auto: {c} → {err}")
 
-            return {"error": "5sim: нет реальных номеров"}
+            return {"error": "5sim: no real numbers"}
 
         # Specific country
         country_name = FIVESIM_COUNTRIES.get(country, country)
@@ -180,7 +180,7 @@ class FiveSimProvider:
                 "country": country,
                 "service": service,
             }
-        return {"error": result.get("error", "5sim: ошибка заказа") if result else "5sim: нет ответа"}
+        return {"error": result.get("error", "5sim: order error") if result else "5sim: no response"}
 
     def order_number_from_countries(self, service: str = "gmail", countries: list = None, blacklist: set = None) -> dict:
         """
@@ -216,7 +216,7 @@ class FiveSimProvider:
                 logger.info(f"5sim: no numbers, retry {attempt+1}/3 in 5s...")
                 time.sleep(5)
 
-        return {"error": f"5sim: нет номеров ни в одной из {len(available)} стран"}
+        return {"error": f"5sim: no numbers in any of {len(available)} countries"}
 
     def get_sms_code(self, order_id: str, timeout: int = 300, cancel_event=None) -> dict:
         """
@@ -233,7 +233,7 @@ class FiveSimProvider:
                     self.cancel_number(order_id)
                 except Exception:
                     pass
-                return {"error": "Отменено пользователем", "cancelled": True}
+                return {"error": "Cancelled by user", "cancelled": True}
 
             result = self._get(f"/user/check/{order_id}")
             if not result:
@@ -263,16 +263,16 @@ class FiveSimProvider:
                     }
 
             elif status == "CANCELED":
-                return {"error": "Активация отменена"}
+                return {"error": "Activation cancelled"}
             elif status == "TIMEOUT":
-                return {"error": "5sim: таймаут на стороне сервиса"}
+                return {"error": "5sim: timeout on service side"}
             elif status == "FINISHED":
                 # Already finished, try to get code from sms
                 sms_list = result.get("sms", [])
                 if sms_list:
                     code = sms_list[0].get("code", "")
                     return {"code": code, "raw": str(sms_list[0]), "wait_time": round(time.time() - start, 1)}
-                return {"error": "Активация завершена, но код не найден"}
+                return {"error": "Activation finished but code not found"}
 
             # PENDING — wait and retry
             for _ in range(8):  # 8 x 0.5s = 4s
@@ -281,7 +281,7 @@ class FiveSimProvider:
                         self.cancel_number(order_id)
                     except Exception:
                         pass
-                    return {"error": "Отменено пользователем", "cancelled": True}
+                    return {"error": "Cancelled by user", "cancelled": True}
                 time.sleep(0.5)
 
         # Timeout — cancel the number
