@@ -85,9 +85,12 @@ def check_for_updates() -> dict:
                 "error": "No version tag in release",
             }
 
-        # Compare versions (semver)
-        current_parts = [int(x) for x in current["version"].split(".")]
-        remote_parts = [int(x) for x in remote_version.split(".")]
+        # Compare versions (semver, ignoring non-numeric suffixes like .new, .beta)
+        import re
+        def parse_ver(v):
+            return [int(x) for x in re.findall(r'\d+', v)][:3]
+        current_parts = parse_ver(current["version"])
+        remote_parts = parse_ver(remote_version)
         is_newer = remote_parts > current_parts
 
         # Find ZIP asset
