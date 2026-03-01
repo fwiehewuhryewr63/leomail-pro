@@ -39,11 +39,11 @@ async def system_resources():
 
 @router.get("/active-threads")
 async def active_threads(db: Session = Depends(get_db)):
-    """List recent thread logs: running + last 50 completed, enriched with Task info."""
+    """List recent thread logs: running + last 20 completed, enriched with Task info."""
     running = db.query(ThreadLog).filter(ThreadLog.status == "running").all()
     recent = db.query(ThreadLog).filter(
         ThreadLog.status.in_(["done", "error"])
-    ).order_by(ThreadLog.updated_at.desc()).limit(50).all()
+    ).order_by(ThreadLog.updated_at.desc()).limit(20).all()
 
     threads = running + recent
 
@@ -54,28 +54,33 @@ async def active_threads(db: Session = Depends(get_db)):
         tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
         tasks_map = {t.id: t for t in tasks}
 
+    # Known providers
+    PROVIDERS = ["gmail", "yahoo", "aol", "outlook", "hotmail", "protonmail", "tuta"]
+
     result = []
     for t in threads:
         task = tasks_map.get(t.task_id)
-        # Extract provider from thread_type or task details
+
+        # Extract provider from Task.details: "Registering 10 gmail accounts" → "gmail"
         provider = ""
-        if t.thread_type:
-            # thread_type is like "birth_gmail", "birth_yahoo", "warmup", "work"
-            parts = (t.thread_type or "").split("_", 1)
-            if len(parts) > 1:
-                provider = parts[1]
-        if not provider and t.account_email:
-            # Fallback: extract from email domain
-            domain = t.account_email.split("@")[-1] if "@" in (t.account_email or "") else ""
-            for p in ["gmail", "yahoo", "aol", "outlook", "hotmail", "protonmail", "tuta"]:
-                if p in domain.lower():
+        if task and task.details:
+            details_lower = task.details.lower()
+            for p in PROVIDERS:
+                if p in details_lower:
+                    provider = p
+                    break
+        # Fallback: extract from email domain
+        if not provider and t.account_email and "@" in (t.account_email or ""):
+            domain = t.account_email.split("@")[-1].lower()
+            for p in PROVIDERS:
+                if p in domain:
                     provider = p
                     break
 
         result.append({
             "id": t.id,
             "task_id": t.task_id,
-            "task_type": task.type if task else (t.thread_type or "").split("_")[0] or "birth",
+            "task_type": task.type if task else "birth",
             "provider": provider,
             "index": t.thread_index,
             "type": t.thread_type,
