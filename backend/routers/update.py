@@ -28,6 +28,13 @@ async def check_updates():
     return check_for_updates()
 
 
+@router.get("/progress")
+async def get_update_progress():
+    """Get real-time update download/install progress."""
+    from ..services.updater import update_progress
+    return update_progress
+
+
 @router.post("/download-and-apply")
 async def download_and_apply():
     """
@@ -40,9 +47,10 @@ async def download_and_apply():
     """
     from ..services.updater import (
         check_for_updates, download_update, extract_and_prepare,
-        backup_user_data, cleanup_old_backups
+        backup_user_data, cleanup_old_backups, set_progress, reset_progress
     )
 
+    reset_progress()
     result = {
         "success": False,
         "steps": [],
@@ -50,7 +58,8 @@ async def download_and_apply():
     }
 
     # Step 1: Check for updates
-    logger.info("🔄 Step 1: Checking for updates...")
+    set_progress("checking", 0, "Checking for updates...")
+    logger.info("Step 1: Checking for updates...")
     update_info = check_for_updates()
     result["steps"].append("check_complete")
 
@@ -68,23 +77,24 @@ async def download_and_apply():
     result["remote_version"] = update_info["remote_version"]
 
     # Step 2: Backup user_data
-    logger.info("🔄 Step 2: Backing up user_data...")
+    set_progress("backing_up", 10, "Backing up user_data...")
+    logger.info("Step 2: Backing up user_data...")
     backup_path = backup_user_data()
     if backup_path:
         result["steps"].append("backup_complete")
         result["backup_path"] = backup_path
     cleanup_old_backups(keep_count=3)
 
-    # Step 3: Download ZIP
-    logger.info(f"🔄 Step 3: Downloading {update_info['remote_version']}...")
+    # Step 3: Download ZIP (progress tracked inside download_update)
+    logger.info(f"Step 3: Downloading {update_info['remote_version']}...")
     dl = download_update(download_url)
     if not dl["success"]:
         result["errors"].append(f"Download failed: {dl.get('error')}")
         return result
     result["steps"].append("download_complete")
 
-    # Step 4: Extract and prepare updater.bat
-    logger.info("🔄 Step 4: Extracting and preparing updater...")
+    # Step 4: Extract and prepare updater.bat (progress tracked inside extract_and_prepare)
+    logger.info("Step 4: Extracting and preparing updater...")
     prep = extract_and_prepare(dl["zip_path"])
     if not prep["success"]:
         result["errors"].append(f"Extract failed: {prep.get('error')}")
@@ -93,7 +103,8 @@ async def download_and_apply():
 
     # Step 5: Launch updater.bat and exit
     if getattr(sys, 'frozen', False):
-        logger.info("🚀 Step 5: Launching updater.bat and exiting...")
+        set_progress("applying", 95, "Launching updater and restarting...")
+        logger.info("Step 5: Launching updater.bat and exiting...")
         bat_path = prep["bat_path"]
 
         # Launch updater.bat detached from this process

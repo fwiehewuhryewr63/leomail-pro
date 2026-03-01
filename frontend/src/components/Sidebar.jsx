@@ -33,7 +33,7 @@ const NAV_ITEMS = [
     { to: '/settings', icon: Settings, label: 'settings' },
 ];
 
-export default function Sidebar({ status }) {
+export default function Sidebar({ status, updateAvailable }) {
     return (
         <div className="sidebar">
             {/* Logo */}
@@ -50,9 +50,17 @@ export default function Sidebar({ status }) {
                     return (
                         <NavLink key={item.to} to={item.to}
                             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                            end={item.end}>
+                            end={item.end}
+                            style={{ position: 'relative' }}>
                             <item.icon size={22} />
                             <span className="nav-label">{item.label}</span>
+                            {item.label === 'settings' && updateAvailable && (
+                                <span style={{
+                                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                                    width: 8, height: 8, borderRadius: '50%', background: '#EF4444',
+                                    animation: 'pulse 2s infinite',
+                                }} />
+                            )}
                         </NavLink>
                     );
                 })}

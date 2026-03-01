@@ -26,6 +26,7 @@ import Proxies from './pages/Proxies';
 function App() {
   const [status, setStatus] = useState('offline');
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   useEffect(() => {
     const check = () =>
@@ -35,7 +36,16 @@ function App() {
         .catch(() => setStatus('offline'));
     check();
     const interval = setInterval(check, 120000);
-    return () => clearInterval(interval);
+
+    // Auto-check for updates (5s delay so UI loads first)
+    const updateTimer = setTimeout(() => {
+      fetch(`${API}/update/check`)
+        .then(r => r.json())
+        .then(d => { if (d.update_available) setUpdateAvailable(true); })
+        .catch(() => { });
+    }, 5000);
+
+    return () => { clearInterval(interval); clearTimeout(updateTimer); };
   }, []);
 
   // ⌘K / Ctrl+K — Command Palette
@@ -56,7 +66,7 @@ function App() {
         <Router>
           <Titlebar />
           <div className="app-container" style={{ paddingTop: window.electronAPI?.isElectron ? 32 : 0 }}>
-            <Sidebar status={status} />
+            <Sidebar status={status} updateAvailable={updateAvailable} />
             <main className="main-content">
               <Routes>
                 <Route path="/" element={<Dashboard />} />

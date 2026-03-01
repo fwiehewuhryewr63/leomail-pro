@@ -41,6 +41,7 @@ export default function Settings() {
     const [updateChecking, setUpdateChecking] = useState(false);
     const [updateApplying, setUpdateApplying] = useState(false);
     const [updateStatus, setUpdateStatus] = useState('');
+    const [updateProgress, setUpdateProgress] = useState(null);
 
     const loadSettings = () => {
         fetch(`${API}/settings/`)
@@ -340,10 +341,11 @@ export default function Settings() {
                     <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>System Update</span>
                 </div>
                 <div className="card" style={{ padding: '16px 20px' }}>
+                    {/* Version + Check */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                         <div>
-                            <div style={{ fontSize: '0.82em', color: 'var(--text-muted)' }}>Current Version</div>
-                            <div style={{ fontSize: '1.2em', fontWeight: 800, fontFamily: 'JetBrains Mono, monospace' }}>
+                            <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginBottom: 2 }}>Current Version</div>
+                            <div style={{ fontSize: '1.3em', fontWeight: 800, fontFamily: 'JetBrains Mono, monospace' }}>
                                 v{updateInfo?.current_version || '...'}
                             </div>
                         </div>
@@ -354,8 +356,8 @@ export default function Settings() {
                                 const r = await fetch(`${API}/update/check`);
                                 const d = await r.json();
                                 setUpdateInfo(d);
-                                if (!d.update_available) setUpdateStatus('You are on the latest version ✅');
-                            } catch { setUpdateStatus('Failed to check for updates'); }
+                                if (!d.update_available) setUpdateStatus('✅ You are on the latest version');
+                            } catch { setUpdateStatus('❌ Failed to check for updates'); }
                             setUpdateChecking(false);
                         }} disabled={updateChecking || updateApplying}
                             style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
@@ -363,50 +365,86 @@ export default function Settings() {
                         </button>
                     </div>
 
-                    {updateInfo?.update_available && (
-                        <div style={{ background: 'rgba(139,92,246,0.1)', borderRadius: 8, padding: 14, marginBottom: 10, border: '1px solid rgba(139,92,246,0.3)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    {/* Update available banner */}
+                    {updateInfo?.update_available && !updateApplying && (
+                        <div style={{ background: 'rgba(139,92,246,0.1)', borderRadius: 10, padding: 16, marginBottom: 10, border: '1px solid rgba(139,92,246,0.25)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                                 <div>
-                                    <span style={{ color: '#8B5CF6', fontWeight: 700, fontSize: '1.05em' }}>v{updateInfo.remote_version}</span>
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8em', marginLeft: 8 }}>
+                                    <span style={{ fontSize: '1.15em', fontWeight: 800, color: '#8B5CF6' }}>v{updateInfo.remote_version}</span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.78em', marginLeft: 10 }}>
                                         {updateInfo.download_size_mb ? `${updateInfo.download_size_mb} MB` : ''}
                                     </span>
                                 </div>
                                 <button className="btn btn-success" onClick={async () => {
-                                    if (!confirm(`Update to v${updateInfo.remote_version}? App will restart.`)) return;
+                                    if (!confirm(`Обновить до v${updateInfo.remote_version}?\nПриложение перезапустится.`)) return;
                                     setUpdateApplying(true);
-                                    setUpdateStatus('Downloading update...');
+                                    setUpdateStatus('');
+                                    // Start polling progress
+                                    const pollId = setInterval(async () => {
+                                        try {
+                                            const r = await fetch(`${API}/update/progress`);
+                                            const p = await r.json();
+                                            if (p.active) {
+                                                const labels = { checking: '🔍 Проверка...', backing_up: '💾 Бэкап данных...', downloading: '⬇️ Скачивание...', extracting: '📦 Распаковка...', applying: '🚀 Применение...', error: '❌ Ошибка' };
+                                                setUpdateStatus(`${labels[p.step] || p.step}  ${p.detail || ''}`);
+                                                setUpdateProgress(p);
+                                            }
+                                            if (p.step === 'applying' || p.step === 'error' || p.step === 'done') {
+                                                clearInterval(pollId);
+                                                if (p.step === 'applying') setUpdateStatus('🚀 Обновление загружено! Перезапуск...');
+                                            }
+                                        } catch { /* server may be restarting */ clearInterval(pollId); setUpdateStatus('🔄 Перезапуск...'); }
+                                    }, 500);
                                     try {
                                         const r = await fetch(`${API}/update/download-and-apply`, { method: 'POST' });
                                         const d = await r.json();
+                                        clearInterval(pollId);
                                         if (d.success) {
-                                            setUpdateStatus('Update downloaded! App is restarting...');
+                                            setUpdateStatus('✅ Обновление загружено! Приложение перезапускается...');
                                         } else {
-                                            setUpdateStatus(`Error: ${(d.errors || []).join(', ')}`);
+                                            setUpdateStatus(`❌ ${(d.errors || []).join(', ')}`);
                                             setUpdateApplying(false);
                                         }
                                     } catch {
-                                        setUpdateStatus('Update failed — check connection');
-                                        setUpdateApplying(false);
+                                        clearInterval(pollId);
+                                        setUpdateStatus('🔄 Приложение перезапускается...');
                                     }
                                 }} disabled={updateApplying}
-                                    style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
-                                    {updateApplying ? <><Loader size={14} className="spin" /> Updating...</> : <><Download size={14} /> Update Now</>}
+                                    style={{ borderRadius: 20, padding: '8px 20px', fontSize: '0.85em', fontWeight: 700 }}>
+                                    <Download size={14} /> Обновить
                                 </button>
                             </div>
-                            {updateInfo.release_name && (
-                                <div style={{ fontWeight: 700, fontSize: '0.88em', marginBottom: 4 }}>{updateInfo.release_name}</div>
-                            )}
                             {updateInfo.release_notes && (
-                                <pre style={{ fontSize: '0.78em', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.5 }}>
+                                <pre style={{ fontSize: '0.78em', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.5, maxHeight: 120, overflow: 'auto' }}>
                                     {updateInfo.release_notes}
                                 </pre>
                             )}
                         </div>
                     )}
 
-                    {updateStatus && (
-                        <div style={{ fontSize: '0.82em', color: updateStatus.includes('Error') || updateStatus.includes('failed') ? '#EF4444' : '#10B981', marginTop: 6 }}>
+                    {/* Progress bar during update */}
+                    {updateApplying && (
+                        <div style={{ marginBottom: 10 }}>
+                            <div style={{
+                                height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', marginBottom: 6
+                            }}>
+                                <div style={{
+                                    height: '100%', borderRadius: 3,
+                                    background: 'linear-gradient(90deg, #8B5CF6, #6366F1)',
+                                    width: `${updateProgress?.percent || 0}%`,
+                                    transition: 'width 0.3s ease',
+                                }} />
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75em', color: 'var(--text-muted)' }}>
+                                <span>{updateProgress?.detail || 'Preparing...'}</span>
+                                <span>{updateProgress?.percent || 0}%</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Status message */}
+                    {updateStatus && !updateApplying && (
+                        <div style={{ fontSize: '0.82em', color: updateStatus.includes('❌') ? '#EF4444' : '#10B981', marginTop: 4 }}>
                             {updateStatus}
                         </div>
                     )}

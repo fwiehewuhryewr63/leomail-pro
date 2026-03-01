@@ -119,10 +119,27 @@ def check_for_updates() -> dict:
         }
 
 
+# Global progress tracker for UI updates
+update_progress = {
+    "active": False,
+    "step": "",       # "checking", "backing_up", "downloading", "extracting", "applying", "done", "error"
+    "percent": 0,
+    "detail": "",
+    "downloaded_mb": 0,
+    "total_mb": 0,
+}
+
+def reset_progress():
+    update_progress.update({"active": False, "step": "", "percent": 0, "detail": "", "downloaded_mb": 0, "total_mb": 0})
+
+def set_progress(step: str, percent: int = 0, detail: str = ""):
+    update_progress.update({"active": True, "step": step, "percent": percent, "detail": detail})
+
+
 def download_update(download_url: str) -> dict:
     """
-    Download update ZIP from GitHub and prepare updater.bat.
-    Returns {success, zip_path, error}.
+    Download update ZIP from GitHub.
+    Updates global update_progress for real-time UI feedback.
     """
     import requests
     root = get_app_root()
@@ -136,23 +153,32 @@ def download_update(download_url: str) -> dict:
     zip_path = update_tmp / "update.zip"
 
     try:
+        set_progress("downloading", 0, "Connecting...")
         logger.info(f"⬇️ Downloading update from {download_url}...")
         resp = requests.get(download_url, stream=True, timeout=300)
         resp.raise_for_status()
 
         total = int(resp.headers.get("content-length", 0))
         downloaded = 0
+        total_mb = round(total / (1024 * 1024), 1) if total else 0
+        update_progress["total_mb"] = total_mb
 
         with open(zip_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
+            for chunk in resp.iter_content(chunk_size=65536):
                 f.write(chunk)
                 downloaded += len(chunk)
+                dl_mb = round(downloaded / (1024 * 1024), 1)
+                pct = int(downloaded / total * 100) if total else 0
+                update_progress["downloaded_mb"] = dl_mb
+                update_progress["percent"] = pct
+                update_progress["detail"] = f"{dl_mb} / {total_mb} MB"
 
         logger.info(f"✅ Downloaded {downloaded / (1024*1024):.1f} MB")
         return {"success": True, "zip_path": str(zip_path)}
 
     except Exception as e:
         logger.error(f"Download failed: {e}")
+        set_progress("error", 0, f"Download failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -160,8 +186,8 @@ def extract_and_prepare(zip_path: str) -> dict:
     """
     Extract downloaded ZIP and prepare updater.bat.
     ZIP should contain Leomail/ folder with Leomail.exe + _internal/.
-    Returns {success, bat_path, error}.
     """
+    set_progress("extracting", 80, "Extracting update...")
     root = get_app_root()
     update_tmp = root / "_update_tmp"
     extract_dir = update_tmp / "extracted"
