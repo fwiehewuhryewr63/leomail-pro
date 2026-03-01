@@ -362,7 +362,6 @@ export default function Proxies() {
                                                 asocks: { color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', label: '📱 AS' },
                                                 proxy6: { color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', label: '6️⃣ P6' },
                                                 belurk: { color: '#EF4444', bg: 'rgba(239,68,68,0.15)', label: '🛡 BL' },
-                                                iproyal: { color: '#3B82F6', bg: 'rgba(59,130,246,0.15)', label: '🏠 IR' },
                                             };
                                             const s = srcMap[src] || srcMap.manual;
                                             return <span style={{
