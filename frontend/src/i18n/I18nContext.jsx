@@ -5,7 +5,7 @@ const I18nContext = createContext();
 
 export function I18nProvider({ children }) {
     const [lang, setLang] = useState(() => {
-        return localStorage.getItem('leomail_lang') || 'ru';
+        return localStorage.getItem('leomail_lang') || 'en';
     });
 
     useEffect(() => {

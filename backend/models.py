@@ -95,6 +95,8 @@ class Proxy(Base):
     use_aol = Column(Integer, default=0)
     use_outlook = Column(Integer, default=0)
     use_hotmail = Column(Integer, default=0)
+    use_protonmail = Column(Integer, default=0)
+    use_tuta = Column(Integer, default=0)
     
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)  # cooldown: when proxy was last used for birth

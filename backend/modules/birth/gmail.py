@@ -8,7 +8,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from ...models import Proxy, ProxyStatus, Account, ThreadLog
-from ...services.captcha_provider import CaptchaProvider
+from ...services.captcha_provider import CaptchaProvider, get_captcha_chain
 from ...utils import generate_birthday, generate_password, generate_username
 from ..browser_manager import BrowserManager
 from ..human_behavior import (
@@ -101,14 +101,23 @@ async def register_single_gmail(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Fast warmup — just a quick Google visit (2-3s instead of 15-30s)
-        _log("Быстрый прогрев сессии...")
-        try:
-            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
-            await _human_delay(1, 2)
-            await random_mouse_move(page, steps=2)
-        except Exception:
-            pass
+        # Enhanced pre-registration warmup — builds trust with Google
+        _log("Прогрев сессии (реалистичный)...")
+        warmup_sites = [
+            ("https://www.google.com", 2, 4),
+            ("https://www.youtube.com", 2, 3),
+            ("https://news.google.com", 1, 2),
+        ]
+        # Visit 2-3 random sites to build realistic session
+        for site_url, min_t, max_t in random.sample(warmup_sites, random.randint(2, 3)):
+            try:
+                await page.goto(site_url, wait_until="domcontentloaded", timeout=15000)
+                await _human_delay(min_t, max_t)
+                await random_mouse_move(page, steps=random.randint(2, 4))
+                await random_scroll(page)
+            except Exception:
+                pass
+        _log("Прогрев завершён")
 
         # Step 1: Navigate to Google signup
         _log("Открытие страницы регистрации Google...")
@@ -209,7 +218,8 @@ async def register_single_gmail(
 
             gender_sel = await _wait_for_any(page, ['select#gender', '#gender', 'select[name="gender"]'], timeout=5000)
             if gender_sel:
-                await page.locator(gender_sel).first.select_option("1")  # Male
+                gender_val = random.choice(["1", "2"])  # 1=Male, 2=Female — randomize
+                await page.locator(gender_sel).first.select_option(gender_val)
 
             await _human_delay(0.5, 1)
             next_btn2 = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")', '#birthdaygenderNext button'], timeout=5000)
@@ -307,106 +317,131 @@ async def register_single_gmail(
             await page.keyboard.press("Enter")
         await _human_delay(3, 5)
 
-        # Step 6: Phone verification (may appear)
+        # Step 6: Phone verification (may or may not appear)
         _log("Проверка SMS верификации...")
-        phone_sel = await _wait_for_any(page, [
-            'input[type="tel"]', 'input[name="phoneNumber"]', '#phoneNumberId',
-            'input[aria-label*="hone"]', 'input[aria-label*="елефон"]',
-            'input[placeholder*="hone"]', 'input[autocomplete="tel"]',
-        ], timeout=10000)
-        if phone_sel:
-            if not sms_provider:
-                _err("Google требует SMS, но SMS провайдер не настроен (SimSMS/GrizzlySMS)")
-                return None
 
-            _log("Заказ номера для Gmail SMS...")
-            proxy_geo = getattr(proxy, 'geo', None) if proxy else None
+        # First check for "Skip" option — Google sometimes allows skipping phone
+        skip_phone = await _wait_for_any(page, [
+            'button:has-text("Skip")', 'button:has-text("Пропустить")',
+            'a:has-text("Skip")', 'a:has-text("Пропустить")',
+            'span:has-text("Skip")', 'div[role="button"]:has-text("Skip")',
+        ], timeout=3000)
+        if skip_phone:
+            _log("✨ Google предлагает пропустить SMS — пропускаем!")
+            await page.locator(skip_phone).first.click()
+            await _human_delay(2, 4)
+        else:
+            phone_sel = await _wait_for_any(page, [
+                'input[type="tel"]', 'input[name="phoneNumber"]', '#phoneNumberId',
+                'input[aria-label*="hone"]', 'input[aria-label*="елефон"]',
+                'input[placeholder*="hone"]', 'input[autocomplete="tel"]',
+            ], timeout=10000)
+            if phone_sel:
+                if not sms_provider:
+                    _err("Google требует SMS, но SMS провайдер не настроен (SimSMS/GrizzlySMS)")
+                    return None
 
-            order, active_sms_provider, expanded_countries = await order_sms_with_chain(
-                service="gmail",
-                sms_provider=sms_provider,
-                proxy_geo=proxy_geo,
-                page=None,  # Gmail has no country dropdown
-                scrape_dropdown=False,
-                _log=_log,
-                _err=_err,
-            )
-            if not order:
-                return None
+                _log("Заказ номера для Gmail SMS...")
+                # Use GEO resolver for smart SMS country priority
+                from ...services.geo_resolver import resolve_proxy_geo, get_sms_countries_priority
+                proxy_geo = resolve_proxy_geo(proxy) if proxy else None
 
-            sms_provider = active_sms_provider
+                order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+                    service="gmail",
+                    sms_provider=sms_provider,
+                    proxy_geo=proxy_geo,
+                    page=None,  # Gmail has no country dropdown
+                    scrape_dropdown=False,
+                    _log=_log,
+                    _err=_err,
+                )
+                if not order:
+                    return None
 
-            phone_number = order["number"]
-            order_id = order["id"]
-            _log(f"Номер: {phone_number}")
+                sms_provider = active_sms_provider
 
-            # Format phone for Google (may need +7...)
-            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+                phone_number = order["number"]
+                order_id = order["id"]
+                _log(f"Номер: {phone_number}")
 
-            await page.locator(phone_sel).first.click()
-            await _human_delay(0.3, 0.6)
-            await page.locator(phone_sel).first.fill(display_phone)
-            await _human_delay(0.5, 1)
+                # Format phone for Google
+                display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
 
-            # Click Next / Send
-            send_btn = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")', '#next button'], timeout=5000)
-            if send_btn:
-                await page.locator(send_btn).first.click()
-            else:
-                await page.keyboard.press("Enter")
+                await page.locator(phone_sel).first.click()
+                await _human_delay(0.3, 0.6)
+                await page.locator(phone_sel).first.fill(display_phone)
+                await _human_delay(0.5, 1)
 
-            # Notify SMS service that number was used
-            try:
-                if hasattr(sms_provider, 'set_status'):
-                    await asyncio.to_thread(sms_provider.set_status, order_id, 1)
-            except Exception:
-                pass
+                # Click Next / Send
+                send_btn = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Далее")', '#next button'], timeout=5000)
+                if send_btn:
+                    await page.locator(send_btn).first.click()
+                else:
+                    await page.keyboard.press("Enter")
 
-            _log("Ожидание SMS кода...")
-            sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
+                # Notify SMS service that number was used
+                try:
+                    if hasattr(sms_provider, 'set_status'):
+                        await asyncio.to_thread(sms_provider.set_status, order_id, 1)
+                except Exception:
+                    pass
 
-            sms_code = None
-            if isinstance(sms_result, dict):
-                sms_code = sms_result.get("code")
-                if sms_result.get("error"):
-                    _err(f"SMS ошибка: {sms_result['error']}")
+                _log("Ожидание SMS кода...")
+                sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
+
+                sms_code = None
+                if isinstance(sms_result, dict):
+                    sms_code = sms_result.get("code")
+                    if sms_result.get("error"):
+                        _err(f"SMS ошибка: {sms_result['error']}")
+                        try:
+                            await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                        except Exception:
+                            pass
+                        return None
+                elif isinstance(sms_result, str):
+                    sms_code = sms_result
+
+                if not sms_code:
+                    _err("SMS код не получен")
                     try:
                         await asyncio.to_thread(sms_provider.cancel_number, order_id)
                     except Exception:
                         pass
                     return None
-            elif isinstance(sms_result, str):
-                sms_code = sms_result
 
-            if not sms_code:
-                _err("SMS код не получен")
+                _log(f"SMS код: {sms_code}")
+                code_sel = await _wait_for_any(page, ['input[type="tel"]', 'input[name="code"]', '#code'], timeout=15000)
+                if code_sel:
+                    await page.locator(code_sel).first.fill(sms_code)
+                    await _human_delay(0.5, 1)
+                    verify_btn = await _wait_for_any(page, ['button:has-text("Verify")', 'button:has-text("Подтвердить")', 'button:has-text("Next")'], timeout=5000)
+                    if verify_btn:
+                        await page.locator(verify_btn).first.click()
+                    else:
+                        await page.keyboard.press("Enter")
+
+                # Complete SMS activation
                 try:
-                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                    if hasattr(sms_provider, 'complete_activation'):
+                        await asyncio.to_thread(sms_provider.complete_activation, order_id)
                 except Exception:
                     pass
-                return None
 
-            _log(f"SMS код: {sms_code}")
-            code_sel = await _wait_for_any(page, ['input[type="tel"]', 'input[name="code"]', '#code'], timeout=15000)
-            if code_sel:
-                await page.locator(code_sel).first.fill(sms_code)
-                await _human_delay(0.5, 1)
-                verify_btn = await _wait_for_any(page, ['button:has-text("Verify")', 'button:has-text("Подтвердить")', 'button:has-text("Next")'], timeout=5000)
-                if verify_btn:
-                    await page.locator(verify_btn).first.click()
-                else:
-                    await page.keyboard.press("Enter")
+                await _human_delay(3, 5)
+            else:
+                _log("SMS не потребовалась (хороший trust score!)")
 
-            # Complete SMS activation
-            try:
-                if hasattr(sms_provider, 'complete_activation'):
-                    await asyncio.to_thread(sms_provider.complete_activation, order_id)
-            except Exception:
-                pass
-
-            await _human_delay(3, 5)
-        else:
-            _log("SMS не потребовалась (редкость для Gmail)")
+        # Handle recovery email/phone prompt (Google sometimes asks)
+        recovery_skip = await _wait_for_any(page, [
+            'button:has-text("Skip")', 'button:has-text("Пропустить")',
+            'a:has-text("Skip")', 'span:has-text("Skip")',
+            'div[role="button"]:has-text("Skip")',
+        ], timeout=3000)
+        if recovery_skip:
+            _log("Пропускаем recovery email/phone...")
+            await page.locator(recovery_skip).first.click()
+            await _human_delay(2, 4)
 
         # Step 7: Accept TOS (may show "I agree" button)
         _log("Принятие условий...")

@@ -561,7 +561,96 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         Intl.DateTimeFormat.supportedLocalesOf = _origDTF.supportedLocalesOf;
         Object.defineProperty(Intl.DateTimeFormat, 'name', {{ value: 'DateTimeFormat' }});
     }})();
-    """ if timezone_id else "")
+    """ if timezone_id else "") + f"""
+
+    // 15. WebRTC IP leak prevention (JS-level — blocks even if Chrome args fail)
+    (function() {{
+        const _origRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+        if (_origRTC) {{
+            window.RTCPeerConnection = function(config, constraints) {{
+                if (config && config.iceServers) {{
+                    // Force relay-only to prevent local IP leak
+                    config.iceTransportPolicy = 'relay';
+                }}
+                return new _origRTC(config, constraints);
+            }};
+            window.RTCPeerConnection.prototype = _origRTC.prototype;
+            Object.defineProperty(window.RTCPeerConnection, 'name', {{ value: 'RTCPeerConnection' }});
+            // Also override generateCertificate
+            if (_origRTC.generateCertificate) {{
+                window.RTCPeerConnection.generateCertificate = _origRTC.generateCertificate;
+            }}
+        }}
+        // Remove legacy aliases
+        if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = window.RTCPeerConnection;
+    }})();
+
+    // 16. Window dimensions consistency (headless detection vector)
+    (function() {{
+        const vw = window.innerWidth || {random.choice([1366, 1440, 1536, 1920])};
+        const vh = window.innerHeight || {random.choice([728, 860, 824, 1040])};
+        Object.defineProperty(window, 'outerWidth', {{ get: () => vw + {random.choice([0, 0, 14, 16])} }});
+        Object.defineProperty(window, 'outerHeight', {{ get: () => vh + {random.choice([74, 79, 85, 111])} }});
+        Object.defineProperty(window, 'screenX', {{ get: () => {random.choice([0, 0, 0, 50, 100])} }});
+        Object.defineProperty(window, 'screenY', {{ get: () => {random.choice([0, 0, 0, 25, 50])} }});
+    }})();
+
+    // 17. Realistic chrome.csi and chrome.loadTimes (Google checks these!)
+    if (window.chrome) {{
+        window.chrome.csi = function() {{
+            return {{
+                onloadT: Date.now() - {random.randint(300, 2000)},
+                startE: Date.now() - {random.randint(2000, 5000)},
+                pageT: {random.randint(200, 1500)},
+                tran: 15
+            }};
+        }};
+        window.chrome.loadTimes = function() {{
+            return {{
+                commitLoadTime: Date.now() / 1000 - {random.uniform(0.5, 2.0):.3f},
+                connectionInfo: 'h2',
+                finishDocumentLoadTime: Date.now() / 1000 - {random.uniform(0.1, 0.5):.3f},
+                finishLoadTime: Date.now() / 1000,
+                firstPaintAfterLoadTime: 0,
+                firstPaintTime: Date.now() / 1000 - {random.uniform(0.1, 0.3):.3f},
+                navigationType: 'Other',
+                npnNegotiatedProtocol: 'h2',
+                requestTime: Date.now() / 1000 - {random.uniform(1.0, 3.0):.3f},
+                startLoadTime: Date.now() / 1000 - {random.uniform(0.5, 2.0):.3f},
+                wasAlternateProtocolAvailable: false,
+                wasFetchedViaSpdy: true,
+                wasNpnNegotiated: true,
+            }};
+        }};
+    }}
+
+    // 18. CDP Runtime leak fix (Playwright/Puppeteer detection via Error.stack)
+    (function() {{
+        const _origErr = Error;
+        const _origStack = Object.getOwnPropertyDescriptor(Error.prototype, 'stack');
+        if (_origStack && _origStack.get) {{
+            Object.defineProperty(Error.prototype, 'stack', {{
+                get: function() {{
+                    const stack = _origStack.get.call(this);
+                    if (stack && typeof stack === 'string') {{
+                        return stack
+                            .replace(/pptr:eval/g, '<anonymous>')
+                            .replace(/__puppeteer_evaluation_script__/g, '<anonymous>')
+                            .replace(/playwright_evaluation_script/g, '<anonymous>');
+                    }}
+                    return stack;
+                }}
+            }});
+        }}
+    }})();
+
+    // 19. History length randomization (bot detection: fresh profiles always have length=1)
+    Object.defineProperty(window.history, 'length', {{ get: () => {random.randint(2, 8)} }});
+
+    // 20. PDF viewer and speech synthesis consistency
+    Object.defineProperty(navigator, 'pdfViewerEnabled', {{ get: () => true }});
+    """
+
 
 
 PROFILES_DIR = Path("user_data/profiles")

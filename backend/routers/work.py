@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Task, TaskStatus, ThreadLog
 from loguru import logger
+from ..services.engine_manager import engine_manager, EngineType
 
 router = APIRouter(prefix="/api/work", tags=["work"])
 
@@ -33,6 +34,16 @@ class WorkRequest(BaseModel):
 @router.post("/start")
 async def start_work(request: WorkRequest, background_tasks: BackgroundTasks):
     """Start mass mailing campaign in background."""
+    # Register with EngineManager
+    try:
+        engine_manager.start_engine(
+            EngineType.CAMPAIGN,
+            threads=request.threads,
+            total_target=0,  # will be set by work engine
+        )
+    except RuntimeError:
+        return {"status": "error", "message": "Campaign engine already running"}
+
     from ..modules.work.engine import run_work_task
     background_tasks.add_task(
         run_work_task,
@@ -121,6 +132,8 @@ async def stop_work(mode: str = "instant", db: Session = Depends(get_db)):
             tl.current_action = "Остановлено"
 
     db.commit()
+    # Also signal EngineManager
+    engine_manager.stop_engine(EngineType.CAMPAIGN, mode)
     logger.info(f"[Work] Stopped {stopped} task(s), mode={mode}")
     return {"stopped": stopped, "mode": mode}
 

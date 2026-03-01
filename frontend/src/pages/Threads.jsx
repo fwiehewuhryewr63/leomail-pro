@@ -1,417 +1,232 @@
-import React, { useState, useEffect } from 'react';
-import { Layers, Cpu, RefreshCw, Play, CheckCircle, XCircle, Clock, Eye, Monitor, StopCircle, Square } from 'lucide-react';
-
+import React, { useState, useEffect, useRef } from 'react';
 import { API } from '../api';
+import { ProviderLogo } from '../components/ProviderLogos';
 
-const statusMap = {
-    running: { icon: Play, color: 'var(--accent)', label: 'Работает', bg: 'rgba(212,168,38,0.08)' },
-    done: { icon: CheckCircle, color: 'var(--success)', label: 'Готово', bg: 'rgba(0,210,160,0.06)' },
-    error: { icon: XCircle, color: 'var(--danger)', label: 'Ошибка', bg: 'rgba(255,107,74,0.06)' },
-    stopped: { icon: Square, color: 'var(--warning)', label: 'Стоп', bg: 'rgba(255,180,0,0.06)' },
-    idle: { icon: Clock, color: 'var(--text-muted)', label: 'Ожидание', bg: 'transparent' },
+
+
+const STATUS_CONFIG = {
+    registered: { label: 'Registered ✓', color: '#10B981', bg: 'rgba(16,185,129,0.12)', border: '#10B981' },
+    sms: { label: '↔ SMS code...', color: '#06B6D4', bg: 'rgba(6,182,212,0.10)', border: '#06B6D4' },
+    proxy_refused: { label: 'Proxy refused', color: '#EF4444', bg: 'rgba(239,68,68,0.10)', border: '#EF4444' },
+    captcha: { label: 'FunCaptcha solving...', color: '#F59E0B', bg: 'rgba(245,158,11,0.10)', border: '#F59E0B' },
+    queued: { label: 'Queued', color: '#6B7280', bg: 'transparent', border: '#2a2d35' },
+    running: { label: 'Running...', color: '#06B6D4', bg: 'rgba(6,182,212,0.06)', border: '#06B6D4' },
+    error: { label: 'Error', color: '#EF4444', bg: 'rgba(239,68,68,0.08)', border: '#EF4444' },
+    done: { label: 'Registered ✓', color: '#10B981', bg: 'rgba(16,185,129,0.08)', border: '#10B981' },
+    sms_verification: { label: 'SMS verification...', color: '#06B6D4', bg: 'rgba(6,182,212,0.08)', border: '#06B6D4' },
+    proxy_timeout: { label: 'Proxy timeout', color: '#EF4444', bg: 'rgba(239,68,68,0.08)', border: '#EF4444' },
 };
 
-const GROUPS = [
-    { key: 'birth', label: 'Авторегистрация', color: '#6C5CE7', stopUrl: '/birth/stop', statusUrl: '/birth/status' },
-    { key: 'warmup', label: 'Прогрев', color: '#E17055', stopUrl: '/warmup/stop', statusUrl: '/warmup/status' },
-    { key: 'work', label: 'Рассылка', color: '#00B894', stopUrl: '/work/stop', statusUrl: '/work/status' },
-];
+function getStatusConfig(status, action) {
+    if (status === 'done') return STATUS_CONFIG.registered;
+    if (status === 'error') {
+        if (action?.includes('Proxy')) return STATUS_CONFIG.proxy_refused;
+        return STATUS_CONFIG.error;
+    }
+    if (status === 'running') {
+        if (action?.includes('SMS') || action?.includes('sms')) return STATUS_CONFIG.sms;
+        if (action?.includes('captcha') || action?.includes('Captcha') || action?.includes('FunCaptcha')) return STATUS_CONFIG.captcha;
+        return STATUS_CONFIG.running;
+    }
+    return STATUS_CONFIG[status] || STATUS_CONFIG.queued;
+}
 
-const formatTime = (iso) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-};
+function formatElapsed(startTime) {
+    if (!startTime) return '';
+    const diff = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
+    if (diff < 0) return '0m 00s';
+    const mins = Math.floor(diff / 60);
+    const secs = diff % 60;
+    return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+}
+
+function formatTimestamp(iso) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
 
 export default function Threads() {
-    const [health, setHealth] = useState(null);
     const [threads, setThreads] = useState([]);
-    const [activePages, setActivePages] = useState([]);
-    const [error, setError] = useState(false);
-    const [screenshot, setScreenshot] = useState(null);
-    const [statuses, setStatuses] = useState({});  // { birth: {...}, warmup: {...}, work: {...} }
-    const [stopConfirm, setStopConfirm] = useState(null);  // { group: 'birth', ... }
+    const [autoScroll, setAutoScroll] = useState(true);
+    const [stats, setStats] = useState({ completed: 0, failed: 0, running: 0, success_rate: 0 });
+    const containerRef = useRef(null);
 
     const load = () => {
-        setError(false);
-        fetch(`${API}/resources/health`)
-            .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-            .then(setHealth)
-            .catch(() => setError(true));
         fetch(`${API}/resources/active-threads`)
             .then(r => r.json())
-            .then(d => setThreads(Array.isArray(d) ? d : []))
-            .catch(() => { });
-        fetch(`${API}/birth/active-pages`)
-            .then(r => r.json())
-            .then(d => setActivePages(d.active || []))
-            .catch(() => { });
-
-        // Load all group statuses
-        GROUPS.forEach(g => {
-            fetch(`${API}${g.statusUrl}`)
-                .then(r => r.json())
-                .then(d => setStatuses(prev => ({ ...prev, [g.key]: d })))
-                .catch(() => { });
-        });
-    };
-
-    useEffect(() => { load(); const iv = setInterval(load, 20000); return () => clearInterval(iv); }, []);
-
-    const handleStop = (groupKey, mode) => {
-        const group = GROUPS.find(g => g.key === groupKey);
-        if (!group) return;
-        fetch(`${API}${group.stopUrl}?mode=${mode}`, { method: 'POST' })
-            .then(r => r.json())
-            .then(() => { setStopConfirm(null); load(); })
+            .then(d => {
+                const arr = Array.isArray(d) ? d : [];
+                setThreads(arr);
+                const completed = arr.filter(t => t.status === 'done').length;
+                const failed = arr.filter(t => t.status === 'error').length;
+                const running = arr.filter(t => t.status === 'running').length;
+                const total = completed + failed;
+                setStats({
+                    completed,
+                    failed,
+                    running,
+                    success_rate: total > 0 ? ((completed / total) * 100).toFixed(1) : 0,
+                });
+            })
             .catch(() => { });
     };
 
-    const viewScreenshot = (threadId) => {
-        const ts = Date.now();
-        setScreenshot({ threadId, url: `${API}/birth/screenshot/${threadId}?t=${ts}`, loading: true });
-    };
+    useEffect(() => {
+        load();
+        const iv = setInterval(load, 3000);
+        return () => clearInterval(iv);
+    }, []);
 
-    const refreshScreenshot = () => {
-        if (!screenshot) return;
-        const ts = Date.now();
-        setScreenshot({ ...screenshot, url: `${API}/birth/screenshot/${screenshot.threadId}?t=${ts}`, loading: true });
-    };
-
-    const statusColor = { healthy: 'var(--success)', warning: 'var(--warning)', critical: 'var(--danger)' };
-
-    const Bar = ({ value, max, color }) => (
-        <div style={{ height: 10, borderRadius: 5, background: 'var(--bg-input)', flex: 1, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-            <div style={{
-                width: `${Math.min(100, (value / max) * 100)}%`, height: '100%', borderRadius: 5,
-                background: `linear-gradient(90deg, ${color}90, ${color})`, transition: 'width 0.5s'
-            }} />
-        </div>
-    );
-
-    // Group threads by type, only running ones
-    const runningByType = {};
-    const recentByType = {};
-    threads.forEach(t => {
-        const type = t.type || 'unknown';
-        if (t.status === 'running') {
-            if (!runningByType[type]) runningByType[type] = [];
-            runningByType[type].push(t);
-        } else {
-            if (!recentByType[type]) recentByType[type] = [];
-            recentByType[type].push(t);
+    useEffect(() => {
+        if (autoScroll && containerRef.current) {
+            containerRef.current.scrollTop = containerRef.current.scrollHeight;
         }
-    });
+    }, [threads, autoScroll]);
 
-    // Renumber running threads sequentially per group
-    Object.values(runningByType).forEach(arr => {
-        arr.forEach((t, i) => { t._displayIndex = i + 1; });
-    });
+    const activeCount = threads.filter(t => t.status === 'running').length;
 
-    const totalRunning = threads.filter(t => t.status === 'running').length;
-
-    if (error) {
-        return (
-            <div className="page">
-                <h2 className="page-title"><Layers size={22} /> Потоки</h2>
-                <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                    <Cpu size={40} style={{ color: 'var(--text-muted)', marginBottom: 12 }} />
-                    <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Сервер не отвечает</p>
-                    <button className="btn btn-primary" onClick={load}><RefreshCw size={14} /> Повторить</button>
-                </div>
-            </div>
-        );
-    }
+    const clearThreads = () => {
+        setThreads([]);
+        setStats({ completed: 0, failed: 0, running: 0, success_rate: 0 });
+    };
 
     return (
         <div className="page">
-            <h2 className="page-title">
-                <Layers size={22} /> Потоки
-                {totalRunning > 0 && (
-                    <span style={{
-                        marginLeft: 12, fontSize: '0.6em', padding: '4px 12px',
-                        borderRadius: 20, background: 'var(--accent)', color: '#000',
-                        fontWeight: 800, verticalAlign: 'middle',
-                    }}>
-                        {totalRunning} активных
-                    </span>
-                )}
-            </h2>
-
-            {/* Stop Confirmation Modal */}
-            {stopConfirm && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backdropFilter: 'blur(4px)',
-                }} onClick={() => setStopConfirm(null)}>
-                    <div className="card" style={{
-                        maxWidth: 420, width: '90%', padding: '24px',
-                    }} onClick={e => e.stopPropagation()}>
-                        <div style={{
-                            fontWeight: 800, fontSize: '1.1em', color: 'var(--danger)',
-                            marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8,
+            {/* ── Header ── */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: '1.5em', fontWeight: 300, fontStyle: 'italic', color: 'var(--text-primary)' }}>Live Threads</span>
+                    {activeCount > 0 && (
+                        <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            fontSize: '0.5em', padding: '4px 12px', borderRadius: 20,
+                            color: '#10B981', fontWeight: 700,
                         }}>
-                            <StopCircle size={20} /> Остановить {GROUPS.find(g => g.key === stopConfirm)?.label}?
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-                            <button className="btn" onClick={() => handleStop(stopConfirm, 'instant')}
-                                style={{
-                                    padding: '14px 20px', background: 'var(--danger)', color: '#fff',
-                                    fontWeight: 700, fontSize: '0.95em', border: 'none', borderRadius: 8,
-                                }}>
-                                Мгновенно — убить все потоки сейчас
-                            </button>
-                            <button className="btn" onClick={() => handleStop(stopConfirm, 'graceful')}
-                                style={{
-                                    padding: '14px 20px', background: 'var(--warning)', color: '#000',
-                                    fontWeight: 700, fontSize: '0.95em', border: 'none', borderRadius: 8,
-                                }}>
-                                Дождаться завершения текущих потоков
-                            </button>
-                        </div>
-                        <button className="btn" onClick={() => setStopConfirm(null)}
-                            style={{ width: '100%', padding: '10px', fontSize: '0.9em' }}>
-                            Отмена
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Screenshot Modal */}
-            {screenshot && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backdropFilter: 'blur(4px)',
-                }} onClick={() => setScreenshot(null)}>
-                    <div style={{
-                        maxWidth: '90vw', maxHeight: '90vh', position: 'relative',
-                        border: '2px solid var(--border-hover)', borderRadius: 12, overflow: 'hidden',
-                        background: 'var(--bg-card)',
-                    }} onClick={e => e.stopPropagation()}>
-                        <div style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '10px 16px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-default)',
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 6px #10B981' }} />
+                            {activeCount} active
+                        </span>
+                    )}
+                </h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85em', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                        Auto-scroll
+                        <div onClick={() => setAutoScroll(!autoScroll)} style={{
+                            width: 38, height: 20, borderRadius: 10, cursor: 'pointer',
+                            background: autoScroll ? '#10B981' : 'var(--bg-input)',
+                            border: '1px solid var(--border-default)',
+                            position: 'relative', transition: 'background 0.2s',
                         }}>
-                            <span style={{ fontWeight: 700, color: 'var(--text-accent)', fontSize: '0.9em' }}>
-                                <Eye size={14} /> Поток #{screenshot.threadId} — Live View
-                            </span>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <button className="btn btn-sm" onClick={refreshScreenshot}><RefreshCw size={12} /> Обновить</button>
-                                <button className="btn btn-sm btn-danger" onClick={() => setScreenshot(null)}>✕</button>
-                            </div>
-                        </div>
-                        <img
-                            src={screenshot.url}
-                            alt="Browser Screenshot"
-                            style={{ maxWidth: '85vw', maxHeight: '80vh', display: 'block' }}
-                            onLoad={() => setScreenshot(s => s ? { ...s, loading: false } : null)}
-                            onError={() => setScreenshot(s => s ? { ...s, loading: false } : null)}
-                        />
-                        {screenshot.loading && (
                             <div style={{
-                                position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                                color: 'var(--text-accent)', fontWeight: 700, fontSize: '1.1em',
-                            }}>Загрузка...</div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Server health */}
-            <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {health && (
-                            <>
-                                <div style={{
-                                    width: 10, height: 10, borderRadius: '50%',
-                                    background: statusColor[health.status] || 'var(--text-muted)',
-                                    boxShadow: `0 0 8px ${statusColor[health.status]}60`,
-                                }} />
-                                <span style={{ fontWeight: 700, color: statusColor[health.status] }}>
-                                    {health.status === 'healthy' ? '● Сервер OK' : health.status === 'warning' ? '● Нагрузка' : '● Перегрузка'}
-                                </span>
-                            </>
-                        )}
-                    </div>
-                    <button className="btn btn-sm" onClick={load}><RefreshCw size={14} /> Обновить</button>
-                </div>
-                {health?.resources && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', marginBottom: 6, fontWeight: 600 }}>
-                                <span>RAM</span>
-                                <span style={{ color: health.resources.ram_used_percent > 80 ? 'var(--danger)' : 'var(--success)' }}>
-                                    {health.resources.ram_available_mb} MB свободно · {health.resources.ram_used_percent}%
-                                </span>
-                            </div>
-                            <Bar value={health.resources.ram_used_percent} max={100}
-                                color={health.resources.ram_used_percent > 80 ? 'var(--danger)' : 'var(--success)'} />
+                                width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                                position: 'absolute', top: 1, left: autoScroll ? 19 : 1, transition: 'left 0.2s',
+                            }} />
                         </div>
-                        <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', marginBottom: 6, fontWeight: 600 }}>
-                                <span>CPU</span>
-                                <span style={{ color: health.resources.cpu_used_percent > 80 ? 'var(--danger)' : 'var(--success)' }}>
-                                    {health.resources.cpu_cores} ядер · {health.resources.cpu_used_percent}%
-                                </span>
-                            </div>
-                            <Bar value={health.resources.cpu_used_percent} max={100}
-                                color={health.resources.cpu_used_percent > 80 ? 'var(--danger)' : 'var(--success)'} />
-                        </div>
-                    </div>
-                )}
+                    </label>
+                    <button className="btn" onClick={clearThreads} style={{
+                        padding: '6px 16px', fontSize: '0.85em', fontWeight: 600,
+                        border: '1px solid var(--border-default)', background: 'transparent',
+                    }}>
+                        Clear
+                    </button>
+                </div>
             </div>
 
-            {/* Process groups */}
-            {GROUPS.map(group => {
-                const groupRunning = runningByType[group.key] || [];
-                const groupRecent = (recentByType[group.key] || []).slice(0, 10);
-                const groupStatus = statuses[group.key];
-                const isActive = groupStatus?.running || groupRunning.length > 0;
+            {/* ── Stats bar ── */}
+            <div className="card" style={{
+                padding: '10px 18px', marginBottom: 16,
+                fontSize: '0.85em', color: 'var(--text-secondary)',
+                display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+                <span style={{ fontWeight: 600 }}>Today:</span>
+                <span style={{ color: '#10B981', fontWeight: 700 }}>{stats.completed} ✓ completed</span>
+                <span style={{ color: 'var(--text-muted)' }}>|</span>
+                <span style={{ color: '#EF4444', fontWeight: 700 }}>{stats.failed} ✗ failed</span>
+                <span style={{ color: 'var(--text-muted)' }}>|</span>
+                <span style={{ color: '#06B6D4', fontWeight: 700 }}>{stats.running} ↻ running</span>
+                <span style={{ color: 'var(--text-muted)' }}>—</span>
+                <span style={{ fontWeight: 700 }}>{stats.success_rate}% success</span>
+            </div>
 
-                if (!isActive && groupRecent.length === 0) return null;
-
-                return (
-                    <div key={group.key} className="card" style={{
-                        marginBottom: 16,
-                        borderLeft: isActive ? `3px solid ${group.color}` : undefined,
-                    }}>
-                        {/* Group header with stop button */}
-                        <div style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            marginBottom: groupRunning.length > 0 ? 14 : 8,
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span style={{ fontWeight: 800, fontSize: '1em', color: group.color }}>
-                                    {group.label}
-                                </span>
-                                {isActive && (
-                                    <span style={{
-                                        fontSize: '0.75em', padding: '2px 10px', borderRadius: 12,
-                                        background: `${group.color}22`, color: group.color,
-                                        fontWeight: 700, border: `1px solid ${group.color}44`,
-                                    }}>
-                                        {groupRunning.length} потоков
-                                    </span>
-                                )}
-                                {groupStatus?.running && (
-                                    <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>
-                                        — {groupStatus.completed}/{groupStatus.total} готово, ошибок: {groupStatus.failed}
-                                    </span>
-                                )}
-                                {isActive && (
-                                    <div style={{
-                                        width: 8, height: 8, borderRadius: '50%', background: group.color,
-                                        animation: 'pulse 1.5s infinite', boxShadow: `0 0 6px ${group.color}`,
-                                    }} />
-                                )}
-                            </div>
-                            {isActive && (
-                                <button className="btn" onClick={() => setStopConfirm(group.key)}
-                                    style={{
-                                        background: 'var(--danger)', color: '#fff',
-                                        padding: '6px 16px', fontWeight: 700, fontSize: '0.85em',
-                                        border: 'none', borderRadius: 6,
-                                        display: 'flex', alignItems: 'center', gap: 5,
-                                    }}>
-                                    <StopCircle size={14} /> СТОП
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Running threads */}
-                        {groupRunning.length > 0 && (
-                            <div style={{ display: 'grid', gap: 6, marginBottom: groupRecent.length > 0 ? 14 : 0 }}>
-                                {groupRunning.map(t => {
-                                    const s = statusMap[t.status] || statusMap.idle;
-                                    const Icon = s.icon;
-                                    const hasLiveView = activePages.includes(t.id);
-                                    return (
-                                        <div key={t.id} style={{
-                                            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-                                            background: s.bg, borderRadius: 8, border: '1px solid var(--border-default)',
-                                        }}>
-                                            <div style={{
-                                                width: 32, height: 32, borderRadius: 6, display: 'flex',
-                                                alignItems: 'center', justifyContent: 'center',
-                                                background: `${group.color}15`, border: `1px solid ${group.color}33`,
-                                                fontWeight: 800, fontSize: '0.85em', color: group.color,
-                                            }}>
-                                                #{t._displayIndex}
-                                            </div>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
-                                                    {t.email && <span style={{ fontSize: '0.85em', color: 'var(--text-primary)', fontWeight: 600 }}>{t.email}</span>}
-                                                </div>
-                                                <div style={{ fontSize: '0.82em', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {t.action || 'Работает...'}
-                                                </div>
-                                                {t.proxy && (
-                                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 1 }}>{t.proxy}</div>
-                                                )}
-                                            </div>
-                                            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                                                {hasLiveView && (
-                                                    <button className="btn btn-sm btn-success" onClick={() => viewScreenshot(t.id)}
-                                                        title="Посмотреть браузер" style={{ padding: '4px 10px' }}>
-                                                        <Eye size={13} /> View
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <span style={{ fontSize: '0.75em', color: 'var(--text-muted)', fontWeight: 600 }}>{formatTime(t.updated)}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-
-                        {/* Recent completed/failed threads (compact) */}
-                        {groupRecent.length > 0 && (
-                            <div style={{ display: 'grid', gap: 3 }}>
-                                <div style={{ fontSize: '0.75em', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                                    Недавние
-                                </div>
-                                {groupRecent.map(t => {
-                                    const s = statusMap[t.status] || statusMap.idle;
-                                    const Icon = s.icon;
-                                    return (
-                                        <div key={t.id} style={{
-                                            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
-                                            borderRadius: 6, border: '1px solid var(--border-subtle)', background: s.bg,
-                                        }}>
-                                            <Icon size={12} style={{ color: s.color, flexShrink: 0 }} />
-                                            <span style={{
-                                                fontSize: '0.75em', fontWeight: 700, minWidth: 50, color: s.color,
-                                                padding: '1px 6px', borderRadius: 4,
-                                            }}>{s.label}</span>
-                                            <span style={{ flex: 1, fontSize: '0.75em', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {t.error || t.action || t.email || '—'}
-                                            </span>
-                                            <span style={{ fontSize: '0.7em', color: 'var(--text-muted)', flexShrink: 0 }}>{formatTime(t.updated)}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-
-                        {/* Empty state */}
-                        {groupRunning.length === 0 && groupRecent.length === 0 && (
-                            <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: '0.9em' }}>
-                                Нет активных потоков
-                            </div>
-                        )}
+            {/* ── Thread rows ── */}
+            <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' }}>
+                {threads.length === 0 ? (
+                    <div className="card" style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '2em', marginBottom: 8 }}>⊘</div>
+                        <div style={{ fontSize: '0.95em' }}>No active threads</div>
+                        <div style={{ fontSize: '0.8em', marginTop: 4 }}>Start an autoreg process to see live thread activity</div>
                     </div>
-                );
-            })}
+                ) : (
+                    threads.map((t, i) => {
+                        const sc = getStatusConfig(t.status, t.action);
+                        const provider = (t.provider || 'gmail').toLowerCase();
 
-            {/* No activity at all */}
-            {totalRunning === 0 && threads.length === 0 && (
-                <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                    <Cpu size={32} style={{ color: 'var(--text-muted)', marginBottom: 10 }} />
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.95em' }}>Нет активных процессов</div>
-                </div>
-            )}
+                        return (
+                            <div key={t.id || i} style={{
+                                display: 'flex', alignItems: 'center', gap: 14,
+                                padding: '14px 18px',
+                                background: sc.bg,
+                                borderLeft: `3px solid ${sc.border}`,
+                                borderRadius: 8,
+                                border: `1px solid ${sc.border}22`,
+                                borderLeftWidth: 3,
+                                borderLeftColor: sc.border,
+                                transition: 'all 0.3s',
+                            }}>
+                                {/* Thread ID circle */}
+                                <div style={{
+                                    width: 36, height: 36, borderRadius: '50%',
+                                    border: `2px solid ${sc.border}`,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontWeight: 800, fontSize: '0.8em', color: sc.color, flexShrink: 0,
+                                }}>
+                                    T-{i + 1}
+                                </div>
+
+                                {/* Provider logo */}
+                                <ProviderLogo provider={provider} size={40} />
+
+                                {/* Email */}
+                                <div style={{
+                                    flex: 1, minWidth: 0,
+                                    fontSize: '0.95em', fontWeight: 500, color: 'var(--text-primary)',
+                                    fontFamily: 'monospace',
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }}>
+                                    {t.email || '—'}
+                                </div>
+
+                                {/* Status pill */}
+                                <div style={{
+                                    padding: '4px 14px', borderRadius: 6,
+                                    background: `${sc.color}18`, border: `1px solid ${sc.color}44`,
+                                    color: sc.color, fontWeight: 700, fontSize: '0.82em',
+                                    whiteSpace: 'nowrap', flexShrink: 0,
+                                }}>
+                                    {t.action || sc.label}
+                                </div>
+
+                                {/* Elapsed time */}
+                                <div style={{
+                                    fontSize: '0.85em', color: 'var(--text-muted)', fontWeight: 600,
+                                    fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0, minWidth: 60,
+                                    textAlign: 'right',
+                                }}>
+                                    {formatElapsed(t.started || t.updated)}
+                                </div>
+
+                                {/* Timestamp */}
+                                <div style={{
+                                    fontSize: '0.85em', color: 'var(--text-muted)', fontWeight: 500,
+                                    fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0, minWidth: 44,
+                                    textAlign: 'right',
+                                }}>
+                                    {formatTimestamp(t.updated)}
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
         </div>
     );
 }

@@ -8,7 +8,7 @@ from loguru import logger
 
 # Variables we support
 # {{USER}} is alias for {{EMAILNAME}} (part before @ in recipient email)
-SUPPORTED_VARIABLES = ["LINK", "FIRSTNAME", "LASTNAME", "EMAILNAME", "USER"]
+SUPPORTED_VARIABLES = ["LINK", "FIRSTNAME", "EMAILNAME", "USER"]
 
 
 def detect_variables(text: str) -> list[str]:
@@ -42,15 +42,14 @@ def render_template(
         (rendered_subject, rendered_body)
     """
     email = recipient.get("email", "")
-    first_name = recipient.get("first_name", "")
-    last_name = recipient.get("last_name", "")
+    # Support both 'name' (new) and 'first_name' (old) field
+    name = recipient.get("name") or recipient.get("first_name", "")
     email_name = email.split("@")[0] if "@" in email else email
 
     # Variable substitution (case-insensitive)
     replacements = {
         "{{LINK}}": link_url,
-        "{{FIRSTNAME}}": first_name,
-        "{{LASTNAME}}": last_name,
+        "{{FIRSTNAME}}": name,
         "{{EMAILNAME}}": email_name,
         "{{USER}}": email_name,
     }
@@ -70,8 +69,7 @@ def render_preview(subject: str, body: str) -> tuple[str, str]:
     """Render a preview with example data (for frontend display)."""
     example_recipient = {
         "email": "john.doe@gmail.com",
-        "first_name": "John",
-        "last_name": "Doe",
+        "name": "John",
     }
     return render_template(
         subject, body,

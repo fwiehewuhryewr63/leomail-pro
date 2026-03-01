@@ -29,7 +29,7 @@ export default function CampaignDetail() {
     const loadPreflight = () => fetch(`${API}/campaigns/${id}/preflight`).then(r => r.json()).then(setPreflight).catch(() => { });
     useEffect(() => { loadPreflight(); }, [id]);
 
-    if (!c) return <div className="page" style={{ padding: 40, color: 'var(--text-muted)' }}>Загрузка...</div>;
+    if (!c) return <div className="page" style={{ padding: 40, color: 'var(--text-muted)' }}>Loading...</div>;
 
     const pct = c.recipients_total > 0 ? Math.round(c.recipients_sent / c.recipients_total * 100) : 0;
 
@@ -43,10 +43,10 @@ export default function CampaignDetail() {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
             });
             const d = await r.json();
-            alert(`✅ Добавлено: ${d.added}, пропущено: ${d.skipped || 0}`);
+            alert(`✅ Added: ${d.added}, skipped: ${d.skipped || 0}`);
             setImportText('');
             load(); loadPreflight();
-        } catch { alert('Ошибка импорта'); }
+        } catch { alert('Import error'); }
         finally { setImporting(false); }
     };
 
@@ -60,9 +60,9 @@ export default function CampaignDetail() {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
             });
             const d = await r.json();
-            alert(`✅ Файл "${file.name}": добавлено ${d.added}, пропущено ${d.skipped || 0}`);
+            alert(`✅ File "${file.name}": added ${d.added}, skipped ${d.skipped || 0}`);
             load(); loadPreflight();
-        } catch { alert('Ошибка загрузки файла'); }
+        } catch { alert('File upload error'); }
         finally { setImporting(false); }
     };
 
@@ -79,37 +79,44 @@ export default function CampaignDetail() {
 
     return (
         <div className="page">
-            <h2 className="page-title" style={{ cursor: 'pointer' }} onClick={() => navigate('/campaigns')}>
-                <ArrowLeft size={20} /> {c.name}
-                <span style={{ fontSize: '0.5em', marginLeft: 8, fontWeight: 600, color: statusColor(c.status) }}>{statusLabel(c.status)}</span>
-            </h2>
+            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OPERATIONS / CAMPAIGNS</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => navigate('/campaigns')}>
+                    <ArrowLeft size={18} /> {c.name}
+                    <span style={{
+                        fontSize: '0.42em', fontWeight: 700, padding: '3px 10px', borderRadius: 12,
+                        background: `${statusColor(c.status)}20`, color: statusColor(c.status),
+                        border: `1px solid ${statusColor(c.status)}40`,
+                    }}>{statusLabel(c.status)}</span>
+                </h2>
+            </div>
 
             {/* Action bar */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                 {['draft', 'paused', 'stopped'].includes(c.status) &&
-                    <button style={btnStyle('var(--success)')} onClick={() => action('start')}><Play size={14} /> Запуск</button>}
+                    <button style={btnStyle('var(--success)')} onClick={() => action('start')}><Play size={14} /> Start</button>}
                 {c.status === 'running' &&
-                    <button style={btnStyle('#f59e0b')} onClick={() => action('pause')}><Pause size={14} /> Пауза</button>}
+                    <button style={btnStyle('#f59e0b')} onClick={() => action('pause')}><Pause size={14} /> Pause</button>}
                 {['running', 'paused'].includes(c.status) &&
-                    <button style={btnStyle('var(--danger)')} onClick={() => action('stop')}><Square size={14} /> Стоп</button>}
+                    <button style={btnStyle('var(--danger)')} onClick={() => action('stop')}><Square size={14} /> Stop</button>}
                 <button style={btnStyle('var(--text-muted)')} onClick={() => loadPreflight()}><Shield size={14} /> Pre-flight</button>
             </div>
 
             {/* Stats cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
-                <StatBox label="Отправлено" value={c.total_sent || 0} color="var(--success)" icon={Mail} />
-                <StatBox label="Ошибки" value={c.total_errors || 0} color="var(--danger)" icon={AlertTriangle} />
-                <StatBox label="Акки рожд." value={c.accounts_born || 0} color="var(--info)" icon={Users} />
-                <StatBox label="Акки мёрт." value={c.accounts_dead || 0} color="var(--danger)" icon={XCircle} />
-                <StatBox label="Прогресс" value={`${pct}%`} color="var(--accent)" icon={CheckCircle} />
+                <StatBox label="Sent" value={c.total_sent || 0} color="var(--success)" icon={Mail} />
+                <StatBox label="Errors" value={c.total_errors || 0} color="var(--danger)" icon={AlertTriangle} />
+                <StatBox label="Acc Born" value={c.accounts_born || 0} color="var(--info)" icon={Users} />
+                <StatBox label="Acc Dead" value={c.accounts_dead || 0} color="var(--danger)" icon={XCircle} />
+                <StatBox label="Progress" value={`${pct}%`} color="var(--accent)" icon={CheckCircle} />
             </div>
 
             {/* Progress bar */}
             {c.recipients_total > 0 && (
                 <div className="card" style={{ marginBottom: 16, padding: '12px 18px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', marginBottom: 6, color: 'var(--text-muted)' }}>
-                        <span>Получатели: {c.recipients_sent} / {c.recipients_total}</span>
-                        <span>Линки: {c.links_active || 0} / {c.links_total || 0}</span>
+                        <span>Recipients: {c.recipients_sent} / {c.recipients_total}</span>
+                        <span>Links: {c.links_active || 0} / {c.links_total || 0}</span>
                     </div>
                     <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                 </div>
@@ -119,25 +126,25 @@ export default function CampaignDetail() {
             {isRunning && templateActive > 0 && templateActive < 5 && (
                 <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
-                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Шаблоны заканчиваются ({templateActive} осталось) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('templates')}>подгрузить</strong></span>
+                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Templates running low ({templateActive} left) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('templates')}>add more</strong></span>
                 </div>
             )}
             {linksLow && (
                 <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
-                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Линки заканчиваются ({linksLeft} осталось) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('links')}>подгрузить</strong></span>
+                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Links running low ({linksLeft} left) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('links')}>add more</strong></span>
                 </div>
             )}
             {recipientsLow && (
                 <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
-                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Получатели заканчиваются ({recipientsLeft} осталось) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('recipients')}>подгрузить</strong></span>
+                    <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Recipients running low ({recipientsLeft} left) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('recipients')}>add more</strong></span>
                 </div>
             )}
 
             {c.stop_reason && (
                 <div className="card" style={{ marginBottom: 16, padding: '12px 18px', borderLeft: '3px solid var(--danger)' }}>
-                    <span style={{ color: 'var(--danger)', fontWeight: 700 }}>⚠️ Остановлена: </span>
+                    <span style={{ color: 'var(--danger)', fontWeight: 700 }}>⚠️ Stopped: </span>
                     <span style={{ color: 'var(--text-secondary)' }}>{c.stop_reason}</span>
                 </div>
             )}
@@ -147,15 +154,15 @@ export default function CampaignDetail() {
                 <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
                     <div style={{ fontSize: '0.75em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 10 }}>Pre-flight Check</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                        <PFItem label="Шаблоны" status={preflight.templates?.status} detail={`${preflight.templates?.count || 0} активных`} />
-                        <PFItem label="Линки" status={preflight.links?.status} detail={`${preflight.links?.count || 0} активных`} />
-                        <PFItem label="Получатели" status={preflight.recipients?.status} detail={`${preflight.recipients?.count || 0} не отправлено`} />
-                        <PFItem label="SMS баланс" status={preflight.sms?.status} detail={`$${preflight.sms?.total_balance || 0} (~${preflight.sms?.estimated_accounts || 0} акков)`} />
-                        <PFItem label="Прокси" status={preflight.proxies?.status} detail={`${preflight.proxies?.alive || 0} живых (${preflight.proxies?.geo_match || 0} GEO)`} />
-                        <PFItem label="Провайдеры" status={preflight.providers?.status} detail={(preflight.providers?.list || []).join(', ') || 'нет'} />
+                        <PFItem label="Templates" status={preflight.templates?.status} detail={`${preflight.templates?.count || 0} active`} />
+                        <PFItem label="Links" status={preflight.links?.status} detail={`${preflight.links?.count || 0} active`} />
+                        <PFItem label="Recipients" status={preflight.recipients?.status} detail={`${preflight.recipients?.count || 0} unsent`} />
+                        <PFItem label="SMS Balance" status={preflight.sms?.status} detail={`$${preflight.sms?.total_balance || 0} (~${preflight.sms?.estimated_accounts || 0} accs)`} />
+                        <PFItem label="Proxies" status={preflight.proxies?.status} detail={`${preflight.proxies?.alive || 0} alive (${preflight.proxies?.geo_match || 0} GEO)`} />
+                        <PFItem label="Providers" status={preflight.providers?.status} detail={(preflight.providers?.list || []).join(', ') || 'none'} />
                     </div>
                     <div style={{ marginTop: 10, textAlign: 'center', fontWeight: 700, fontSize: '0.9em', color: preflight.ready ? 'var(--success)' : 'var(--danger)' }}>
-                        {preflight.ready ? '✅ Готова к запуску' : '❌ Есть критические проблемы'}
+                        {preflight.ready ? '✅ Ready to launch' : '❌ Critical issues found'}
                     </div>
                 </div>
             )}
@@ -163,9 +170,9 @@ export default function CampaignDetail() {
             {/* Tabs */}
             <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 {[
-                    { id: 'templates', label: `Шаблоны (${templateActive})`, icon: FileText },
-                    { id: 'links', label: `Линки (${c.links_active || 0})`, icon: Link2 },
-                    { id: 'recipients', label: `Получатели (${recipientsLeft})`, icon: Users },
+                    { id: 'templates', label: `Templates (${templateActive})`, icon: FileText },
+                    { id: 'links', label: `Links (${c.links_active || 0})`, icon: Link2 },
+                    { id: 'recipients', label: `Recipients (${recipientsLeft})`, icon: Users },
                 ].map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)} style={{
                         background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
@@ -183,10 +190,10 @@ export default function CampaignDetail() {
                 {tab === 'templates' && (
                     <>
                         <TabHeader
-                            title="Шаблоны писем"
-                            subtitle={`${templateActive} активных, ${templateCount} всего`}
+                            title="Email Templates"
+                            subtitle={`${templateActive} active, ${templateCount} total`}
                             isRunning={isRunning}
-                            runningHint="Можно добавить шаблоны — они подхватятся автоматически"
+                            runningHint="Templates can be added live — they'll be picked up automatically"
                         />
                         <textarea style={ta} value={importText} onChange={e => setImportText(e.target.value)}
                             placeholder={"---TEMPLATE---\nSubject: Olá {{NAME}}\nBody:\n<p>Olá {{NAME}}, confira <a href=\"{{LINK}}\">aqui</a></p>\n---TEMPLATE---\nSubject: Oportunidade\nBody:\n<p>Veja isso: <a href=\"{{LINK}}\">clique</a></p>"} />
@@ -200,7 +207,7 @@ export default function CampaignDetail() {
                         />
                         {c.templates && c.templates.length > 0 && (
                             <div style={{ marginTop: 14 }}>
-                                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Текущие шаблоны:</div>
+                                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Current Templates:</div>
                                 {c.templates.map(t => (
                                     <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                                         <span style={{ fontSize: '0.85em', flex: 1, color: t.active ? 'var(--text-primary)' : 'var(--text-muted)' }}>{t.subject}</span>
@@ -215,14 +222,14 @@ export default function CampaignDetail() {
                 {tab === 'links' && (
                     <>
                         <TabHeader
-                            title="Линки"
-                            subtitle={`${c.links_active || 0} активных из ${c.links_total || 0}`}
+                            title="Links"
+                            subtitle={`${c.links_active || 0} active of ${c.links_total || 0}`}
                             isRunning={isRunning}
-                            runningHint="Добавьте линки — они подхватятся без перезапуска"
+                            runningHint="Links can be added live — no restart needed"
                         />
                         <div style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-end' }}>
                             <div>
-                                <label style={{ fontSize: '0.72em', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Max исп./линк</label>
+                                <label style={{ fontSize: '0.72em', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Max uses/link</label>
                                 <input style={{ ...inp, width: 100 }} type="number" value={maxUses} onChange={e => setMaxUses(+e.target.value)} />
                             </div>
                         </div>
@@ -242,10 +249,10 @@ export default function CampaignDetail() {
                 {tab === 'recipients' && (
                     <>
                         <TabHeader
-                            title="Получатели"
-                            subtitle={`${recipientsLeft} осталось из ${c.recipients_total || 0}`}
+                            title="Recipients"
+                            subtitle={`${recipientsLeft} remaining of ${c.recipients_total || 0}`}
                             isRunning={isRunning}
-                            runningHint="Новые получатели добавятся в очередь, дубликаты пропускаются"
+                            runningHint="New recipients join the queue, duplicates are skipped"
                         />
                         <textarea style={ta} value={importText} onChange={e => setImportText(e.target.value)}
                             placeholder={"user1@example.com\nuser2@example.com,John\nuser3@example.com,Maria"} />
@@ -283,10 +290,10 @@ const TabHeader = ({ title, subtitle, isRunning, runningHint }) => (
 const ImportButtons = ({ onTextImport, onFileSelect, importing, disabled, fileRef, accept }) => (
     <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <button style={{ ...btnStyle('var(--accent)') }} onClick={onTextImport} disabled={importing || disabled}>
-            <Upload size={14} /> {importing ? 'Загрузка...' : 'Добавить из текста'}
+            <Upload size={14} /> {importing ? 'Importing...' : 'Add from text'}
         </button>
         <button style={{ ...btnStyle('var(--info)') }} onClick={() => fileRef.current?.click()}>
-            <File size={14} /> Загрузить файл
+            <File size={14} /> Upload file
         </button>
         <input
             ref={fileRef}
@@ -300,7 +307,7 @@ const ImportButtons = ({ onTextImport, onFileSelect, importing, disabled, fileRe
 
 // --- helpers ---
 const statusColor = (s) => ({ draft: 'var(--text-muted)', running: 'var(--success)', paused: 'var(--warning)', completed: 'var(--info)', stopped: 'var(--danger)' }[s] || 'var(--text-muted)');
-const statusLabel = (s) => ({ draft: 'ЧЕРНОВИК', running: 'ЗАПУЩЕНА', paused: 'ПАУЗА', completed: 'ЗАВЕРШЕНА', stopped: 'ОСТАНОВЛЕНА' }[s] || s);
+const statusLabel = (s) => ({ draft: 'DRAFT', running: 'RUNNING', paused: 'PAUSED', completed: 'DONE', stopped: 'STOPPED' }[s] || s);
 
 const StatBox = ({ label, value, color, icon: Icon }) => (
     <div className="card" style={{ padding: '12px 14px', textAlign: 'center' }}>

@@ -1,14 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Shield, Upload, Trash2, RefreshCw, CheckCircle, XCircle, Clock, Wifi, WifiOff, Globe2, Calendar, Edit3, Link2, Unlink, Save, X, Zap } from 'lucide-react';
-import { useI18n } from '../i18n/I18nContext';
-
+import { Shield, Upload, Trash2, RefreshCw, CheckCircle, XCircle, Clock, WifiOff, Edit3, Unlink, Save, X, Zap, Link2 } from 'lucide-react';
 import { API } from '../api';
 
 export default function Proxies() {
-    const { t } = useI18n();
     const [proxies, setProxies] = useState([]);
     const [stats, setStats] = useState({});
-    const [filter, setFilter] = useState(null); // null=all, 'active', 'dead', 'exhausted'
+    const [filter, setFilter] = useState(null);
     const [showUpload, setShowUpload] = useState(false);
     const [uploadText, setUploadText] = useState('');
     const [expiresAt, setExpiresAt] = useState('');
@@ -17,25 +14,25 @@ export default function Proxies() {
     const [checkingId, setCheckingId] = useState(null);
     const [editingId, setEditingId] = useState(null);
     const [editData, setEditData] = useState({});
+    const [selected, setSelected] = useState(new Set());
+    const [showFormats, setShowFormats] = useState(false);
     const fileRef = useRef();
 
     const total = stats.total || 0;
     const alive = stats.active || 0;
     const dead = stats.dead || 0;
-    const bound = stats.bound || 0;
     const exhausted = stats.exhausted || 0;
 
     const filteredProxies = filter ? proxies.filter(p => {
         if (filter === 'active') return p.status === 'active' && !p.bound_to;
-        if (filter === 'bound') return !!p.bound_to;
         if (filter === 'exhausted') return p.status === 'exhausted';
         if (filter === 'dead') return ['dead', 'expired', 'banned'].includes(p.status);
         return true;
     }) : proxies;
 
     const loadProxies = () => {
-        fetch(`${API}/proxies/`).then(r => r.json()).then(setProxies).catch(() => { });
-        fetch(`${API}/proxies/stats`).then(r => r.json()).then(setStats).catch(() => { });
+        fetch(`${API}/proxies/`).then(r => r.json()).then(setProxies).catch(() => { /* ignore */ });
+        fetch(`${API}/proxies/stats`).then(r => r.json()).then(setStats).catch(() => { /* ignore */ });
     };
     useEffect(() => { loadProxies(); }, []);
 
@@ -49,26 +46,15 @@ export default function Proxies() {
             const res = await fetch(`${API}/proxies/import`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    proxies: lines,
-                    expires_at: expiresAt || null
-                })
+                body: JSON.stringify({ proxies: lines, expires_at: expiresAt || null })
             });
             const data = await res.json();
             if (data.types) {
-                alert(`Импортировано: ${data.imported}\nSOCKS5: ${data.types.socks5 || 0}\nHTTP: ${data.types.http || 0}\nMOBILE: ${data.types.mobile || 0}`);
+                alert(`Imported: ${data.imported}\nSOCKS5: ${data.types.socks5 || 0}\nHTTP: ${data.types.http || 0}\nMOBILE: ${data.types.mobile || 0}`);
             }
             setUploadText(''); setShowUpload(false); loadProxies();
-        } catch { }
+        } catch { /* ignore */ }
         setLoading(false);
-    };
-
-    const handleFile = (e) => {
-        const file = e.dataTransfer?.files[0] || e.target?.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => { setUploadText(ev.target.result); setShowUpload(true); };
-        reader.readAsText(file);
     };
 
     const handleDrop = (e) => {
@@ -81,429 +67,389 @@ export default function Proxies() {
         }
     };
 
+    const handleFile = (e) => {
+        const file = e.target?.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => { setUploadText(ev.target.result); setShowUpload(true); };
+        reader.readAsText(file);
+    };
+
     const checkAll = async () => {
         setChecking(true);
-        try { await fetch(`${API}/proxies/check-all`, { method: 'POST' }); } catch { }
-        setChecking(false);
-        loadProxies();
+        try { await fetch(`${API}/proxies/check-all`, { method: 'POST' }); } catch { /* ignore */ }
+        setChecking(false); loadProxies();
     };
 
     const checkOne = async (id) => {
         setCheckingId(id);
-        try {
-            const res = await fetch(`${API}/proxies/check/${id}`, { method: 'POST' });
-            const d = await res.json();
-            if (d.alive === false) {
-                alert(`Прокси #${id} — НЕ ОТВЕЧАЕТ (fail: ${d.fail_count})`);
-            }
-        } catch { }
-        setCheckingId(null);
-        loadProxies();
+        try { await fetch(`${API}/proxies/check/${id}`, { method: 'POST' }); } catch { /* ignore */ }
+        setCheckingId(null); loadProxies();
     };
 
-    const deleteProxy = async (id) => {
-        await fetch(`${API}/proxies/${id}`, { method: 'DELETE' });
-        loadProxies();
-    };
+    const deleteProxy = async (id) => { await fetch(`${API}/proxies/${id}`, { method: 'DELETE' }); selected.delete(id); setSelected(new Set(selected)); loadProxies(); };
+    const _deleteAll = async () => { if (!confirm('Delete ALL proxies?')) return; await fetch(`${API}/proxies/all`, { method: 'DELETE' }); setSelected(new Set()); loadProxies(); };
+    const _unbindProxy = async (id) => { await fetch(`${API}/proxies/${id}/unbind`, { method: 'POST' }); loadProxies(); };
 
-    const deleteAll = async () => {
-        if (!confirm('Удалить ВСЕ прокси?')) return;
-        await fetch(`${API}/proxies/all`, { method: 'DELETE' });
-        loadProxies();
+    const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+    const toggleAll = () => setSelected(prev => prev.size === filteredProxies.length ? new Set() : new Set(filteredProxies.map(p => p.id)));
+    const batchDelete = async () => {
+        if (!confirm(`Delete ${selected.size} proxies?`)) return;
+        for (const id of selected) { await fetch(`${API}/proxies/${id}`, { method: 'DELETE' }); }
+        setSelected(new Set()); loadProxies();
     };
 
     const resetAll = async () => {
-        if (!confirm('Сбросить ВСЕ прокси в статус Active? (полезно после миграции)')) return;
+        if (!confirm('Reset ALL counters?')) return;
         const res = await fetch(`${API}/proxies/reset-all`, { method: 'POST' });
         const d = await res.json();
-        alert(`Сброшено ${d.reset} прокси в Active`);
-        loadProxies();
-    };
-
-    const deleteExhausted = async () => {
-        if (!confirm(`Удалить ${exhausted} задроченных прокси?`)) return;
-        const res = await fetch(`${API}/proxies/exhausted`, { method: 'DELETE' });
-        const d = await res.json();
-        alert(`Удалено ${d.deleted} задроченных прокси` + (d.unbound_accounts ? `, отвязано ${d.unbound_accounts} аккаунтов` : ''));
-        loadProxies();
-    };
-
-    const unbindProxy = async (id) => {
-        await fetch(`${API}/proxies/${id}/unbind`, { method: 'POST' });
+        alert(`Reset ${d.reset} proxies`);
         loadProxies();
     };
 
     const startEdit = (proxy) => {
         setEditingId(proxy.id);
-        setEditData({
-            host: proxy.host || '',
-            port: proxy.port || '',
-            username: proxy.username || '',
-            password: '',
-        });
+        setEditData({ host: proxy.host || '', port: proxy.port || '', username: proxy.username || '', password: '' });
     };
-
-    const cancelEdit = () => { setEditingId(null); setEditData({}); };
 
     const saveEdit = async (id) => {
-        const body = {
-            host: editData.host || null,
-            port: editData.port ? parseInt(editData.port) : null,
-            username: editData.username ?? null,
-            password: editData.password || null,
-        };
-
         try {
-            const res = await fetch(`${API}/proxies/${id}/refresh`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+            await fetch(`${API}/proxies/${id}/refresh`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host: editData.host || null, port: editData.port ? parseInt(editData.port) : null, username: editData.username ?? null, password: editData.password || null })
             });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                alert(`Ошибка: ${err.detail || res.statusText}`);
-                return;
-            }
-        } catch (e) {
-            alert(`Ошибка сети: ${e.message}`);
-            return;
-        }
-        setEditingId(null);
-        setEditData({});
-        loadProxies();
+        } catch { /* ignore */ }
+        setEditingId(null); setEditData({}); loadProxies();
     };
 
-    const autoReassign = async () => {
-        const res = await (await fetch(`${API}/proxies/auto-reassign`, { method: 'POST' })).json();
-        alert(`Переназначено: ${res.reassigned || 0}, Нет прокси: ${res.no_proxy_available || 0}`);
-        loadProxies();
+    /* ── Usage cell color based on count ── */
+    const usageCell = (count) => {
+        const c = count || 0;
+        let bg = 'transparent';
+        let color = 'var(--text-muted)';
+        if (c >= 4) { bg = 'rgba(239,68,68,0.15)'; color = '#EF4444'; }
+        else if (c >= 3) { bg = 'rgba(245,158,11,0.15)'; color = '#F59E0B'; }
+        else if (c >= 1) { bg = 'rgba(16,185,129,0.12)'; color = '#10B981'; }
+        return { background: bg, color, fontWeight: c > 0 ? 700 : 400 };
     };
 
-    const getDaysLeft = (expiresDate) => {
-        if (!expiresDate) return null;
-        const diff = Math.ceil((new Date(expiresDate) - new Date()) / (1000 * 60 * 60 * 24));
-        return diff;
+    /* ── GEO flag helper ── */
+    const geoFlag = (geo) => {
+        if (!geo) return '—';
+        const flags = { US: '🇺🇸', UK: '🇬🇧', DE: '🇩🇪', RU: '🇷🇺', NL: '🇳🇱', FR: '🇫🇷', CA: '🇨🇦' };
+        return (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {flags[geo.toUpperCase()] || '🌐'} {geo}
+            </span>
+        );
     };
 
     return (
         <div className="page">
-            <h2 className="page-title"><Shield size={24} /> {t('proxyManager')}</h2>
+            {/* Header + actions */}
+            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>NETWORK / PROXIES</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Shield size={22} /> Proxies
+                </h2>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary" onClick={() => setShowUpload(!showUpload)}
+                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>Import</button>
+                    <button className="btn btn-success" onClick={checkAll} disabled={checking || total === 0}
+                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
+                        {checking ? 'Checking...' : 'Check All'}
+                    </button>
+                    <button className="btn" onClick={resetAll} disabled={total === 0}
+                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>Reset Counters</button>
+                </div>
+            </div>
 
-            {/* Stats — clickable filter tabs */}
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+            {/* ═══ Stat Cards ═══ */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
                 {[
-                    { key: null, label: 'ВСЕГО', value: total, color: 'var(--accent)', icon: <Wifi size={13} /> },
-                    { key: 'active', label: 'ЖИВЫЕ', value: alive, color: 'var(--success)', icon: <CheckCircle size={13} /> },
-                    { key: 'dead', label: 'МЁРТВЫЕ', value: dead, color: 'var(--danger)', icon: <XCircle size={13} /> },
-                    { key: 'bound', label: 'ПРИВЯЗАНЫ', value: bound, color: 'var(--info)', icon: <Link2 size={13} /> },
-                    { key: 'exhausted', label: 'ЗАДРОЧЕННЫЕ', value: exhausted, color: 'var(--warning)', icon: <Clock size={13} /> },
-                ].map(tab => (
-                    <div key={tab.label} className="card" onClick={() => setFilter(filter === tab.key ? null : tab.key)}
+                    { label: 'Total', value: total, color: '#10B981', filterKey: null },
+                    { label: 'Active', value: alive, color: '#10B981', filterKey: 'active' },
+                    { label: 'Exhausted', value: exhausted, color: '#F59E0B', filterKey: 'exhausted' },
+                    { label: 'Dead', value: dead, color: '#EF4444', filterKey: 'dead' },
+                ].map(s => (
+                    <div key={s.label} className="card" onClick={() => setFilter(filter === s.filterKey ? null : s.filterKey)}
                         style={{
-                            cursor: 'pointer', borderColor: filter === tab.key ? tab.color : undefined,
-                            boxShadow: filter === tab.key ? `0 0 12px ${tab.color}33` : undefined
+                            cursor: 'pointer', padding: '16px 20px',
+                            borderColor: filter === s.filterKey ? s.color : undefined,
+                            borderLeft: `3px solid ${s.color}`,
                         }}>
-                        <div className="card-title" style={{ color: tab.color }}>{tab.icon} {tab.label}</div>
-                        <div className="card-value" style={{ WebkitTextFillColor: tab.color }}>{tab.value}</div>
+                        <div style={{ fontSize: '1.8em', fontWeight: 900, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: '0.75em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{s.label}</div>
                     </div>
                 ))}
             </div>
 
-            {/* Proxy Type breakdown — inline */}
-            {total > 0 && (
-                <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75em', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Тип:</span>
-                    {Object.entries(stats.by_type || {}).map(([type, cnt]) => (
-                        <span key={type} className="badge" style={{
-                            background: type === 'socks5' ? 'rgba(139,92,246,0.2)' : type === 'mobile' ? 'rgba(251,191,36,0.2)' : 'rgba(59,130,246,0.2)',
-                            color: type === 'socks5' ? '#a78bfa' : type === 'mobile' ? '#fbbf24' : '#60a5fa',
-                            fontSize: '0.78em', padding: '2px 8px'
-                        }}>
-                            {type.toUpperCase()}: {cnt}
-                        </span>
-                    ))}
+            {/* ═══ Import Area ═══ */}
+            <div className="card" style={{ padding: '16px 20px', marginBottom: 20 }}>
+                <div style={{ fontSize: '0.82em', fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Import area
+                    <div style={{ position: 'relative', display: 'inline-flex' }}
+                        onMouseEnter={() => setShowFormats(true)}
+                        onMouseLeave={() => setShowFormats(false)}>
+                        <span style={{
+                            width: 18, height: 18, borderRadius: '50%', display: 'inline-flex',
+                            alignItems: 'center', justifyContent: 'center', fontSize: '0.75em',
+                            background: 'rgba(16,185,129,0.15)', color: '#10B981', cursor: 'help',
+                            fontWeight: 800, border: '1px solid rgba(16,185,129,0.3)',
+                        }}>i</span>
+                        {showFormats && (
+                            <div style={{
+                                position: 'absolute', top: 24, left: 0, zIndex: 100,
+                                background: '#1a1d24', border: '1px solid var(--border-default)',
+                                borderRadius: 10, padding: '14px 18px', width: 320,
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                                fontSize: '0.85em',
+                            }}>
+                                <div style={{ fontWeight: 700, color: '#10B981', marginBottom: 8 }}>Supported Formats</div>
+                                {[
+                                    { label: 'SOCKS5', examples: ['socks5://user:pass@host:port', 'socks5://host:port'] },
+                                    { label: 'HTTP/S', examples: ['http://user:pass@host:port', 'https://host:port'] },
+                                    { label: 'Plain', examples: ['host:port:user:pass', 'user:pass@host:port', 'host:port'] },
+                                ].map(f => (
+                                    <div key={f.label} style={{ marginBottom: 8 }}>
+                                        <div style={{ fontWeight: 700, color: 'var(--text-secondary)', fontSize: '0.88em', marginBottom: 2 }}>{f.label}</div>
+                                        {f.examples.map(ex => (
+                                            <div key={ex} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', color: '#06B6D4', padding: '1px 0' }}>{ex}</div>
+                                        ))}
+                                    </div>
+                                ))}
+                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginTop: 4, borderTop: '1px solid var(--border-default)', paddingTop: 6 }}>
+                                    Auto-detects protocol, auth, and format
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" onClick={() => setShowUpload(!showUpload)}>
-                    <Upload size={15} /> Загрузить прокси
-                </button>
-                <button className="btn btn-success" onClick={checkAll} disabled={checking || total === 0}>
-                    <RefreshCw size={15} className={checking ? 'spin' : ''} /> {checking ? 'Проверяю...' : 'Проверить всё'}
-                </button>
-                {total > 0 && (
-                    <button className="btn btn-danger" onClick={deleteAll}>
-                        <Trash2 size={15} /> Удалить всё
-                    </button>
-                )}
-                <button className="btn btn-danger" disabled={dead === 0} onClick={async () => {
-                    if (!confirm(`Удалить ${dead} мёртвых прокси?`)) return;
-                    const res = await fetch(`${API}/proxies/dead`, { method: 'DELETE' });
-                    const d = await res.json();
-                    alert(`Удалено ${d.deleted} мёртвых прокси` + (d.unbound_accounts ? `, отвязано ${d.unbound_accounts} аккаунтов` : ''));
-                    loadProxies();
-                }}>
-                    <Trash2 size={15} /> Очистить мёртвые {dead > 0 && `(${dead})`}
-                </button>
-                <button className="btn btn-warning" disabled={exhausted === 0} onClick={deleteExhausted}>
-                    <Trash2 size={15} /> Удалить задроченные {exhausted > 0 && `(${exhausted})`}
-                </button>
+                <div
+                    onDrop={handleDrop}
+                    onDragOver={e => e.preventDefault()}
+                    onClick={() => showUpload ? null : setShowUpload(true)}
+                    style={{
+                        border: '2px dashed rgba(16,185,129,0.25)',
+                        borderRadius: 12,
+                        padding: showUpload ? 0 : 32,
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        background: 'rgba(16,185,129,0.02)',
+                        transition: 'all 0.2s',
+                    }}>
+                    {showUpload ? (
+                        <div style={{ padding: 12 }}>
+                            <textarea className="form-input"
+                                style={{ border: 'none', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', minHeight: 100 }}
+                                rows={4}
+                                placeholder={"IP:PORT:USER:PASS\nlogin:password@ip:port\nsocks5://user:pass@ip:port"}
+                                value={uploadText}
+                                onChange={e => setUploadText(e.target.value)}
+                            />
+                            <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                                <input className="form-input" type="datetime-local" value={expiresAt}
+                                    onChange={e => setExpiresAt(e.target.value)} style={{ width: 200 }} />
+                                <button className="btn btn-primary" onClick={handleUpload} disabled={!uploadText.trim() || loading}>
+                                    {loading ? 'Adding...' : `Add ${parseProxyLines(uploadText).length} proxies`}
+                                </button>
+                                <button className="btn" onClick={() => fileRef.current?.click()}>Browse file</button>
+                                <button className="btn" onClick={() => { setShowUpload(false); setUploadText(''); }}>
+                                    <X size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>
+                            Drop proxy list here (IP:PORT:USER:PASS)
+                        </span>
+                    )}
+                </div>
                 <input type="file" ref={fileRef} accept=".txt" style={{ display: 'none' }} onChange={handleFile} />
             </div>
 
-            {/* Upload zone — SIMPLIFIED */}
-            {showUpload && (
-                <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-title"><Upload size={14} style={{ marginRight: 6 }} /> ДОБАВИТЬ ПРОКСИ</div>
-
-                    <div style={{ fontSize: '0.9em', color: 'var(--text-muted)', marginBottom: 10 }}>
-                        Вставьте прокси в любом формате — тип определится автоматически (SOCKS5 / HTTP / MOBILE)
-                    </div>
-
-                    <div onDrop={handleDrop} onDragOver={e => e.preventDefault()}
-                        style={{ border: '2px dashed var(--border-hover)', borderRadius: 12, padding: 8, marginBottom: 12 }}>
-                        <textarea className="form-input"
-                            style={{ border: 'none', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.9em' }}
-                            rows={6}
-                            placeholder={"ip:port:login:password\nlogin:password@ip:port\nsocks5://user:pass@ip:port\n..."}
-                            value={uploadText}
-                            onChange={e => setUploadText(e.target.value)}
-                        />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label className="form-label">СРОК ДЕЙСТВИЯ</label>
-                            <input className="form-input" type="datetime-local" value={expiresAt}
-                                onChange={e => setExpiresAt(e.target.value)} />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                            <button className="btn btn-primary" onClick={handleUpload} disabled={!uploadText.trim() || loading}
-                                style={{ flex: 1, padding: '12px' }}>
-                                {loading ? 'Добавляю...' : 'Добавить'}
-                            </button>
-                            <button className="btn" onClick={() => fileRef.current?.click()}>Обзор файла</button>
-                        </div>
-                    </div>
-
-                    {uploadText.trim() && (
-                        <div style={{ fontSize: '0.9em', color: 'var(--accent)', fontWeight: 600 }}>
-                            {parseProxyLines(uploadText).length} прокси найдено
-                        </div>
-                    )}
+            {/* ═══ Batch action bar ═══ */}
+            {selected.size > 0 && (
+                <div style={{
+                    padding: '10px 16px', marginBottom: 12,
+                    background: 'rgba(239,68,68,0.06)', borderRadius: 10,
+                    border: '1px solid rgba(239,68,68,0.15)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                    <span style={{ fontSize: '0.82em', color: 'var(--text-muted)' }}>{selected.size} proxies selected</span>
+                    <button className="btn btn-danger" onClick={batchDelete}
+                        style={{ borderRadius: 16, padding: '6px 16px', fontSize: '0.78em' }}>
+                        <Trash2 size={12} /> Delete Selected
+                    </button>
                 </div>
             )}
 
-            {/* Proxy Table */}
+            {/* ═══ Proxy Table ═══ */}
             {total > 0 && (
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <table className="data-table">
+                <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>{t('host')}</th>
-                                <th>{t('port')}</th>
-                                <th>{t('type')}</th>
-                                <th>{t('status')}</th>
-                                <th>{t('responseTime')}</th>
-                                <th>GEO</th>
-                                <th>{t('proxyExpires')}</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>G</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>YA</th>
-                                <th style={{ textAlign: 'center', fontSize: '0.7em' }}>OH</th>
-                                <th>BOUND TO</th>
-                                <th>ACTIONS</th>
+                            <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                                <th style={thStyle}><input type="checkbox" checked={selected.size === filteredProxies.length && filteredProxies.length > 0} onChange={toggleAll} style={{ accentColor: 'var(--accent)' }} /></th>
+                                <th style={thStyle}>Status</th>
+                                <th style={thStyle}>Host:Port</th>
+                                <th style={thStyle}>Type</th>
+                                <th style={thStyle}>Geo</th>
+                                <th style={thStyle}>Speed</th>
+                                <th style={thStyle}>Outlook<br />Uses</th>
+                                <th style={thStyle}>Yahoo<br />Uses</th>
+                                <th style={thStyle}>Gmail<br />Uses</th>
+                                <th style={thStyle}>ProtonMail</th>
+                                <th style={thStyle}>Last Used</th>
+                                <th style={thStyle}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredProxies.map((p, i) => {
-                                const daysLeft = getDaysLeft(p.expires_at);
-                                const isEditing = editingId === p.id;
-                                return (
-                                    <tr key={p.id || i}>
-                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>{i + 1}</td>
+                            {filteredProxies.map((p, i) => (
+                                <tr key={p.id || i} style={{
+                                    borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                    background: selected.has(p.id) ? 'rgba(239,68,68,0.04)' : 'transparent',
+                                }}>
+                                    {/* Checkbox */}
+                                    <td style={tdStyle}>
+                                        <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)}
+                                            style={{ accentColor: selected.has(p.id) ? 'var(--danger)' : 'var(--accent)' }} />
+                                    </td>
+                                    {/* Status dot */}
+                                    <td style={tdStyle}>
+                                        <div style={{
+                                            width: 10, height: 10, borderRadius: '50%',
+                                            background: p.status === 'active' ? '#10B981'
+                                                : p.status === 'exhausted' ? '#F59E0B' : '#EF4444',
+                                            boxShadow: p.status === 'active' ? '0 0 6px rgba(16,185,129,0.5)' : undefined,
+                                        }} />
+                                    </td>
 
-                                        {/* Host */}
-                                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>
-                                            {p.host}
-                                        </td>
+                                    {/* Host:Port */}
+                                    <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em' }}>
+                                        {p.host}:{p.port}
+                                    </td>
 
-                                        {/* Port */}
-                                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>
-                                            {p.port}
-                                        </td>
+                                    {/* Type badge */}
+                                    <td style={tdStyle}>
+                                        <span style={{
+                                            padding: '2px 8px', borderRadius: 4, fontSize: '0.75em', fontWeight: 600,
+                                            background: (p.proxy_type || 'http') === 'socks5' ? 'rgba(139,92,246,0.15)' : 'rgba(59,130,246,0.15)',
+                                            color: (p.proxy_type || 'http') === 'socks5' ? '#A78BFA' : '#60A5FA',
+                                        }}>{(p.proxy_type || 'HTTP').toUpperCase()}</span>
+                                    </td>
 
-                                        {/* Type */}
-                                        <td><span className="badge" style={{
-                                            background: (p.proxy_type || 'http') === 'socks5' ? 'rgba(139,92,246,0.2)' : (p.proxy_type || 'http') === 'mobile' ? 'rgba(251,191,36,0.2)' : 'rgba(59,130,246,0.2)',
-                                            color: (p.proxy_type || 'http') === 'socks5' ? '#a78bfa' : (p.proxy_type || 'http') === 'mobile' ? '#fbbf24' : '#60a5fa',
-                                        }}>{(p.proxy_type || 'http').toUpperCase()}</span></td>
+                                    {/* Geo with flag */}
+                                    <td style={{ ...tdStyle, fontSize: '0.82em' }}>{geoFlag(p.geo)}</td>
 
-                                        {/* Status */}
-                                        <td>
-                                            {p.status === 'active' ? (
-                                                <span className="badge badge-success"><CheckCircle size={10} /> ALIVE</span>
-                                            ) : p.status === 'exhausted' ? (
-                                                <span className="badge badge-warning"><Clock size={10} /> EXHAUSTED</span>
-                                            ) : p.status === 'dead' ? (
-                                                <span className="badge badge-danger"><XCircle size={10} /> DEAD</span>
-                                            ) : (
-                                                <span className="badge badge-danger"><Clock size={10} /> {p.status || '—'}</span>
-                                            )}
-                                        </td>
-                                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: 'var(--text-muted)' }}>
-                                            {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
-                                        </td>
-                                        <td style={{ fontSize: '0.85em', fontWeight: 600 }}>{p.geo || '—'}</td>
-                                        <td style={{ fontSize: '0.78em' }}>
-                                            {daysLeft !== null ? (
-                                                <span style={{
-                                                    color: daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : 'var(--text-muted)',
-                                                    fontWeight: daysLeft <= 7 ? 700 : 400,
-                                                }}>
-                                                    {daysLeft <= 0 ? '⛔ EXPIRED' : `${daysLeft}d`}
-                                                </span>
-                                            ) : '—'}
-                                        </td>
+                                    {/* Speed */}
+                                    <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', color: 'var(--text-muted)' }}>
+                                        {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
+                                    </td>
 
-                                        {/* Per-provider group usage G/YA/OH */}
-                                        {['G', 'YA', 'OH'].map(group => {
-                                            const cnt = p[`use_${group}`] || 0;
-                                            return (
-                                                <td key={group} style={{
-                                                    textAlign: 'center', fontWeight: 600, fontSize: '0.8em',
-                                                    color: cnt >= 3 ? 'var(--danger)' : cnt >= 2 ? 'var(--warning)' : cnt > 0 ? 'var(--text-primary)' : 'var(--text-muted)'
-                                                }}>
-                                                    {cnt || '·'}
-                                                </td>
-                                            );
-                                        })}
+                                    {/* Per-provider usage cells with colors */}
+                                    {[
+                                        { key: 'OH', limit: 3 },
+                                        { key: 'YA', limit: 3 },
+                                        { key: 'G', limit: 1 },
+                                        { key: 'PT', limit: 3 },
+                                    ].map(({ key, limit }) => {
+                                        const cnt = p[`use_${key}`] || 0;
+                                        const style = usageCell(cnt);
+                                        return (
+                                            <td key={key} style={{
+                                                ...tdStyle, textAlign: 'center', fontSize: '0.85em',
+                                                ...style, padding: '8px 6px', borderRadius: 0,
+                                            }}>
+                                                {cnt > 0 ? `${cnt}/${limit}` : '—'}
+                                            </td>
+                                        );
+                                    })}
 
-                                        {/* Bound column */}
-                                        <td style={{ fontSize: '0.75em' }}>
-                                            {p.bound_to ? (
-                                                <span style={{ color: 'var(--info)', fontWeight: 600 }}>
-                                                    {p.bound_to}
-                                                </span>
-                                            ) : (
-                                                <span style={{ color: 'var(--text-muted)' }}>—</span>
-                                            )}
-                                        </td>
+                                    {/* Last used */}
+                                    <td style={{ ...tdStyle, fontSize: '0.78em', color: 'var(--text-muted)' }}>
+                                        {p.last_used ? timeAgo(p.last_used) : '—'}
+                                    </td>
 
-                                        {/* Actions */}
-                                        <td>
-                                            <div style={{ display: 'flex', gap: 3 }}>
-                                                {isEditing ? (
-                                                    <>
-                                                        <button className="btn btn-sm" onClick={cancelEdit} title="Отмена">
-                                                            <X size={12} />
-                                                        </button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <button className="btn btn-sm btn-success" onClick={() => checkOne(p.id)}
-                                                            title="Проверить" disabled={checkingId === p.id}
-                                                            style={{ padding: '3px 6px', minWidth: 28 }}>
-                                                            {checkingId === p.id ? <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={11} />}
-                                                        </button>
-                                                        <button className="btn btn-sm" onClick={() => startEdit(p)} title="Edit proxy">
-                                                            <Edit3 size={12} />
-                                                        </button>
-                                                        {(p.status === 'exhausted' || p.status === 'dead' || p.status === 'expired' || p.status === 'banned') && (
-                                                            <button className="btn btn-sm btn-success" title="→ Active" onClick={async () => {
-                                                                await fetch(`${API}/proxies/${p.id}/move-to-active`, { method: 'POST' });
-                                                                loadProxies();
-                                                            }}>
-                                                                <CheckCircle size={12} />
-                                                            </button>
-                                                        )}
-                                                        {p.bound_to && (
-                                                            <button className="btn btn-sm btn-warning" onClick={() => unbindProxy(p.id)} title="Unbind">
-                                                                <Unlink size={12} />
-                                                            </button>
-                                                        )}
-                                                        <button className="btn btn-sm btn-danger" onClick={() => deleteProxy(p.id)} title="Delete">
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
+                                    {/* Actions */}
+                                    <td style={tdStyle}>
+                                        <div style={{ display: 'flex', gap: 4 }}>
+                                            <button className="btn btn-sm" onClick={() => checkOne(p.id)}
+                                                disabled={checkingId === p.id} style={{ padding: '5px 8px' }} title="Check proxy">
+                                                {checkingId === p.id ? <RefreshCw size={14} className="spin" /> : <Zap size={14} />}
+                                            </button>
+                                            <button className="btn btn-sm" onClick={() => startEdit(p)} style={{ padding: '5px 8px' }} title="Edit proxy">
+                                                <Edit3 size={14} />
+                                            </button>
+                                            <button className="btn btn-sm btn-danger" onClick={() => deleteProxy(p.id)} style={{ padding: '5px 8px' }} title="Delete proxy">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                 </div>
             )}
 
-            {/* Edit Proxy Modal */}
+            {/* Edit Modal */}
             {editingId && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 1000,
-                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }} onClick={cancelEdit}>
-                    <div className="card" style={{
-                        width: 420, padding: '24px 28px',
-                        boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
-                        animation: 'modal-scale-in 0.2s ease-out',
-                    }} onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <Edit3 size={16} style={{ color: 'var(--accent)' }} />
-                                <span style={{ fontWeight: 800, fontSize: '1.05em' }}>Редактирование прокси</span>
-                            </div>
-                            <button className="btn btn-sm" onClick={cancelEdit} style={{ padding: '4px 6px' }}>
-                                <X size={14} />
-                            </button>
-                        </div>
-
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => { setEditingId(null); setEditData({}); }}>
+                    <div className="card" style={{ width: 420, padding: '24px 28px' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ fontWeight: 800, marginBottom: 16 }}>Edit Proxy</div>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 12 }}>
-                            <div className="form-group">
-                                <label className="form-label">Host</label>
-                                <input className="form-input" value={editData.host} placeholder="host / ip"
-                                    onChange={e => setEditData({ ...editData, host: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Port</label>
-                                <input className="form-input" type="number" value={editData.port} placeholder="port"
-                                    onChange={e => setEditData({ ...editData, port: e.target.value })} />
-                            </div>
+                            <div><label className="form-label">Host</label><input className="form-input" value={editData.host} onChange={e => setEditData({ ...editData, host: e.target.value })} /></div>
+                            <div><label className="form-label">Port</label><input className="form-input" type="number" value={editData.port} onChange={e => setEditData({ ...editData, port: e.target.value })} /></div>
                         </div>
-
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                            <div className="form-group">
-                                <label className="form-label">Username</label>
-                                <input className="form-input" value={editData.username} placeholder="пусто = без логина"
-                                    onChange={e => setEditData({ ...editData, username: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Password</label>
-                                <input className="form-input" value={editData.password} placeholder="пусто = не менять" type="password"
-                                    onChange={e => setEditData({ ...editData, password: e.target.value })} />
-                            </div>
+                            <div><label className="form-label">Username</label><input className="form-input" value={editData.username} onChange={e => setEditData({ ...editData, username: e.target.value })} /></div>
+                            <div><label className="form-label">Password</label><input className="form-input" type="password" value={editData.password} onChange={e => setEditData({ ...editData, password: e.target.value })} /></div>
                         </div>
-
                         <div style={{ display: 'flex', gap: 8 }}>
-                            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => saveEdit(editingId)}>
-                                <Save size={14} /> Сохранить
-                            </button>
-                            <button className="btn" onClick={cancelEdit}>Отмена</button>
+                            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => saveEdit(editingId)}><Save size={14} /> Save</button>
+                            <button className="btn" onClick={() => { setEditingId(null); setEditData({}); }}>Cancel</button>
                         </div>
                     </div>
                 </div>
             )}
 
             {total === 0 && !showUpload && (
-                <div className="card" style={{ textAlign: 'center', padding: 48 }}>
+                <div className="card" style={{ textAlign: 'center', padding: 48, marginTop: 20 }}>
                     <WifiOff size={40} style={{ color: 'var(--text-muted)', marginBottom: 12 }} />
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.95em', fontWeight: 600 }}>{t('noProxies')}</p>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.82em', marginTop: 4 }}>{t('uploadToStart')}</p>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.95em', fontWeight: 600 }}>No proxies yet</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.82em', marginTop: 4 }}>Import proxies to get started</p>
                 </div>
             )}
         </div>
     );
+}
+
+/* ── Table styles ── */
+const thStyle = {
+    padding: '10px 8px',
+    fontSize: '0.68em',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+};
+
+const tdStyle = {
+    padding: '10px 8px',
+    fontSize: '0.88em',
+    verticalAlign: 'middle',
+};
+
+/* ── Time ago ── */
+function timeAgo(dateStr) {
+    if (!dateStr) return '—';
+    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
 }

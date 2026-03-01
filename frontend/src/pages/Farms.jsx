@@ -22,7 +22,7 @@ export default function Farms() {
     const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
     const toggleAll = () => setSelected(prev => prev.size === farms.length ? new Set() : new Set(farms.map(f => f.id)));
     const batchDelete = async () => {
-        if (!confirm(`Удалить ${selected.size} ферм?`)) return;
+        if (!confirm(`Delete ${selected.size} farms?`)) return;
         await fetch(`${API}/farms/batch-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected] }) });
         setSelected(new Set()); load();
     };
@@ -34,7 +34,7 @@ export default function Farms() {
             body: JSON.stringify({ source_farm_ids: [...selected], target_name: mergeName })
         });
         const d = await res.json();
-        alert(`Объединено ${d.accounts_merged} аккаунтов в ферму "${mergeName}"`);
+        alert(`Merged ${d.accounts_merged} accounts into farm "${mergeName}"`);
         setSelected(new Set()); setShowMerge(false); setMergeName(''); load();
     };
 
@@ -47,7 +47,7 @@ export default function Farms() {
         });
         const d = await res.json();
         if (d.error) { alert(d.error); return; }
-        alert(`Импортировано ${d.imported} аккаунтов (${Object.entries(d.providers || {}).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
+        alert(`Imported ${d.imported} accounts (${Object.entries(d.providers || {}).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
         setImportText(''); setShowImport(false);
         viewFarm(farmDetail.id);
     };
@@ -62,7 +62,7 @@ export default function Farms() {
     };
 
     const deleteFarm = async (id) => {
-        if (!confirm('Удалить ферму и все аккаунты?')) return;
+        if (!confirm('Delete farm and all accounts?')) return;
         await fetch(`${API}/farms/${id}`, { method: 'DELETE' }); load();
     };
 
@@ -84,9 +84,9 @@ export default function Farms() {
         paused: '#94a3b8', dead: '#ef4444', banned: '#991b1b'
     };
     const statusLabels = {
-        new: 'Новый', phase_1: 'Фаза 1', phase_2: 'Фаза 2', phase_3: 'Фаза 3',
-        phase_4: 'Фаза 4', phase_5: 'Фаза 5', warmed: 'WARMED', sending: 'Рассылка',
-        paused: 'Пауза', dead: 'Dead', banned: 'Banned'
+        new: 'New', phase_1: 'Phase 1', phase_2: 'Phase 2', phase_3: 'Phase 3',
+        phase_4: 'Phase 4', phase_5: 'Phase 5', warmed: 'WARMED', sending: 'Sending',
+        paused: 'Paused', dead: 'Dead', banned: 'Banned'
     };
 
     const getAccountsByStatus = () => {
@@ -99,45 +99,63 @@ export default function Farms() {
 
     return (
         <div className="page">
-            <h2 className="page-title"><Database size={22} /> Фермы</h2>
-
-            <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)} style={{ marginBottom: 16 }}>
-                <Plus size={14} /> Новая ферма
-            </button>
+            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>FARMS</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-block' }}>
+                    <Database size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Farms
+                </h2>
+                <button onClick={() => setShowCreate(!showCreate)} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px',
+                    fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 8,
+                    cursor: 'pointer', background: 'var(--accent)', color: '#000',
+                    fontFamily: 'inherit', transition: 'all 0.2s',
+                }}>
+                    <Plus size={16} /> New Farm
+                </button>
+            </div>
 
             {showCreate && (
-                <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-title">Создать ферму</div>
-                    <div className="form-group">
-                        <label className="form-label">Название</label>
-                        <input className="form-input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Gmail US Farm..." />
+                <div className="card" style={{ marginBottom: 14, padding: '16px 20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr auto', gap: 10, alignItems: 'end' }}>
+                        <div>
+                            <label style={{ fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--accent)', marginBottom: 5, display: 'block' }}>Farm Name</label>
+                            <input className="form-input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Gmail US Farm..." />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 5, display: 'block' }}>Description</label>
+                            <input className="form-input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optional..." />
+                        </div>
+                        <button onClick={createFarm} disabled={!newName.trim()} style={{
+                            padding: '9px 24px', fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 8,
+                            cursor: newName.trim() ? 'pointer' : 'not-allowed',
+                            background: newName.trim() ? 'var(--accent)' : 'rgba(255,255,255,0.06)',
+                            color: newName.trim() ? '#000' : 'var(--text-muted)',
+                            fontFamily: 'inherit', transition: 'all 0.2s',
+                        }}>Create</button>
                     </div>
-                    <div className="form-group">
-                        <label className="form-label">Описание</label>
-                        <input className="form-input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Опционально..." />
-                    </div>
-                    <button className="btn btn-primary" onClick={createFarm}>Создать</button>
                 </div>
             )}
 
             {farms.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: 48, color: '#006611' }}>
-                    <Database size={36} style={{ opacity: 0.3, marginBottom: 12 }} /><br />Нет ферм. Создайте для организации аккаунтов.
+                <div className="card" style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-muted)' }}>
+                    <Database size={40} style={{ opacity: 0.2, marginBottom: 10 }} /><br />
+                    <div style={{ fontSize: '1em', fontWeight: 600, marginBottom: 4 }}>No Farms</div>
+                    <div style={{ fontSize: '0.82em' }}>Create a farm to organize your accounts</div>
                 </div>
             ) : (
                 <div style={{ display: 'grid', gap: 10 }}>
                     {/* Batch select bar */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85em' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-muted)' }}>
-                            <input type="checkbox" checked={selected.size === farms.length && farms.length > 0} onChange={toggleAll} /> Выбрать всё
+                            <input type="checkbox" checked={selected.size === farms.length && farms.length > 0} onChange={toggleAll} /> Select All
                         </label>
                         {selected.size > 0 && (<>
                             <button className="btn btn-danger btn-sm" onClick={batchDelete} style={{ marginLeft: 'auto' }}>
-                                <Trash2 size={12} /> Удалить выбранные ({selected.size})
+                                <Trash2 size={12} /> Delete Selected ({selected.size})
                             </button>
                             {selected.size >= 2 && (
                                 <button className="btn btn-sm" onClick={() => setShowMerge(true)} style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
-                                    <Merge size={12} /> Объединить ({selected.size})
+                                    <Merge size={12} /> Merge ({selected.size})
                                 </button>
                             )}
                         </>)}
@@ -150,29 +168,42 @@ export default function Farms() {
                                     <div>
                                         <div style={{ fontWeight: 600, fontSize: '0.95em', display: 'flex', alignItems: 'center', gap: 8 }}>
                                             {farm.name}
-                                            <span className="neon-tag neon-tag-cyan">{farm.accounts_count} аккаунтов</span>
+                                            <span style={{ fontSize: '0.72em', fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: 'rgba(6,182,212,0.12)', color: '#06b6d4' }}>{farm.accounts_count} accounts</span>
                                         </div>
-                                        {farm.description && <div style={{ fontSize: '0.72em', color: '#006611', marginTop: 2 }}>{farm.description}</div>}
+                                        {farm.description && <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 2 }}>{farm.description}</div>}
                                     </div>
                                 </div>
-                                <ChevronRight size={16} style={{ color: '#006611' }} />
+                                <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />
                             </div>
-                            {/* Progress bar */}
-                            <div style={{ marginTop: 12 }}>
-                                <div style={{ width: '100%', height: 4, background: '#020502', borderRadius: 2, overflow: 'hidden' }}>
-                                    <div style={{
-                                        width: `${farm.warmup_progress}%`, height: '100%',
-                                        background: 'linear-gradient(90deg, #00ff41, #00ff41)', borderRadius: 2,
-                                        boxShadow: '0 0 8px rgba(0,255,65,0.3)', transition: 'width 0.5s ease'
-                                    }} />
+                            {/* Phase status badges + providers */}
+                            <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                    {Object.entries(farm.statuses || {}).filter(([, count]) => count > 0).map(([status, count]) => {
+                                        const c = statusColors[status] || '#888';
+                                        return (
+                                            <span key={status} style={{
+                                                fontSize: '0.62em', fontWeight: 700, padding: '2px 7px', borderRadius: 4,
+                                                background: `${c}18`, color: c, letterSpacing: 0.5,
+                                            }}>
+                                                {statusLabels[status]?.toUpperCase() || status} {count}
+                                            </span>
+                                        );
+                                    })}
+                                    {(!farm.status_breakdown || Object.keys(farm.status_breakdown).length === 0) && (
+                                        <span style={{ fontSize: '0.62em', color: 'var(--text-muted)' }}>No accounts</span>
+                                    )}
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65em', color: '#006611', marginTop: 4 }}>
-                                    <span>{farm.warmup_progress}% прогрето</span>
-                                    <span>{Object.entries(farm.providers || {}).map(([k, v]) => `${k}(${v})`).join(' · ')}</span>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                    {Object.entries(farm.providers || {}).map(([k, v]) => (
+                                        <span key={k} style={{
+                                            fontSize: '0.6em', fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                                            background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)',
+                                        }}>{k}({v})</span>
+                                    ))}
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: 6, marginTop: 10 }} onClick={e => e.stopPropagation()}>
-                                <button className="btn btn-sm" onClick={() => exportFarm(farm.id, farm.name)}><Download size={12} /> Экспорт</button>
+                                <button className="btn btn-sm" onClick={() => exportFarm(farm.id, farm.name)}><Download size={12} /> Export</button>
                                 <button className="btn btn-sm btn-danger" onClick={() => deleteFarm(farm.id)}><Trash2 size={12} /></button>
                             </div>
                         </div>
@@ -187,11 +218,11 @@ export default function Farms() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <div>
                                 <div style={{ fontWeight: 700, fontSize: '1.1em' }}>{farmDetail.name}</div>
-                                <div style={{ fontSize: '0.72em', color: '#006611' }}>{farmDetail.accounts?.length || 0} аккаунтов</div>
+                                <div style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>{farmDetail.accounts?.length || 0} accounts</div>
                             </div>
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                                 <button className="btn btn-sm" onClick={() => setShowImport(true)} style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
-                                    <Upload size={12} /> Импорт аккаунтов
+                                    <Upload size={12} /> Import Accounts
                                 </button>
                                 <button className="btn btn-sm" onClick={() => setFarmDetail(null)}><X size={14} /></button>
                             </div>
@@ -205,7 +236,7 @@ export default function Farms() {
                                     background: `${statusColors[status]}06`, border: `1px solid ${statusColors[status]}12`
                                 }}>
                                     <div style={{ fontSize: '1.2em', fontWeight: 700, color: statusColors[status] }}>{accs.length}</div>
-                                    <div style={{ fontSize: '0.55em', color: '#006611', letterSpacing: 1 }}>{statusLabels[status]?.toUpperCase()}</div>
+                                    <div style={{ fontSize: '0.55em', color: 'var(--text-muted)', letterSpacing: 1 }}>{statusLabels[status]?.toUpperCase()}</div>
                                 </div>
                             ))}
                         </div>
@@ -216,10 +247,10 @@ export default function Farms() {
                                 <button key={t} onClick={() => setDetailTab(t)} style={{
                                     padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
                                     fontSize: '0.72em', fontWeight: 600, fontFamily: 'inherit',
-                                    background: detailTab === t ? 'rgba(0,255,65,0.1)' : 'transparent',
-                                    color: detailTab === t ? '#00ff41' : '#006611'
+                                    background: detailTab === t ? 'rgba(16,185,129,0.1)' : 'transparent',
+                                    color: detailTab === t ? 'var(--accent)' : 'var(--text-muted)'
                                 }}>
-                                    {t === 'accounts' ? 'Аккаунты' : 'Timeline'}
+                                    {t === 'accounts' ? 'Accounts' : 'Timeline'}
                                 </button>
                             ))}
                         </div>
@@ -231,11 +262,11 @@ export default function Farms() {
                             }}>
                                 <div style={{ flex: 1 }}>
                                     <div style={{ color: '#e8ecf4', fontWeight: 500 }}>{acc.email}</div>
-                                    <div style={{ fontSize: '0.75em', color: '#006611', marginTop: 2, display: 'flex', gap: 10 }}>
-                                        <span>{acc.provider}</span>
+                                    <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 10 }}>
+                                        <span style={{ color: '#06b6d4' }}>{acc.provider}</span>
                                         <span>{acc.geo || '?'}</span>
-                                        <span>День {acc.warmup_day}</span>
-                                        {acc.sent_count > 0 && <span><Mail size={10} /> {acc.sent_count} отп.</span>}
+                                        <span>Day {acc.warmup_day}</span>
+                                        {acc.sent_count > 0 && <span><Mail size={10} /> <span style={{ color: '#f59e0b' }}>{acc.sent_count}</span> sent</span>}
                                     </div>
                                 </div>
                                 <span style={{
@@ -249,27 +280,27 @@ export default function Farms() {
 
                         {detailTab === 'timeline' && (
                             <div style={{ padding: '10px 0' }}>
-                                <div style={{ fontSize: '0.78em', color: '#006611', textAlign: 'center', padding: 20 }}>
+                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>
                                     <Activity size={24} style={{ opacity: 0.3, marginBottom: 8 }} /><br />
-                                    Timeline будет заполняться по мере работы ферм
+                                    Timeline will populate as farms process
                                 </div>
                             </div>
                         )}
                         {/* Import accounts modal */}
                         {showImport && (
-                            <div style={{ marginTop: 12, padding: 16, background: 'rgba(0,255,65,0.03)', borderRadius: 8, border: '1px solid rgba(0,255,65,0.1)' }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.85em', marginBottom: 8 }}>Импорт аккаунтов</div>
-                                <div style={{ fontSize: '0.7em', color: '#006611', marginBottom: 8 }}>
-                                    Форматы: email:pass или email:pass:recovery_email:recovery_pass
+                            <div style={{ marginTop: 12, padding: 16, background: 'rgba(16,185,129,0.03)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.1)' }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.85em', marginBottom: 8, color: 'var(--accent)' }}>Import Accounts</div>
+                                <div style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginBottom: 8 }}>
+                                    Formats: email:pass or email:pass:recovery_email:recovery_pass
                                 </div>
                                 <textarea className="form-input" rows={6} value={importText} onChange={e => setImportText(e.target.value)}
                                     placeholder={'user@gmail.com:MyPass123\nuser@yahoo.com:Pass456:recovery@mail.com:RecoveryPass'}
                                     style={{ fontFamily: 'monospace', fontSize: '0.78em' }} />
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                     <button className="btn btn-primary btn-sm" onClick={importAccounts} disabled={!importText.trim()}>
-                                        <Upload size={12} /> Импортировать {importText.trim() ? `(${importText.split('\n').filter(l => l.trim()).length})` : ''}
+                                        <Upload size={12} /> Import {importText.trim() ? `(${importText.split('\n').filter(l => l.trim()).length})` : ''}
                                     </button>
-                                    <button className="btn btn-sm" onClick={() => setShowImport(false)}>Отмена</button>
+                                    <button className="btn btn-sm" onClick={() => setShowImport(false)}>Cancel</button>
                                 </div>
                             </div>
                         )}
@@ -283,18 +314,18 @@ export default function Farms() {
                 <div className="modal-overlay" onClick={() => setShowMerge(false)}>
                     <div className="card modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 400, padding: 24 }}>
                         <div style={{ fontWeight: 700, fontSize: '1em', marginBottom: 12 }}>
-                            <Merge size={16} /> Объединить {selected.size} ферм
+                            <Merge size={16} /> Merge {selected.size} Farms
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Название новой фермы</label>
+                            <label className="form-label">New Farm Name</label>
                             <input className="form-input" value={mergeName} onChange={e => setMergeName(e.target.value)}
                                 placeholder="Например: Combined Farm" autoFocus />
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button className="btn btn-primary" onClick={mergeFarms} disabled={!mergeName.trim()}>
-                                <Merge size={14} /> Объединить
+                                <Merge size={14} /> Merge
                             </button>
-                            <button className="btn" onClick={() => setShowMerge(false)}>Отмена</button>
+                            <button className="btn" onClick={() => setShowMerge(false)}>Cancel</button>
                         </div>
                     </div>
                 </div>

@@ -9,7 +9,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from ...models import Proxy, ProxyStatus, Account, ThreadLog
-from ...services.captcha_provider import CaptchaProvider
+from ...services.captcha_provider import CaptchaProvider, get_captcha_chain
 from ...utils import generate_birthday, generate_password, generate_username
 from ..browser_manager import BrowserManager
 from ..human_behavior import (
@@ -278,14 +278,29 @@ async def register_single_outlook(
         ]
         month_name = month_names[birthday.month] if 1 <= birthday.month <= 12 else str(birthday.month)
 
-        # Country selection
-        country_pool = [
-            "United States", "United Kingdom", "Canada", "Australia",
-            "Germany", "France", "Netherlands", "Sweden", "Ireland",
-            "New Zealand", "Switzerland", "Austria", "Denmark", "Norway",
-        ]
-        chosen_country = random.choice(country_pool)
-        _log(f"Выбор страны: {chosen_country}")
+        # Country selection — use GEO profile from proxy if available
+        from ...services.geo_resolver import build_geo_profile, resolve_proxy_geo
+        proxy_geo = resolve_proxy_geo(proxy) if proxy else None
+        geo_profile = build_geo_profile(proxy_geo) if proxy_geo else None
+
+        # Map country code to MS registration name
+        _MS_COUNTRY_NAMES = {
+            "US": "United States", "GB": "United Kingdom", "CA": "Canada",
+            "AU": "Australia", "DE": "Germany", "FR": "France",
+            "NL": "Netherlands", "SE": "Sweden", "IE": "Ireland",
+            "NZ": "New Zealand", "AT": "Austria", "BR": "Brazil",
+            "MX": "Mexico", "ES": "Spain", "PL": "Poland",
+            "CZ": "Czechia", "RO": "Romania", "TR": "Turkey",
+        }
+        if geo_profile and geo_profile["country"] in _MS_COUNTRY_NAMES:
+            chosen_country = _MS_COUNTRY_NAMES[geo_profile["country"]]
+        else:
+            country_pool = [
+                "United States", "United Kingdom", "Canada", "Australia",
+                "Germany", "France", "Netherlands", "Sweden",
+            ]
+            chosen_country = random.choice(country_pool)
+        _log(f"Выбор страны: {chosen_country} (GEO: {proxy_geo or 'auto'})")
         country_ok = await _fluent_combobox_select(page, [
             '#countryDropdownId',
             'button[name="countryDropdownName"]',
@@ -419,31 +434,70 @@ async def register_single_outlook(
         await _human_delay(2, 4)
 
         if await captcha_frame.count() > 0:
-            from ...services.captcha_provider import get_twocaptcha_provider
-            tc_provider = get_twocaptcha_provider()
-            if tc_provider:
-                _log("🔐 FunCaptcha обнаружена! Решаем через 2Captcha...")
+            captcha_chain = get_captcha_chain()
+            if captcha_chain.providers:
+                _log("🔐 FunCaptcha обнаружена! Решаем через CaptchaChain...")
                 try:
-                    site_key = "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA"
+                    # Dynamic site key extraction from iframe
+                    site_key = "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA"  # MS default
                     surl = "https://client-api.arkoselabs.com"
+                    try:
+                        extracted_key = await page.evaluate("""(() => {
+                            // Try iframe src
+                            const frames = document.querySelectorAll('iframe[src*="funcaptcha"], iframe[src*="arkoselabs"]');
+                            for (const f of frames) {
+                                const m = f.src.match(/pk=([A-F0-9-]+)/i);
+                                if (m) return m[1];
+                            }
+                            // Try data attributes
+                            const el = document.querySelector('[data-pkey], [data-public-key]');
+                            if (el) return el.getAttribute('data-pkey') || el.getAttribute('data-public-key');
+                            // Try enforcement config
+                            if (window.enforcement && window.enforcement.publicKey) return window.enforcement.publicKey;
+                            return null;
+                        })()""")
+                        if extracted_key:
+                            site_key = extracted_key
+                            _log(f"Извлечён ключ FunCaptcha: {site_key[:20]}...")
+                    except Exception:
+                        _log("Используем дефолтный MS FunCaptcha ключ")
+
+                    # Solve via chain (tries all configured providers)
                     token = await asyncio.wait_for(
-                        asyncio.to_thread(tc_provider.solve_funcaptcha, site_key, page.url, surl),
+                        asyncio.to_thread(
+                            captcha_chain.solve,
+                            "funcaptcha",
+                            public_key=site_key,
+                            page_url=page.url,
+                            surl=surl,
+                        ),
                         timeout=180,
                     )
                     if token:
                         _log("✅ FunCaptcha решена! Вставляем токен...")
+                        # Enhanced token injection — 4 strategies
                         await page.evaluate(f"""(() => {{
+                            const token = "{token}";
+                            // Strategy 1: postMessage to enforcement iframe
                             try {{
                                 var ef = document.getElementById("enforcementFrame");
                                 if (ef && ef.contentWindow) {{
-                                    ef.contentWindow.postMessage(JSON.stringify({{token: "{token}"}}), "*");
+                                    ef.contentWindow.postMessage(JSON.stringify({{token: token}}), "*");
                                 }}
                             }} catch(e) {{}}
+                            // Strategy 2: Set hidden input values
                             try {{
-                                var inputs = document.querySelectorAll('input[name*="fc-token"], input[name*="verification"]');
-                                inputs.forEach(i => {{ i.value = "{token}"; }});
+                                document.querySelectorAll('input[name*="fc-token"], input[name*="verification"], input[name*="FC"]')
+                                    .forEach(i => {{ i.value = token; i.dispatchEvent(new Event('change', {{bubbles: true}})); }});
                             }} catch(e) {{}}
-                            try {{ if (window.funcaptchaCallback) window.funcaptchaCallback("{token}"); }} catch(e) {{}}
+                            // Strategy 3: Callback function
+                            try {{ if (window.funcaptchaCallback) window.funcaptchaCallback(token); }} catch(e) {{}}
+                            try {{ if (window.ArkoseEnforcement) window.ArkoseEnforcement.setConfig({{onCompleted: token}}); }} catch(e) {{}}
+                            // Strategy 4: Trigger form submission signal
+                            try {{
+                                var evt = new CustomEvent('arkose-completed', {{detail: {{token: token}}}});
+                                document.dispatchEvent(evt);
+                            }} catch(e) {{}}
                         }})()""")
                         await _human_delay(3, 6)
                         _log("Токен вставлен, ожидание...")
@@ -456,7 +510,7 @@ async def register_single_outlook(
                             await _human_click(page, post_captcha_btn)
                             await _human_delay(3, 6)
                     else:
-                        _err("❌ 2Captcha не смог решить FunCaptcha")
+                        _err("❌ CaptchaChain: все провайдеры не смогли решить FunCaptcha")
                         return None
                 except asyncio.TimeoutError:
                     _err("❌ Таймаут решения FunCaptcha (180с)")
@@ -465,7 +519,7 @@ async def register_single_outlook(
                     _err(f"CAPTCHA ошибка: {str(e)[:200]}")
                     return None
             else:
-                _err("FunCaptcha нужна, но ключ 2Captcha не настроен! Outlook требует 2Captcha для FunCaptcha.")
+                _err("FunCaptcha нужна, но нет сконфигурированных CAPTCHA провайдеров!")
                 return None
         else:
             _log("Капча не обнаружена — продолжаем")

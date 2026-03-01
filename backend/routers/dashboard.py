@@ -82,6 +82,7 @@ async def dashboard(db: Session = Depends(get_db)):
     total_proxies = db.query(Proxy).count()
     proxies_alive = db.query(Proxy).filter(Proxy.status == "active").count()
     proxies_dead = db.query(Proxy).filter(Proxy.status == "dead").count()
+    proxies_exhausted = db.query(Proxy).filter(Proxy.status == "exhausted").count()
 
     # Other counts
     farms_count = db.query(Farm).count()
@@ -105,6 +106,7 @@ async def dashboard(db: Session = Depends(get_db)):
             "total": total_proxies,
             "alive": proxies_alive,
             "dead": proxies_dead,
+            "exhausted": proxies_exhausted,
         },
         "farms": farms_count,
         "templates": templates_count,

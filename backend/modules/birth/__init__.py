@@ -6,6 +6,8 @@ from .outlook import register_single_outlook
 from .gmail import register_single_gmail
 from .yahoo import register_single_yahoo
 from .aol import register_single_aol
+from .protonmail import register_single_protonmail
+from .tuta import register_single_tuta
 from ._helpers import (
     get_sms_provider, get_captcha_provider,
     debug_screenshot, human_delay, human_fill, human_click,
@@ -20,6 +22,8 @@ __all__ = [
     'register_single_gmail',
     'register_single_yahoo',
     'register_single_aol',
+    'register_single_protonmail',
+    'register_single_tuta',
     'get_sms_provider',
     'get_captcha_provider',
 ]

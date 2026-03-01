@@ -2,19 +2,33 @@ import sys
 import os
 import asyncio
 from pathlib import Path
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from .database import engine, Base
+from .database import engine as db_engine, Base
 from .config import init_directories, load_config
 
 # Import routers
 from .routers import dashboard, birth, settings, proxies, farms, templates, databases, links, geo, resources
-from .routers import sms, human_engine, errors, names, work, logs, stats, campaigns
+from .routers import sms, human_engine, errors, names, work, logs, stats, campaigns, export
+from .routers import engine as engine_router
+from .routers import warmup, update
 
-app = FastAPI(title="Leomail", version="4.0")
+
+@asynccontextmanager
+async def lifespan(app):
+    """Single lifespan handler — avoids merged_lifespan recursion in PyInstaller."""
+    await _startup()
+    yield
+    # Shutdown logic (if needed)
+    logger.info("Leomail shutting down...")
+
+
+app = FastAPI(title="Leomail", version="4.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,44 +38,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register all routers
-app.include_router(dashboard.router)
-app.include_router(birth.router)
-app.include_router(settings.router)
-app.include_router(proxies.router)
-app.include_router(farms.router)
-app.include_router(templates.router)
-app.include_router(databases.router)
-app.include_router(links.router)
-app.include_router(geo.router)
-app.include_router(resources.router)
-app.include_router(sms.router)
-app.include_router(human_engine.router)
-app.include_router(errors.router)
-app.include_router(names.router)
-app.include_router(work.router)
-app.include_router(logs.router)
-app.include_router(stats.router)
-app.include_router(campaigns.router)
+# Register all routers — using direct route addition to avoid
+# FastAPI's merged_lifespan recursion (crashes PyInstaller frozen EXE)
+_all_routers = [
+    dashboard.router, birth.router, settings.router, proxies.router,
+    farms.router, templates.router, databases.router, links.router,
+    geo.router, resources.router, sms.router, human_engine.router,
+    errors.router, names.router, work.router, logs.router,
+    stats.router, campaigns.router, export.router, engine_router.router,
+    warmup.router, update.router,
+]
+for _r in _all_routers:
+    app.router.routes.extend(_r.routes)
 
 
-@app.on_event("startup")
-async def startup_event():
-    # Setup log file
-    from pathlib import Path as P
-    log_path = P("user_data/logs/leomail.log")
+async def _startup():
+    # Setup log file (next to EXE, not inside _internal/)
+    from .database import PROJECT_ROOT as _PR
+    log_path = _PR / "user_data" / "logs" / "leomail.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logger.add(str(log_path), rotation="5 MB", retention="7 days", level="INFO",
                format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}")
 
     # Create all tables
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=db_engine)
     logger.info("Database tables created/verified")
 
     # Auto-migrate: add missing columns to existing tables
     from sqlalchemy import text, inspect
-    with engine.connect() as conn:
-        inspector = inspect(engine)
+    with db_engine.connect() as conn:
+        inspector = inspect(db_engine)
 
         # proxies — missing columns
         proxy_cols = [c["name"] for c in inspector.get_columns("proxies")]
@@ -117,6 +123,8 @@ async def startup_event():
                 "use_aol": "INTEGER DEFAULT 0",
                 "use_outlook": "INTEGER DEFAULT 0",
                 "use_hotmail": "INTEGER DEFAULT 0",
+                "use_protonmail": "INTEGER DEFAULT 0",
+                "use_tuta": "INTEGER DEFAULT 0",
                 "total_births": "INTEGER DEFAULT 0",
                 "total_fails": "INTEGER DEFAULT 0",
                 "last_used_at": "DATETIME",
@@ -234,6 +242,17 @@ async def startup_event():
 
     # Start proxy monitor background task
     config = load_config()
+
+    # Apply saved proxy limits to ProxyManager
+    from .services.proxy_manager import ProxyManager as _PM
+    pl = config.get("proxy_limits", {})
+    if "gmail" in pl: _PM.GMAIL_LIMIT = max(1, pl["gmail"])
+    if "yahoo_aol" in pl: _PM.YA_LIMIT = max(1, pl["yahoo_aol"])
+    if "outlook_hotmail" in pl: _PM.OH_LIMIT = max(1, pl["outlook_hotmail"])
+    if "protonmail" in pl: _PM.PT_LIMIT = max(1, pl["protonmail"])
+    if "tuta" in pl: _PM.TT_LIMIT = max(1, pl["tuta"])
+    logger.info(f"Proxy limits: Gmail={_PM.GMAIL_LIMIT}, YA={_PM.YA_LIMIT}, OH={_PM.OH_LIMIT}, PT={_PM.PT_LIMIT}, TT={_PM.TT_LIMIT}")
+
     proxy_cfg = config.get("proxy_monitor", {})
     interval = max(60, proxy_cfg.get("check_interval_sec", 120))
     max_fails = max(1, proxy_cfg.get("max_fail_count", 3))

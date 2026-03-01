@@ -1,194 +1,256 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Users, Search, Filter, Mail, Flame, Send, Skull, Clock,
-    ChevronDown, X, AlertTriangle, Calendar, Globe
+    Users, Search, Mail, Flame, Send, Skull, Clock,
+    X, ChevronLeft, ChevronRight, Download, MoreHorizontal, Play, Pause, Trash2
 } from 'lucide-react';
-
 import { API } from '../api';
+import { ProviderLogo } from '../components/ProviderLogos';
 
-const statusConfig = {
-    new: { label: 'Новый', color: '#64748b', icon: <Clock size={12} /> },
-    phase_1: { label: 'Фаза 1', color: '#f59e0b', icon: <Flame size={12} /> },    // 1-3 emails/day
-    phase_2: { label: 'Фаза 2', color: '#f97316', icon: <Flame size={12} /> },    // 5-10 emails/day
-    phase_3: { label: 'Фаза 3', color: '#ef4444', icon: <Flame size={12} /> },    // 10-20 emails/day
-    phase_4: { label: 'Фаза 4', color: '#e11d48', icon: <Flame size={12} /> },    // 20-50 emails/day
-    phase_5: { label: 'Фаза 5', color: '#a855f7', icon: <Flame size={12} /> },    // 50-100 emails/day
-    warmed: { label: 'WARMED', color: '#00ff41', icon: <Mail size={12} /> },     // fully ready
-    sending: { label: 'Рассылка', color: '#a78bfa', icon: <Send size={12} /> },
-    paused: { label: 'Пауза', color: '#94a3b8', icon: <Clock size={12} /> },
-    dead: { label: 'Dead', color: '#ef4444', icon: <Skull size={12} /> },
-    banned: { label: 'Banned', color: '#991b1b', icon: <Skull size={12} /> },
+/* ── Provider colors (for status indicators) ── */
+const PROVIDER_COLORS = {
+    gmail: '#EA4335', yahoo: '#6001D2', aol: '#FF6B00',
+    outlook: '#0078D4', hotmail: '#0078D4', protonmail: '#6D4AFF', tuta: '#840010',
 };
+
+const STATUS_BADGES = {
+    new: { label: 'New', bg: 'rgba(100,116,139,0.15)', color: '#94A3B8', group: 'New' },
+    phase_1: { label: 'Phase 1', bg: 'rgba(78,205,196,0.15)', color: '#4ecdc4', group: 'Warming' },
+    phase_2: { label: 'Phase 2', bg: 'rgba(69,183,209,0.15)', color: '#45b7d1', group: 'Warming' },
+    phase_3: { label: 'Phase 3', bg: 'rgba(247,220,111,0.15)', color: '#f7dc6f', group: 'Warming' },
+    phase_4: { label: 'Phase 4', bg: 'rgba(243,156,18,0.15)', color: '#f39c12', group: 'Warming' },
+    phase_5: { label: 'Phase 5', bg: 'rgba(231,76,60,0.15)', color: '#e74c3c', group: 'Warming' },
+    warmed: { label: 'Warmed', bg: 'rgba(16,185,129,0.15)', color: '#10B981', group: 'Warmed' },
+    sending: { label: 'Sending', bg: 'rgba(16,185,129,0.15)', color: '#10B981', group: 'Warmed' },
+    paused: { label: 'Paused', bg: 'rgba(59,130,246,0.15)', color: '#3B82F6', group: 'Paused' },
+    dead: { label: 'Dead', bg: 'rgba(239,68,68,0.15)', color: '#EF4444', group: 'Banned' },
+    banned: { label: 'Banned', bg: 'rgba(239,68,68,0.15)', color: '#EF4444', group: 'Banned' },
+};
+
+const TABS = ['All', 'Warming', 'Warmed', 'Banned'];
+
+const PAGE_SIZE = 25;
 
 export default function Accounts() {
     const [accounts, setAccounts] = useState([]);
-    const [farms, setFarms] = useState([]);
-    const [filterStatus, setFilterStatus] = useState('');
-    const [filterFarm, setFilterFarm] = useState('');
+    const [_farms, setFarms] = useState([]);
+    const [tab, setTab] = useState('All');
     const [searchTerm, setSearchTerm] = useState('');
+    const [page, setPage] = useState(1);
     const [selectedAccount, setSelectedAccount] = useState(null);
 
     useEffect(() => {
         fetch(`${API}/farms/`).then(r => r.json()).then(data => {
             setFarms(data);
-            // Extract accounts from all farms
             const allAccounts = [];
             data.forEach(farm => {
-                // Fetch each farm's details to get accounts
                 fetch(`${API}/farms/${farm.id}`).then(r => r.json()).then(detail => {
                     if (detail.accounts) {
                         detail.accounts.forEach(acc => allAccounts.push({ ...acc, farm_name: farm.name, farm_id: farm.id }));
                         setAccounts([...allAccounts]);
                     }
-                }).catch(() => { });
+                }).catch(() => { /* ignore */ });
             });
-        }).catch(() => { });
+        }).catch(() => { /* ignore */ });
     }, []);
 
-    const filtered = accounts.filter(a => {
-        if (filterStatus && a.status !== filterStatus) return false;
-        if (filterFarm && a.farm_id !== filterFarm) return false;
-        if (searchTerm && !a.email?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-        return true;
-    });
+    /* Filter by tab */
+    const tabFilter = (acc) => {
+        if (tab === 'All') return true;
+        const badge = STATUS_BADGES[acc.status];
+        return badge?.group === tab;
+    };
 
-    const statusCounts = accounts.reduce((acc, a) => {
-        acc[a.status] = (acc[a.status] || 0) + 1;
-        return acc;
-    }, {});
+    const filtered = accounts
+        .filter(tabFilter)
+        .filter(a => !searchTerm || a.email?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+    const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+    const _tabCounts = {
+        All: accounts.length,
+        Warming: accounts.filter(a => a.status?.startsWith('phase_')).length,
+        Warmed: accounts.filter(a => ['warmed', 'sending'].includes(a.status)).length,
+        Banned: accounts.filter(a => ['dead', 'banned'].includes(a.status)).length,
+    };
 
     return (
         <div className="page">
-            <h2 className="page-title"><Users size={22} /> Аккаунты</h2>
+            {/* Header */}
+            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>ACCOUNTS</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-block' }}>
+                    <Users size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Accounts
+                </h2>
+                <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.1em' }}>{accounts.length} total</span>
+            </div>
 
-            {/* Status summary bar */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-                <button onClick={() => setFilterStatus('')} style={{
-                    padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                    fontSize: '0.72em', fontWeight: 600, fontFamily: 'inherit',
-                    background: !filterStatus ? 'rgba(0,255,65,0.1)' : 'rgba(255,255,255,0.03)',
-                    color: !filterStatus ? '#00ff41' : '#006611'
-                }}>
-                    Все ({accounts.length})
-                </button>
-                {Object.entries(statusConfig).map(([key, cfg]) => (
-                    <button key={key} onClick={() => setFilterStatus(filterStatus === key ? '' : key)} style={{
-                        padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                        fontSize: '0.72em', fontWeight: 600, fontFamily: 'inherit',
-                        display: 'flex', alignItems: 'center', gap: 4,
-                        background: filterStatus === key ? `${cfg.color}12` : 'rgba(255,255,255,0.03)',
-                        color: filterStatus === key ? cfg.color : '#006611'
+            {/* ═══ Tabs ═══ */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+                {TABS.map(t => (
+                    <button key={t} onClick={() => { setTab(t); setPage(1); }} style={{
+                        padding: '6px 16px', borderRadius: 20, border: '1px solid',
+                        borderColor: tab === t ? 'var(--accent)' : 'var(--border-default)',
+                        background: tab === t ? 'var(--accent)' : 'transparent',
+                        color: tab === t ? '#000' : 'var(--text-secondary)',
+                        fontSize: '0.78em', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                     }}>
-                        {cfg.icon} {cfg.label} ({statusCounts[key] || 0})
+                        {t}
                     </button>
                 ))}
             </div>
 
-            {/* Filters */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                    <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#006611' }} />
-                    <input className="form-input" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                        placeholder="Поиск по email..." style={{ paddingLeft: 34 }} />
+            {/* ═══ Search + Actions ═══ */}
+            <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 0.5 }}>Search + Actions</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                        <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                        <input className="form-input" value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setPage(1); }}
+                            placeholder="Search accounts..." style={{ paddingLeft: 34 }} />
+                    </div>
+                    <button className="btn btn-primary" style={{ borderRadius: 8, padding: '8px 16px', fontSize: '0.82em' }}>
+                        <Download size={14} /> Export ↓
+                    </button>
+                    <button className="btn" style={{ borderRadius: 8, padding: '8px 16px', fontSize: '0.82em' }}>
+                        Bulk ∨
+                    </button>
                 </div>
-                <select className="form-input" value={filterFarm} onChange={e => setFilterFarm(e.target.value ? +e.target.value : '')}
-                    style={{ width: 180 }}>
-                    <option value="">Все фермы</option>
-                    {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
             </div>
 
-            {/* Account list */}
+            {/* ═══ Table ═══ */}
             {filtered.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: 48, color: '#006611' }}>
+                <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
                     <Users size={36} style={{ opacity: 0.3, marginBottom: 12 }} /><br />
-                    {accounts.length === 0 ? 'Нет аккаунтов. Создайте на странице BIRTH.' : 'Нет совпадений по фильтру.'}
+                    {accounts.length === 0 ? 'No accounts yet. Create on AUTOREG page.' : 'No matches.'}
                 </div>
             ) : (
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                    {/* Header */}
                     <div style={{
-                        display: 'grid', gridTemplateColumns: '1fr 100px 80px 80px 60px 80px',
-                        padding: '8px 14px', fontSize: '0.65em', fontWeight: 600, letterSpacing: 1.5,
-                        color: '#006611', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.04)'
+                        display: 'grid', gridTemplateColumns: '32px 40px 1fr 80px 80px 60px 80px 100px',
+                        padding: '10px 14px', fontSize: '0.68em', fontWeight: 700, letterSpacing: 1,
+                        color: 'var(--text-muted)', textTransform: 'uppercase',
+                        borderBottom: '1px solid var(--border-default)',
                     }}>
-                        <span>Email</span><span>Провайдер</span><span>Статус</span><span>Прогрев</span><span>Отпр.</span><span>Ферма</span>
+                        <span>☐</span><span>Provider</span><span>Email</span><span>Status</span>
+                        <span>Farm</span><span>Sent</span><span>Last Active</span><span>Actions</span>
                     </div>
-                    {filtered.map(acc => (
-                        <div key={acc.id} onClick={() => setSelectedAccount(acc)} style={{
-                            display: 'grid', gridTemplateColumns: '1fr 100px 80px 80px 60px 80px',
-                            padding: '10px 14px', fontSize: '0.8em', cursor: 'pointer',
-                            borderBottom: '1px solid rgba(255,255,255,0.02)',
-                            transition: 'background 0.15s'
-                        }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,255,65,0.02)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                            <span style={{ color: '#e8ecf4', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {acc.email}
-                            </span>
-                            <span style={{ color: '#009922', fontSize: '0.9em' }}>{acc.provider?.toUpperCase()}</span>
-                            <span style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 4,
-                                color: statusConfig[acc.status]?.color || '#006611', fontSize: '0.85em', fontWeight: 600
-                            }}>
-                                {statusConfig[acc.status]?.icon} {statusConfig[acc.status]?.label || acc.status}
-                            </span>
-                            <span style={{ color: '#009922', fontSize: '0.85em' }}>День {acc.warmup_day || 0}</span>
-                            <span style={{ color: '#009922', fontSize: '0.85em' }}>{acc.sent_count || 0}</span>
-                            <span style={{ color: '#006611', fontSize: '0.78em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {acc.farm_name}
-                            </span>
+
+                    {/* Rows */}
+                    {paginated.map(acc => {
+                        const badge = STATUS_BADGES[acc.status] || { label: acc.status, bg: 'rgba(100,116,139,0.1)', color: '#94A3B8' };
+                        return (
+                            <div key={acc.id} onClick={() => setSelectedAccount(acc)} style={{
+                                display: 'grid', gridTemplateColumns: '32px 40px 1fr 80px 80px 60px 80px 100px',
+                                padding: '10px 14px', fontSize: '0.82em', cursor: 'pointer',
+                                borderBottom: '1px solid rgba(255,255,255,0.02)',
+                                transition: 'background 0.15s',
+                            }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.03)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            >
+                                {/* Checkbox */}
+                                <span style={{ display: 'flex', alignItems: 'center' }}>
+                                    <div style={{ width: 16, height: 16, borderRadius: 3, border: '1px solid var(--border-default)' }} />
+                                </span>
+
+                                {/* Provider logo */}
+                                <span style={{ display: 'flex', alignItems: 'center' }}>
+                                    <ProviderLogo provider={acc.provider} size={28} />
+                                </span>
+
+                                {/* Email */}
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>
+                                    {acc.email}
+                                </span>
+
+                                {/* Status badge */}
+                                <span style={{ display: 'flex', alignItems: 'center' }}>
+                                    <span style={{
+                                        padding: '3px 10px', borderRadius: 12, fontSize: '0.72em', fontWeight: 600,
+                                        background: badge.bg, color: badge.color,
+                                    }}>{badge.label}</span>
+                                </span>
+
+                                {/* Farm */}
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.85em', display: 'flex', alignItems: 'center' }}>
+                                    {acc.farm_name || '—'}
+                                </span>
+
+                                {/* Sent */}
+                                <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>{acc.sent_count || 0}</span>
+
+                                {/* Last active */}
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.78em', display: 'flex', alignItems: 'center' }}>
+                                    {acc.last_active ? timeAgo(acc.last_active) : '—'}
+                                </span>
+
+                                {/* Actions */}
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <button className="btn btn-sm" style={{ padding: '3px 5px' }}><Play size={10} /></button>
+                                    <button className="btn btn-sm" style={{ padding: '3px 5px' }}><Pause size={10} /></button>
+                                    <button className="btn btn-sm btn-danger" style={{ padding: '3px 5px' }}><Trash2 size={10} /></button>
+                                </span>
+                            </div>
+                        );
+                    })}
+
+                    {/* Pagination */}
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '10px 14px', borderTop: '1px solid var(--border-default)',
+                        fontSize: '0.75em', color: 'var(--text-muted)',
+                    }}>
+                        <span>{(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => (
+                                <button key={i + 1} onClick={() => setPage(i + 1)} style={{
+                                    width: 8, height: 8, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                                    background: page === i + 1 ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
+                                }} />
+                            ))}
                         </div>
-                    ))}
+                    </div>
                 </div>
             )}
 
-            {/* Account detail modal */}
+            {/* Detail modal */}
             {selectedAccount && (
-                <div className="modal-overlay" onClick={() => setSelectedAccount(null)}>
-                    <div className="card modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                            <div style={{ fontWeight: 700 }}>{selectedAccount.email}</div>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setSelectedAccount(null)}>
+                    <div className="card" style={{ maxWidth: 500, padding: 24 }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                            <span style={{ fontWeight: 700 }}>{selectedAccount.email}</span>
                             <button className="btn btn-sm" onClick={() => setSelectedAccount(null)}><X size={14} /></button>
                         </div>
-
-                        {/* Info grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                             {[
-                                { label: 'Провайдер', value: selectedAccount.provider?.toUpperCase(), icon: <Mail size={12} /> },
-                                { label: 'Статус', value: statusConfig[selectedAccount.status]?.label, color: statusConfig[selectedAccount.status]?.color },
-                                { label: 'Гео', value: selectedAccount.geo || '—', icon: <Globe size={12} /> },
-                                { label: 'День прогрева', value: selectedAccount.warmup_day || 0, icon: <Flame size={12} /> },
-                                { label: 'Отправлено', value: selectedAccount.sent_count || 0, icon: <Send size={12} /> },
-                                { label: 'Ферма', value: selectedAccount.farm_name, icon: <Users size={12} /> },
+                                { label: 'Provider', value: selectedAccount.provider?.toUpperCase() },
+                                { label: 'Status', value: STATUS_BADGES[selectedAccount.status]?.label || selectedAccount.status },
+                                { label: 'Warmup Day', value: selectedAccount.warmup_day || 0 },
+                                { label: 'Sent', value: selectedAccount.sent_count || 0 },
+                                { label: 'Farm', value: selectedAccount.farm_name },
+                                { label: 'Geo', value: selectedAccount.geo || '—' },
                             ].map((item, i) => (
-                                <div key={i} style={{
-                                    padding: '10px 12px', borderRadius: 10,
-                                    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)'
-                                }}>
-                                    <div style={{
-                                        fontSize: '0.6em', color: '#006611', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4,
-                                        display: 'flex', alignItems: 'center', gap: 4
-                                    }}>
-                                        {item.icon} {item.label}
-                                    </div>
-                                    <div style={{ fontSize: '0.9em', fontWeight: 600, color: item.color || '#e8ecf4' }}>{item.value}</div>
+                                <div key={i} style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
+                                    <div style={{ fontSize: '0.6em', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{item.label}</div>
+                                    <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{item.value}</div>
                                 </div>
                             ))}
-                        </div>
-
-                        {/* History placeholder */}
-                        <div style={{
-                            padding: '14px', borderRadius: 10, background: 'rgba(255,255,255,0.015)',
-                            border: '1px solid rgba(255,255,255,0.03)', fontSize: '0.75em', color: '#006611',
-                            textAlign: 'center'
-                        }}>
-                            <Calendar size={18} style={{ opacity: 0.3, marginBottom: 6 }} /><br />
-                            История действий — bounces, отправки, прогрев — будут отображаться здесь
                         </div>
                     </div>
                 </div>
             )}
         </div>
     );
+}
+
+function timeAgo(dateStr) {
+    if (!dateStr) return '—';
+    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
 }

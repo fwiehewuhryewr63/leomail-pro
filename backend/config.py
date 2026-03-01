@@ -1,9 +1,16 @@
 import json
 import os
+import sys
 from pathlib import Path
 from loguru import logger
 
-CONFIG_DIR = Path("user_data")
+# user_data/ must be next to the EXE (persistent), not inside _internal/
+if getattr(sys, 'frozen', False):
+    _ROOT = Path(sys.executable).parent
+else:
+    _ROOT = Path(__file__).parent.parent
+
+CONFIG_DIR = _ROOT / "user_data"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
@@ -14,7 +21,9 @@ DEFAULT_CONFIG = {
     },
     "captcha": {
         "capguru": {"api_key": "", "enabled": True},
-        "twocaptcha": {"api_key": "", "enabled": True}
+        "twocaptcha": {"api_key": "", "enabled": True},
+        "capsolver": {"api_key": "", "enabled": True},
+        "capmonster": {"api_key": "", "enabled": True}
     },
 
     "proxies": [],
@@ -102,6 +111,12 @@ def get_api_key(service: str) -> str | None:
         return key if key else None
     elif service == "twocaptcha":
         key = config.get("captcha", {}).get("twocaptcha", {}).get("api_key", "")
+        return key if key else None
+    elif service == "capsolver":
+        key = config.get("captcha", {}).get("capsolver", {}).get("api_key", "")
+        return key if key else None
+    elif service == "capmonster":
+        key = config.get("captcha", {}).get("capmonster", {}).get("api_key", "")
         return key if key else None
     elif service == "5sim":
         key = config.get("sms", {}).get("5sim", {}).get("api_key", "")

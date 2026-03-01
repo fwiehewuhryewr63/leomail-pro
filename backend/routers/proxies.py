@@ -47,6 +47,8 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "use_G": p.use_gmail or 0,
             "use_YA": (p.use_yahoo or 0) + (p.use_aol or 0),
             "use_OH": (p.use_outlook or 0) + (p.use_hotmail or 0),
+            "use_PT": p.use_protonmail or 0,
+            "use_TT": p.use_tuta or 0,
             "bound_to": bound_to,
             "last_check": p.last_check.isoformat() if p.last_check else None,
             "expires_at": p.expires_at.isoformat() if p.expires_at else None,
@@ -462,7 +464,7 @@ async def auto_reassign(db: Session = Depends(get_db)):
 
 @router.post("/reset-all")
 async def reset_all_proxies(db: Session = Depends(get_db)):
-    """Reset ALL proxies back to active status (including exhausted). Useful after migration."""
+    """Reset ALL proxies back to active status (including exhausted) AND clear counters."""
     count = db.query(Proxy).filter(
         Proxy.status.in_([ProxyStatus.DEAD, "dead", ProxyStatus.EXPIRED, "expired",
                           ProxyStatus.BANNED, "banned", ProxyStatus.EXHAUSTED, "exhausted"])
@@ -471,11 +473,27 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
     db.query(Proxy).update({
         Proxy.status: ProxyStatus.ACTIVE,
         Proxy.fail_count: 0,
+        Proxy.use_gmail: 0,
+        Proxy.use_yahoo: 0,
+        Proxy.use_aol: 0,
+        Proxy.use_outlook: 0,
+        Proxy.use_hotmail: 0,
+        Proxy.use_protonmail: 0,
+        Proxy.use_tuta: 0,
+        Proxy.use_count: 0,
     }, synchronize_session=False)
     db.commit()
 
-    logger.info(f"Reset {count} proxies to ACTIVE")
+    logger.info(f"Reset {count} proxies to ACTIVE + cleared all counters")
     return {"reset": count, "total": db.query(Proxy).count()}
+
+
+@router.post("/reset-counters")
+async def reset_counters(db: Session = Depends(get_db)):
+    """Reset per-provider usage counters on all proxies. Re-activates exhausted → active."""
+    pm = ProxyManager(db)
+    result = pm.reset_all_counters()
+    return result
 
 
 @router.post("/release-free")

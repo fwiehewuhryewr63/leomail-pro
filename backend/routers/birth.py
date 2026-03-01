@@ -3,6 +3,7 @@ Leomail v3 — Birth Router
 Pooled registration of Gmail/Outlook accounts with captcha, SMS, profiles.
 """
 from fastapi import APIRouter, Depends, BackgroundTasks
+import copy
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..database import get_db, SessionLocal
@@ -31,8 +32,11 @@ from ..modules.birth.outlook import register_single_outlook
 from ..modules.birth.gmail import register_single_gmail
 from ..modules.birth.yahoo import register_single_yahoo
 from ..modules.birth.aol import register_single_aol
+from ..modules.birth.protonmail import register_single_protonmail
+from ..modules.birth.tuta import register_single_tuta
 from ..modules.birth._helpers import get_sms_provider as _get_sms_provider
 from ..modules.birth._helpers import get_captcha_provider as _get_captcha_provider
+from ..services.engine_manager import engine_manager, EngineType
 
 router = APIRouter(prefix="/api/birth", tags=["birth"])
 
@@ -65,6 +69,16 @@ async def run_birth_task(request: BirthRequest):
     # Clear previous cancel signals
     BIRTH_CANCEL_EVENT.clear()
     db = SessionLocal()
+
+    # Register with EngineManager for parallel tracking
+    try:
+        engine_manager.start_engine(
+            EngineType.AUTOREG,
+            threads=request.threads,
+            total_target=request.quantity,
+        )
+    except RuntimeError:
+        logger.warning("[Birth] Autoreg engine already running")
     try:
         # Create task record
         task = Task(
@@ -213,22 +227,30 @@ async def run_birth_task(request: BirthRequest):
             # Smart retry: shared blacklists across workers
             country_blacklist = set()  # countries that failed SMS
             proxy_blacklist = set()    # proxy IDs that got E500/banned
-            consecutive_failures = [0]  # stop task after 10 in a row
+            consecutive_failures = [0]  # stop task after 30 in a row (with cooldown at 15)
 
             async def worker(worker_id: int):
                 """Worker keeps registering until target reached."""
                 while True:
+                    needs_cooldown = False
                     async with job_lock:
                         if success_counter[0] >= request.quantity:
                             return
                         if attempt_counter[0] >= max_attempts:
                             task.stop_reason = f"Процесс завершился потому что — достигнут лимит попыток ({max_attempts}). Зарегистрировано {success_counter[0]} из {request.quantity}"
                             return
-                        if consecutive_failures[0] >= 10:
-                            task.stop_reason = f"Процесс завершился потому что — 10 ошибок подряд. Зарегистрировано {success_counter[0]} из {request.quantity}. Проверьте прокси."
+                        if consecutive_failures[0] >= 30:
+                            task.stop_reason = f"Процесс завершился потому что — 30 ошибок подряд. Зарегистрировано {success_counter[0]} из {request.quantity}. Проверьте прокси и SMS."
                             return
+                        if consecutive_failures[0] >= 15 and consecutive_failures[0] % 15 == 0:
+                            needs_cooldown = True
+                            logger.warning(f"[Birth] Worker {worker_id}: {consecutive_failures[0]} failures, cooldown 60s...")
                         attempt_counter[0] += 1
                         current_attempt = attempt_counter[0]
+
+                    # Cooldown OUTSIDE lock so other workers can continue
+                    if needs_cooldown:
+                        await asyncio.sleep(60)
 
                     # Check if cancelled
                     if task.id in BIRTH_CANCEL:
@@ -252,11 +274,11 @@ async def run_birth_task(request: BirthRequest):
                         )
                         if not proxy:
                             if proxy_blacklist:
-                                # All proxies were blacklisted — stop task
-                                async with job_lock:
-                                    task.stop_reason = f"Процесс завершился потому что — все прокси заблокированы ({len(proxy_blacklist)} шт). Загрузите новые прокси или сбросьте счётчики."
-                                logger.warning(f"[Birth] Worker {worker_id}: all proxies blacklisted, stopping")
-                                return
+                                # Try clearing blacklist after cooldown instead of stopping
+                                logger.warning(f"[Birth] Worker {worker_id}: all proxies blacklisted ({len(proxy_blacklist)}), cooldown 5min then retry...")
+                                await asyncio.sleep(300)  # 5 min cooldown
+                                proxy_blacklist.clear()  # Reset blacklist — give proxies another chance
+                                continue
                             elif proxy_pool:
                                 logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting...")
                                 await asyncio.sleep(5)
@@ -287,17 +309,19 @@ async def run_birth_task(request: BirthRequest):
                             name_index[0] += 1
                         worker_name_pool = [name_pair]
 
-                        # Thread-safe SMS country: copy values into per-worker attributes
-                        # (avoids race condition with shared sms._sms_countries)
+                        # Thread-safe SMS: create per-worker COPY of sms provider
+                        # (fixes race condition — each worker gets own object)
+                        worker_sms = None
                         if sms:
+                            worker_sms = copy.deepcopy(sms)
                             worker_sms_countries = None
                             if proxy and getattr(proxy, 'geo', None):
                                 worker_sms_countries = [proxy.geo.lower()]
                             elif request.sms_countries:
-                                worker_sms_countries = list(request.sms_countries)  # COPY
+                                worker_sms_countries = list(request.sms_countries)
                             worker_blacklist = list(country_blacklist) if country_blacklist else []
-                            sms._sms_countries = worker_sms_countries
-                            sms._country_blacklist = worker_blacklist
+                            worker_sms._sms_countries = worker_sms_countries
+                            worker_sms._country_blacklist = worker_blacklist
 
                         account = None
                         if request.provider == "outlook":
@@ -316,40 +340,54 @@ async def run_birth_task(request: BirthRequest):
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "gmail":
-                            if not sms:
+                            if not worker_sms:
                                 thread_log.status = "error"
                                 thread_log.error_message = "Gmail требует SMS провайдер"
                                 db.commit()
                                 return
                             account = await register_single_gmail(
                                 browser_manager, proxy, worker_name_pool,
-                                captcha, sms, db, thread_log,
+                                captcha, worker_sms, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "yahoo":
-                            if not sms:
+                            if not worker_sms:
                                 thread_log.status = "error"
                                 thread_log.error_message = "Yahoo требует SMS провайдер"
                                 db.commit()
                                 return
                             account = await register_single_yahoo(
                                 browser_manager, proxy, request.device_type,
-                                worker_name_pool, sms, db, thread_log,
+                                worker_name_pool, worker_sms, db, thread_log,
                                 captcha_provider=captcha,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "aol":
-                            if not sms:
+                            if not worker_sms:
                                 thread_log.status = "error"
                                 thread_log.error_message = "AOL требует SMS провайдер"
                                 db.commit()
                                 return
                             account = await register_single_aol(
                                 browser_manager, proxy, request.device_type,
-                                worker_name_pool, sms, db, thread_log,
+                                worker_name_pool, worker_sms, db, thread_log,
                                 captcha_provider=captcha,
+                                ACTIVE_PAGES=ACTIVE_PAGES,
+                                BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
+                            )
+                        elif request.provider == "protonmail":
+                            account = await register_single_protonmail(
+                                browser_manager, proxy, request.device_type,
+                                worker_name_pool, captcha, db, thread_log,
+                                ACTIVE_PAGES=ACTIVE_PAGES,
+                                BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
+                            )
+                        elif request.provider == "tuta":
+                            account = await register_single_tuta(
+                                browser_manager, proxy, request.device_type,
+                                worker_name_pool, captcha, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
@@ -401,6 +439,10 @@ async def run_birth_task(request: BirthRequest):
                                         limit = proxy_manager.OH_LIMIT
                                     elif provider_lower == 'gmail':
                                         limit = proxy_manager.GMAIL_LIMIT
+                                    elif provider_lower == 'protonmail':
+                                        limit = proxy_manager.PT_LIMIT
+                                    elif provider_lower == 'tuta':
+                                        limit = proxy_manager.TT_LIMIT
                                     else:
                                         limit = 99
                                     setattr(proxy, attr, limit)
@@ -409,14 +451,14 @@ async def run_birth_task(request: BirthRequest):
 
                             # Smart retry: blacklist country if SMS actually timed out
                             # (NOT for "no numbers" or user cancel — only real delivery failure)
-                            if sms and hasattr(sms, '_last_country') and sms._last_country:
-                                sms_countries_list = getattr(sms, '_sms_countries', []) or []
+                            if worker_sms and hasattr(worker_sms, '_last_country') and worker_sms._last_country:
+                                sms_countries_list = getattr(worker_sms, '_sms_countries', []) or []
                                 # Don't blacklist if only 1 country selected — nowhere else to go
                                 if len(sms_countries_list) > 1:
                                     # Only blacklist on actual SMS delivery timeout, not other errors
                                     if "таймаут" in err_msg and "sms не получено" in err_msg:
-                                        country_blacklist.add(sms._last_country)
-                                        logger.info(f"[Birth] Country '{sms._last_country}' blacklisted (SMS timeout)")
+                                        country_blacklist.add(worker_sms._last_country)
+                                        logger.info(f"[Birth] Country '{worker_sms._last_country}' blacklisted (SMS timeout)")
 
                             db.commit()
                             logger.info(f"[Birth] ❌ Worker {worker_id}: attempt {current_attempt} failed, retrying...")
@@ -478,6 +520,7 @@ async def run_birth_task(request: BirthRequest):
             except Exception:
                 pass
     finally:
+        engine_manager.finish_engine(EngineType.AUTOREG)
         db.close()
 
 

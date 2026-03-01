@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from ..config import load_config, save_config, mask_key, get_api_key
 from ..services.sms_provider import GrizzlySMS
+from ..services.proxy_manager import ProxyManager
 from loguru import logger
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -23,6 +24,12 @@ class SettingsUpdate(BaseModel):
     twocaptcha_key: Optional[str] = None
     headless: Optional[bool] = None
     threads: Optional[int] = None
+    # Proxy usage limits per provider group
+    gmail_proxy_limit: Optional[int] = None
+    yahoo_aol_proxy_limit: Optional[int] = None   # Yahoo+AOL combined
+    outlook_hotmail_proxy_limit: Optional[int] = None  # Outlook+Hotmail combined
+    protonmail_proxy_limit: Optional[int] = None
+    tuta_proxy_limit: Optional[int] = None
 
 @router.get("/")
 async def get_settings():
@@ -54,7 +61,15 @@ async def get_settings():
         },
 
         "browser": config.get("browser", {}),
-        "proxies_count": len(config.get("proxies", []))
+        "proxies_count": len(config.get("proxies", [])),
+        # Proxy limits — read from config, fallback to ProxyManager defaults
+        "proxy_limits": {
+            "gmail": config.get("proxy_limits", {}).get("gmail", ProxyManager.GMAIL_LIMIT),
+            "yahoo_aol": config.get("proxy_limits", {}).get("yahoo_aol", ProxyManager.YA_LIMIT),
+            "outlook_hotmail": config.get("proxy_limits", {}).get("outlook_hotmail", ProxyManager.OH_LIMIT),
+            "protonmail": config.get("proxy_limits", {}).get("protonmail", ProxyManager.PT_LIMIT),
+            "tuta": config.get("proxy_limits", {}).get("tuta", ProxyManager.TT_LIMIT),
+        }
     }
 
 @router.post("/")
@@ -75,6 +90,29 @@ async def update_settings(update: SettingsUpdate):
         config.setdefault("browser", {})["headless"] = update.headless
     if update.threads is not None:
         config.setdefault("browser", {})["threads"] = update.threads
+    
+    # Proxy limits — save to config AND update ProxyManager class constants
+    limits = config.setdefault("proxy_limits", {})
+    if update.gmail_proxy_limit is not None:
+        v = max(1, update.gmail_proxy_limit)
+        limits["gmail"] = v
+        ProxyManager.GMAIL_LIMIT = v
+    if update.yahoo_aol_proxy_limit is not None:
+        v = max(1, update.yahoo_aol_proxy_limit)
+        limits["yahoo_aol"] = v
+        ProxyManager.YA_LIMIT = v
+    if update.outlook_hotmail_proxy_limit is not None:
+        v = max(1, update.outlook_hotmail_proxy_limit)
+        limits["outlook_hotmail"] = v
+        ProxyManager.OH_LIMIT = v
+    if update.protonmail_proxy_limit is not None:
+        v = max(1, update.protonmail_proxy_limit)
+        limits["protonmail"] = v
+        ProxyManager.PT_LIMIT = v
+    if update.tuta_proxy_limit is not None:
+        v = max(1, update.tuta_proxy_limit)
+        limits["tuta"] = v
+        ProxyManager.TT_LIMIT = v
     
     save_config(config)
     return {"status": "saved"}

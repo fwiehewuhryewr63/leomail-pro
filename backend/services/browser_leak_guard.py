@@ -56,6 +56,11 @@ def get_orphaned_browser_pids(max_age_seconds: int = 300) -> list[int]:
 
             # Check command line for Playwright markers
             cmdline = " ".join(proc.info.get("cmdline") or []).lower()
+
+            # NEVER kill the Leomail app window (launched with --app=)
+            if "--app=" in cmdline:
+                continue
+
             is_playwright = any(marker in cmdline for marker in PLAYWRIGHT_CMDLINE_MARKERS)
 
             if is_playwright:

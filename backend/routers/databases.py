@@ -49,7 +49,7 @@ async def list_databases(db: Session = Depends(get_db)):
             if fp.exists() and fp.suffix == '.json':
                 entries = json.loads(fp.read_text(encoding='utf-8'))
                 if entries and isinstance(entries, list):
-                    if entries[0].get('first_name'):
+                    if entries[0].get('name') or entries[0].get('first_name'):
                         has_names = True
                     for entry in entries:
                         email = (entry.get('email', '') or '').strip().lower()
@@ -99,10 +99,9 @@ async def list_databases(db: Session = Depends(get_db)):
 @router.post("/upload")
 async def upload_database(req: DatabaseUpload, db: Session = Depends(get_db)):
     """
-    Upload recipient database with 3 supported formats:
-    1. email only           → {{EMAILNAME}}
-    2. email,FirstName      → {{EMAILNAME}},{{FIRSTNAME}}
-    3. email,First,Last     → {{EMAILNAME}},{{FIRSTNAME}},{{LASTNAME}}
+    Upload recipient database with 2 supported formats:
+    1. email only    → BASIC
+    2. email,Name    → VIP
     """
     DATABASES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -117,8 +116,7 @@ async def upload_database(req: DatabaseUpload, db: Session = Depends(get_db)):
             if _validate_email(email):
                 valid_entries.append({
                     "email": email,
-                    "first_name": entry.first_name.strip() if entry.first_name else "",
-                    "last_name": entry.last_name.strip() if entry.last_name else "",
+                    "name": (entry.first_name.strip() if entry.first_name else ""),
                 })
             else:
                 invalid_count += 1
@@ -144,13 +142,8 @@ async def upload_database(req: DatabaseUpload, db: Session = Depends(get_db)):
     db.refresh(rec_db)
 
     # Determine format type
-    has_first = any(e['first_name'] for e in valid_entries)
-    has_last = any(e['last_name'] for e in valid_entries)
-    fmt = "email"
-    if has_first and has_last:
-        fmt = "email,firstname,lastname"
-    elif has_first:
-        fmt = "email,firstname"
+    has_name = any(e['name'] for e in valid_entries)
+    fmt = "email+name" if has_name else "email"
 
     logger.info(f"Database '{req.name}' uploaded: {len(valid_entries)} entries (format: {fmt})")
 
@@ -171,11 +164,9 @@ async def upload_database_file(
 ):
     """
     Upload .txt file with recipients (one per line).
-    
     Supported formats:
-    1. email only           (one email per line)
-    2. email,FirstName      (comma separated)
-    3. email,First,Last     (comma separated)
+    1. email only        (one email per line)
+    2. email,Name        (comma separated)
     """
     DATABASES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -202,12 +193,10 @@ async def upload_database_file(
         seen.add(email)
 
         if _validate_email(email):
-            first_name = parts[1] if len(parts) >= 2 else ""
-            last_name = parts[2] if len(parts) >= 3 else ""
+            name = parts[1] if len(parts) >= 2 else ""
             valid_entries.append({
                 "email": email,
-                "first_name": first_name,
-                "last_name": last_name,
+                "name": name,
             })
         else:
             invalid_count += 1
@@ -223,17 +212,8 @@ async def upload_database_file(
         json.dump(valid_entries, f, ensure_ascii=False, indent=2)
 
     # Detect format
-    has_first = any(e['first_name'] for e in valid_entries)
-    has_last = any(e['last_name'] for e in valid_entries)
-    if has_first and has_last:
-        fmt = "email+name+lastname"
-        fmt_icon = "👥"
-    elif has_first:
-        fmt = "email+name"
-        fmt_icon = "👤"
-    else:
-        fmt = "email"
-        fmt_icon = "📧"
+    has_name = any(e['name'] for e in valid_entries)
+    fmt = "email+name" if has_name else "email"
 
     # Save to DB
     rec_db = RecipientDatabase(
@@ -241,7 +221,7 @@ async def upload_database_file(
         file_path=str(file_path),
         total_count=len(valid_entries),
         invalid_count=invalid_count,
-        with_name=has_first,
+        with_name=has_name,
     )
     db.add(rec_db)
     db.commit()
@@ -255,7 +235,6 @@ async def upload_database_file(
         "total_count": len(valid_entries),
         "invalid_count": invalid_count,
         "format": fmt,
-        "format_icon": fmt_icon,
         "status": "uploaded",
     }
 
@@ -273,10 +252,9 @@ async def get_database(db_id: int, db: Session = Depends(get_db)):
                 entries = json.loads(fp.read_text(encoding='utf-8'))
                 for entry in entries:
                     parts = [entry['email']]
-                    if entry.get('first_name'):
-                        parts.append(entry['first_name'])
-                    if entry.get('last_name'):
-                        parts.append(entry['last_name'])
+                    name = entry.get('name') or entry.get('first_name', '')
+                    if name:
+                        parts.append(name)
                     preview.append(','.join(parts))
             else:
                 # Legacy .txt format
@@ -300,7 +278,7 @@ async def get_database(db_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{db_id}/entries")
 async def get_database_entries(db_id: int, offset: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Get entries with full data (email, first_name, last_name) for template rendering."""
+    """Get entries with full data (email, name) for template rendering."""
     rec = db.query(RecipientDatabase).filter(RecipientDatabase.id == db_id).first()
     if not rec:
         return {"error": "Database not found"}
@@ -310,13 +288,16 @@ async def get_database_entries(db_id: int, offset: int = 0, limit: int = 100, db
         fp = Path(rec.file_path)
         if fp.exists() and fp.suffix == '.json':
             all_entries = json.loads(fp.read_text(encoding='utf-8'))
-            entries = all_entries[offset:offset + limit]
+            # Normalize: support both old (first_name) and new (name) format
+            for e in all_entries[offset:offset + limit]:
+                entries.append({"email": e.get("email", ""), "name": e.get("name") or e.get("first_name", "")})
         elif fp.exists():
             # Legacy .txt
             with open(fp, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             for line in lines[offset:offset + limit]:
-                entries.append({"email": line.strip(), "first_name": "", "last_name": ""})
+                parts = line.strip().split(",")
+                entries.append({"email": parts[0].strip(), "name": parts[1].strip() if len(parts) > 1 else ""})
     except Exception:
         pass
 

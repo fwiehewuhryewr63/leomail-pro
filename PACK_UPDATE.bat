@@ -1,22 +1,23 @@
 @echo off
 chcp 65001 >nul
-title LEOMAIL v3.0 — Pack Update
+title LEOMAIL v4.1 — Pack Update
 color 0e
 
 set "ROOT=%~dp0"
 set "PACK_DIR=%ROOT%_update_pack"
-set "ZIP_OUT=%USERPROFILE%\Desktop\leomail_v3_update.zip"
+set "ZIP_OUT=%USERPROFILE%\Desktop\leomail_v4_update.zip"
 
 echo.
 echo  ════════════════════════════════════════
-echo   LEOMAIL v3.0 — PACK UPDATE
+echo   LEOMAIL v4.1 — PACK UPDATE
+echo   Собирает пакет обновлений для VPS
 echo  ════════════════════════════════════════
 echo.
 echo  ZIP будет: %ZIP_OUT%
 echo.
 
 :: Step 1: Build frontend
-echo  [1/3] Собираю фронтенд...
+echo  [1/4] Собираю фронтенд...
 cd /d "%ROOT%frontend"
 call npm run build
 if errorlevel 1 (
@@ -28,7 +29,7 @@ echo        Build OK.
 cd /d "%ROOT%"
 
 :: Step 2: Create update pack folder
-echo  [2/3] Пакую файлы...
+echo  [2/4] Пакую файлы...
 if exist "%PACK_DIR%" rmdir /s /q "%PACK_DIR%"
 mkdir "%PACK_DIR%"
 
@@ -41,34 +42,50 @@ for /d /r "%PACK_DIR%\backend" %%d in (__pycache__) do (
 :: Copy frontend src + dist + configs
 xcopy "%ROOT%frontend\src" "%PACK_DIR%\frontend\src\" /E /I /Q >nul
 xcopy "%ROOT%frontend\dist" "%PACK_DIR%\frontend\dist\" /E /I /Q >nul
+xcopy "%ROOT%frontend\public" "%PACK_DIR%\frontend\public\" /E /I /Q >nul 2>&1
 copy /y "%ROOT%frontend\package.json" "%PACK_DIR%\frontend\package.json" >nul
 copy /y "%ROOT%frontend\vite.config.js" "%PACK_DIR%\frontend\vite.config.js" >nul
 copy /y "%ROOT%frontend\index.html" "%PACK_DIR%\frontend\index.html" >nul
 
-:: Copy START.bat и requirements.txt
+:: Copy root files
 copy /y "%ROOT%START.bat" "%PACK_DIR%\START.bat" >nul
+copy /y "%ROOT%UPDATE.bat" "%PACK_DIR%\UPDATE.bat" >nul
+copy /y "%ROOT%PACK_UPDATE.bat" "%PACK_DIR%\PACK_UPDATE.bat" >nul
 copy /y "%ROOT%requirements.txt" "%PACK_DIR%\requirements.txt" >nul
+copy /y "%ROOT%version.json" "%PACK_DIR%\version.json" >nul
 
 :: Step 3: Create ZIP on Desktop
-echo  [3/3] Создаю ZIP на Desktop...
+echo  [3/4] Создаю ZIP на Desktop...
 if exist "%ZIP_OUT%" del "%ZIP_OUT%"
 powershell -Command "Compress-Archive -Path '%PACK_DIR%\*' -DestinationPath '%ZIP_OUT%' -Force"
 
-:: Cleanup temp folder
+:: Step 4: Cleanup temp folder
 rmdir /s /q "%PACK_DIR%"
 
 echo.
 echo  ════════════════════════════════════════
-echo   ГОТОВО!
+echo   ГОТОВО!    v4.1
 echo  ════════════════════════════════════════
 echo.
-echo  ZIP на Desktop: leomail_v3_update.zip
+echo  ZIP на Desktop: leomail_v4_update.zip
 echo.
-echo  Что делать:
+echo  ════════════════════════════════════════
+echo   ИНСТРУКЦИЯ для VPS:
+echo  ════════════════════════════════════════
+echo.
+echo  Вариант 1 — Через API (рекомендуется):
+echo   POST http://VPS_IP:8000/api/update/apply-zip
+echo   Загрузите ZIP файл — обновление с сохранением данных
+echo.
+echo  Вариант 2 — Вручную:
 echo   1. Скопируй ZIP на VPS
-echo   2. Распакуй в любую папку
+echo   2. Распакуй в папку Leomail
 echo   3. Перенеси папку user_data из старой версии
 echo   4. pip install -r requirements.txt
 echo   5. Запусти START.bat
+echo.
+echo  Вариант 3 — Git (если есть git):
+echo   POST http://VPS_IP:8000/api/update/apply-git
+echo   Автоматический git pull + миграция
 echo.
 pause

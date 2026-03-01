@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from ..database import get_db, SessionLocal
 from ..models import NamePack
-from ..config import load_config
+from ..config import load_config, CONFIG_DIR
 from loguru import logger
 import os, random, shutil
 
 router = APIRouter(prefix="/api/names", tags=["names"])
 
-# Relative path — portable across VPS moves
-NAMES_DIR = os.path.join("user_data", "names")
+# Use CONFIG_DIR (absolute path next to EXE) — NOT relative paths!
+NAMES_DIR = str(CONFIG_DIR / "names")
 os.makedirs(NAMES_DIR, exist_ok=True)
 
 # Built-in GEO name packs directory
@@ -61,14 +61,25 @@ GEO_LABELS = {
 
 
 def seed_builtin_names():
-    """Auto-import built-in GEO name packs on first startup."""
+    """Auto-import built-in GEO name packs on first startup only.
+    Uses a marker file to track which packs were already seeded,
+    so user-deleted packs won't be re-imported on restart.
+    """
     if not os.path.isdir(BUILTIN_NAMES_DIR):
         return
+
+    # Marker file tracks which built-in packs we already seeded
+    marker_path = os.path.join(NAMES_DIR, ".seeded")
+    already_seeded = set()
+    if os.path.exists(marker_path):
+        with open(marker_path, "r", encoding="utf-8") as f:
+            already_seeded = {line.strip() for line in f if line.strip()}
 
     db = SessionLocal()
     try:
         existing = {p.name for p in db.query(NamePack).all()}
         seeded = 0
+        new_seeded = set()
 
         for filename in sorted(os.listdir(BUILTIN_NAMES_DIR)):
             if not filename.endswith(".txt"):
@@ -77,8 +88,15 @@ def seed_builtin_names():
             geo_key = os.path.splitext(filename)[0]
             pack_label = GEO_LABELS.get(geo_key, f"🌍 {geo_key}")
 
+            # Skip if already seeded before (even if user deleted it)
+            if filename in already_seeded:
+                new_seeded.add(filename)
+                continue
+
+            # Skip if already exists in DB by name
             if pack_label in existing:
-                continue  # Already seeded
+                new_seeded.add(filename)
+                continue
 
             src = os.path.join(BUILTIN_NAMES_DIR, filename)
             dst = os.path.join(NAMES_DIR, filename)
@@ -96,31 +114,42 @@ def seed_builtin_names():
 
             pack = NamePack(
                 name=pack_label,
-                file_path=os.path.join("user_data", "names", filename),  # relative path!
+                file_path=dst,  # absolute path
                 total_count=count,
             )
             db.add(pack)
             seeded += 1
+            new_seeded.add(filename)
             logger.info(f"[Names] Seeded: {pack_label} ({count} names)")
 
         if seeded:
             db.commit()
             logger.info(f"[Names] ✅ Seeded {seeded} built-in GEO name packs")
 
-        # Fix any absolute paths from previous versions (VPS portability)
+        # Save marker file with all seeded filenames
+        with open(marker_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(new_seeded)))
+
+        # Fix any relative or stale paths from previous versions
         fixed = 0
         for pack in db.query(NamePack).all():
             fp = pack.file_path
-            if fp and os.path.isabs(fp):
-                # Convert absolute to relative: extract user_data/names/filename
+            # Convert relative paths to absolute using NAMES_DIR
+            if fp and not os.path.isabs(fp):
                 basename = os.path.basename(fp)
-                new_path = os.path.join("user_data", "names", basename)
-                if os.path.exists(new_path) or os.path.exists(fp):
-                    pack.file_path = new_path
+                new_path = os.path.join(NAMES_DIR, basename)
+                pack.file_path = new_path
+                fixed += 1
+            elif fp and os.path.isabs(fp):
+                # Already absolute — check if it points to old location
+                basename = os.path.basename(fp)
+                expected = os.path.join(NAMES_DIR, basename)
+                if fp != expected and not os.path.exists(fp) and os.path.exists(expected):
+                    pack.file_path = expected
                     fixed += 1
         if fixed:
             db.commit()
-            logger.info(f"[Names] Fixed {fixed} absolute paths → relative")
+            logger.info(f"[Names] Fixed {fixed} paths → absolute")
 
     except Exception as e:
         logger.error(f"[Names] Seed error: {e}")
@@ -269,14 +298,18 @@ async def batch_delete_names(req: dict, db: Session = Depends(get_db)):
     if not ids:
         return {"deleted": 0}
     packs = db.query(NamePack).filter(NamePack.id.in_(ids)).all()
+    deleted_files = []
     for p in packs:
         try:
-            if os.path.exists(p.file_path):
+            if p.file_path and os.path.exists(p.file_path):
+                deleted_files.append(os.path.basename(p.file_path))
                 os.remove(p.file_path)
         except Exception:
             pass
         db.delete(p)
     db.commit()
+    # Mark deleted built-in packs in .seeded so they won't re-appear
+    _mark_seeded(deleted_files)
     return {"deleted": len(packs)}
 
 @router.delete("/{pack_id}")
@@ -285,12 +318,31 @@ async def delete_name_pack(pack_id: int, db: Session = Depends(get_db)):
     if not pack:
         return {"error": "Pack not found"}
 
-    if os.path.exists(pack.file_path):
+    deleted_file = None
+    if pack.file_path and os.path.exists(pack.file_path):
+        deleted_file = os.path.basename(pack.file_path)
         os.remove(pack.file_path)
 
     db.delete(pack)
     db.commit()
+    # Mark in .seeded so it won't re-appear on restart
+    if deleted_file:
+        _mark_seeded([deleted_file])
     return {"status": "deleted"}
+
+
+def _mark_seeded(filenames: list[str]):
+    """Add filenames to .seeded marker to prevent re-import on restart."""
+    if not filenames:
+        return
+    marker_path = os.path.join(NAMES_DIR, ".seeded")
+    existing = set()
+    if os.path.exists(marker_path):
+        with open(marker_path, "r", encoding="utf-8") as f:
+            existing = {line.strip() for line in f if line.strip()}
+    existing.update(filenames)
+    with open(marker_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(sorted(existing)))
 
 
 @router.get("/random")
