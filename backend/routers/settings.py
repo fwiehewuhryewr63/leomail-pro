@@ -235,7 +235,7 @@ async def test_service(service: str):
             balance = provider.get_balance()
             if balance < 0:
                 return {"status": "error", "message": f"Invalid API key or connection error"}
-            unit = "GB" if service in ("webshare", "iproyal") else "$"
+            unit = "GB" if service == "iproyal" else "$"
             return {"status": "ok", "message": f"Connected! Balance: {balance:.2f} {unit}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}

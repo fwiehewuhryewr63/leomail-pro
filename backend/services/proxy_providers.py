@@ -477,7 +477,7 @@ PROVIDERS = {
 
 # Tiered auto-buy order:
 # Gmail → ASocks (mobile)
-# Everything else → tier 1 (Proxy6, Belurk) → tier 2 (IPRoyal, Webshare)
+# Everything else → tier 1 (Proxy6, Belurk) → tier 2 (IPRoyal)
 AUTO_BUY_TIERS = {
     "gmail": [("asocks", "mobile")],
     "default": [
@@ -513,7 +513,7 @@ def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict
     """
     Tiered auto-buy:
       Gmail → ASocks (mobile 4G)
-      Others → Proxy6 + Belurk (tier 1) → IPRoyal + Webshare (tier 2)
+      Others → Proxy6 + Belurk (tier 1) → IPRoyal (tier 2)
     
     Tries each provider in order until count proxies are acquired.
     """

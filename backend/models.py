@@ -98,7 +98,7 @@ class Proxy(Base):
     use_protonmail = Column(Integer, default=0)
     use_tuta = Column(Integer, default=0)
     
-    source = Column(String, default="manual")  # manual, asocks, webshare, iproyal
+    source = Column(String, default="manual")  # manual, asocks, proxy6, belurk, iproyal
     external_id = Column(String, nullable=True)  # ID from proxy provider for dedup
     
     expires_at = Column(DateTime, nullable=True)
