@@ -336,6 +336,38 @@ frontend_path = base_path / "frontend" / "dist"
 
 if frontend_path.exists():
     from fastapi.responses import FileResponse
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    # ── Clear webview cache on startup to prevent stale JS bundles ──
+    def _clear_webview_cache():
+        """Remove cached JS/CSS from webview profile so updates take effect."""
+        import shutil
+        for app_dir in (Path.home() / "AppData" / "Roaming" / "leomail",
+                        Path.home() / "AppData" / "Roaming" / "Leomail"):
+            for cache_name in ("Cache", "Code Cache"):
+                cache_dir = app_dir / cache_name
+                if cache_dir.exists():
+                    try:
+                        shutil.rmtree(cache_dir, ignore_errors=True)
+                        logger.info(f"Cleared webview cache: {cache_dir}")
+                    except Exception:
+                        pass
+
+    _clear_webview_cache()
+
+    # ── No-cache middleware for frontend assets ──
+    class NoCacheMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            response = await call_next(request)
+            path = request.url.path
+            # Don't cache HTML or API responses
+            if path == "/" or path.endswith(".html") or path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+            return response
+
+    app.add_middleware(NoCacheMiddleware)
 
     app.mount("/assets", StaticFiles(directory=str(frontend_path / "assets")), name="assets")
 
@@ -348,4 +380,6 @@ if frontend_path.exists():
         file_path = frontend_path / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(frontend_path / "index.html"))
+        return FileResponse(str(frontend_path / "index.html"),
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
