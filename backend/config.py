@@ -129,7 +129,7 @@ def get_api_key(service: str) -> str | None:
     elif service == "5sim":
         key = config.get("sms", {}).get("5sim", {}).get("api_key", "")
         return key if key else None
-    elif service in ("asocks", "proxy6", "belurk"):
+    elif service in ("asocks", "proxy6", "belurk", "iproyal", "proxycheap"):
         key = config.get("proxy_providers", {}).get(service, {}).get("api_key", "")
         return key if key else None
 
