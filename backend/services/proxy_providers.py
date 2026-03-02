@@ -366,52 +366,66 @@ class BelurkProvider(ProxyProviderBase):
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Proxy-Cheap - Residential backconnect proxies (Tier 4, ~$3.49/GB)
-# API: https://api.proxy-cheap.com
-# Auth: X-Api-Key + X-Api-Secret headers
-# Proxy format: backconnect (rp.proxy-cheap.com with user:pass auth)
+# Credentials: unique per user from dashboard (app.proxy-cheap.com → My Services)
+# Key format stored: host:port:username:password
+# Country/session targeting via password suffixes
 # No identity verification required
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ProxyCheapProvider(ProxyProviderBase):
-    """Proxy-Cheap - 6M+ residential IPs, HTTP+SOCKS5, backconnect gateway."""
+    """
+    Proxy-Cheap - 6M+ residential IPs, HTTP+SOCKS5.
+    
+    API key format: host:port:username:password
+    (from Proxy-Cheap dashboard → My Services → proxy credentials)
+    
+    Country targeting: appended to password as _country-XX
+    Session stickiness: appended to password as _session-ID_lifetime-30m
+    """
     name = "proxycheap"
-    BASE_URL = "https://api.proxy-cheap.com"
 
-    # Backconnect gateway
-    GATEWAY_HOST = "rp.proxy-cheap.com"
-    GATEWAY_PORT_HTTP = 11223
-    GATEWAY_PORT_SOCKS5 = 11224
-
-    def _parse_keys(self):
-        """Parse combined 'api_key:api_secret' from stored key."""
-        if ":" in self.api_key:
-            parts = self.api_key.split(":", 1)
-            return parts[0].strip(), parts[1].strip()
-        # If no separator, use same value for both
-        return self.api_key.strip(), self.api_key.strip()
-
-    def _headers(self):
-        api_key, api_secret = self._parse_keys()
-        return {
-            "X-Api-Key": api_key,
-            "X-Api-Secret": api_secret,
-            "Content-Type": "application/json",
-        }
+    def _parse_credentials(self):
+        """Parse stored key into host, port, username, password."""
+        parts = self.api_key.strip().split(":")
+        if len(parts) >= 4:
+            return {
+                "host": parts[0].strip(),
+                "port": int(parts[1].strip()),
+                "username": parts[2].strip(),
+                "password": ":".join(parts[3:]).strip(),  # password may contain colons
+            }
+        elif len(parts) == 3:
+            # host:port:password (no username)
+            return {
+                "host": parts[0].strip(),
+                "port": int(parts[1].strip()),
+                "username": "",
+                "password": parts[2].strip(),
+            }
+        elif len(parts) == 2:
+            # host:port only
+            return {
+                "host": parts[0].strip(),
+                "port": int(parts[1].strip()),
+                "username": "",
+                "password": "",
+            }
+        # Single value — treat as host
+        return {"host": self.api_key.strip(), "port": 8080, "username": "", "password": ""}
 
     def get_balance(self) -> float:
         """
-        Proxy-Cheap has no public balance API for regular users.
-        Instead, test connectivity through the backconnect proxy.
+        Test connectivity through the proxy.
         Returns 1.0 if proxy works, -1 if not.
+        No balance API available for regular Proxy-Cheap users.
         """
         try:
-            # Build one test proxy
-            test_proxies = self._build_backconnect_proxies(1, "us", "http", "rotating")
-            if not test_proxies:
-                return -1
-
-            tp = test_proxies[0]
-            proxy_url = f"http://{tp['username']}:{tp['password']}@{tp['host']}:{tp['port']}"
+            creds = self._parse_credentials()
+            
+            if creds["username"] and creds["password"]:
+                proxy_url = f"http://{creds['username']}:{creds['password']}@{creds['host']}:{creds['port']}"
+            else:
+                proxy_url = f"http://{creds['host']}:{creds['port']}"
 
             r = requests.get(
                 "https://httpbin.org/ip",
@@ -421,7 +435,7 @@ class ProxyCheapProvider(ProxyProviderBase):
             if r.ok:
                 ip = r.json().get("origin", "unknown")
                 logger.info(f"[ProxyCheap] Proxy test OK, IP: {ip}")
-                return 1.0  # Proxy works
+                return 1.0
             return -1
         except Exception as e:
             logger.error(f"[ProxyCheap] Connection test error: {e}")
@@ -429,91 +443,60 @@ class ProxyCheapProvider(ProxyProviderBase):
 
     def list_proxies(self, country: str = None, count: int = 10,
                      protocol: str = "http", session_type: str = "sticky") -> list[dict]:
-        """
-        Generate backconnect proxy entries.
-        Proxy-Cheap uses backconnect: single gateway, auth via user:pass.
-        Country targeting is embedded in the username.
-        """
-        return self._build_backconnect_proxies(count, country or "us", protocol, session_type)
+        """Generate proxy entries with optional country/session targeting."""
+        return self._build_proxies(count, country or "us", protocol, session_type)
 
-    def _build_backconnect_proxies(self, count: int, country: str = "us",
-                                    protocol: str = "http",
-                                    session_type: str = "sticky") -> list[dict]:
+    def _build_proxies(self, count: int, country: str = "us",
+                       protocol: str = "http",
+                       session_type: str = "sticky") -> list[dict]:
         """
-        Build backconnect proxy entries.
-        Proxy-Cheap backconnect format:
-          Host: rp.proxy-cheap.com
-          Port: 11223 (HTTP) or 11224 (SOCKS5)
-          Username: account_username-country-XX-session-RANDOM
-          Password: account_password
+        Build proxy entries from dashboard credentials.
+        Proxy-Cheap targeting via password suffixes:
+          password_country-us_session-RANDOM_lifetime-30m
         """
         import hashlib
         import time
 
-        api_key, api_secret = self._parse_keys()
-        port = self.GATEWAY_PORT_SOCKS5 if protocol == "socks5" else self.GATEWAY_PORT_HTTP
+        creds = self._parse_credentials()
         proxies = []
 
         for i in range(count):
             session_id = hashlib.md5(f"{time.time()}_{i}_{random.random()}".encode()).hexdigest()[:10]
 
-            # Username with targeting
-            username_parts = [api_key, f"country-{country.lower()}"]
+            # Build password with targeting suffixes
+            password = creds["password"]
+            password += f"_country-{country.lower()}"
             if session_type == "sticky":
-                username_parts.append(f"session-{session_id}")
-
-            username = "-".join(username_parts)
+                password += f"_session-{session_id}_lifetime-30m"
 
             proxies.append({
-                "host": self.GATEWAY_HOST,
-                "port": port,
-                "username": username,
-                "password": api_secret,
+                "host": creds["host"],
+                "port": creds["port"],
+                "username": creds["username"],
+                "password": password,
                 "protocol": protocol,
                 "geo": country.upper(),
                 "expires_at": None,
                 "proxy_type": "residential",
-                "external_id": f"proxycheap_bc_{session_id}",
+                "external_id": f"proxycheap_{session_id}",
             })
 
-        logger.info(f"[ProxyCheap] Built {len(proxies)} backconnect proxies ({protocol}, {country}, {session_type})")
+        logger.info(f"[ProxyCheap] Built {len(proxies)} proxies ({protocol}, {country}, {session_type})")
         return proxies
-
-    def get_available_services(self) -> list[dict]:
-        """Get list of available proxy services and their pricing."""
-        try:
-            r = requests.get(
-                f"{self.BASE_URL}/services",
-                headers=self._headers(),
-                timeout=15,
-            )
-            r.raise_for_status()
-            return r.json() if isinstance(r.json(), list) else [r.json()]
-        except Exception as e:
-            logger.error(f"[ProxyCheap] Services error: {e}")
-            return []
 
     def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
                     proxy_type: str = "residential") -> list[dict]:
         """
-        Proxy-Cheap is pay-per-GB (backconnect).
-        Returns backconnect proxies ready to use (traffic deducted on use).
+        Proxy-Cheap is pay-per-GB.
+        Returns proxies with targeting - traffic deducted on use.
         """
         balance = self.get_balance()
-        logger.info(f"[ProxyCheap] Balance: ${balance}")
-
-        if balance == 0:
-            logger.warning("[ProxyCheap] Zero balance")
+        if balance < 0:
+            logger.warning("[ProxyCheap] Proxy connection test failed, skipping")
             return []
 
         protocol = "socks5" if proxy_type == "residential" else "http"
-
-        proxies = self._build_backconnect_proxies(
-            count=count,
-            country=country,
-            protocol=protocol,
-            session_type="sticky",
-        )
+        proxies = self._build_proxies(count, country, protocol, "sticky")
 
         logger.info(f"[ProxyCheap] Generated {len(proxies)} {proxy_type} proxies for {country}")
         return proxies
