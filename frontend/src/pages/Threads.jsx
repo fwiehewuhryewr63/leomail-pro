@@ -46,6 +46,7 @@ export default function Threads() {
     const [screenshotError, setScreenshotError] = useState(false);
     const [activePages, setActivePages] = useState([]);
     const [showHistory, setShowHistory] = useState(false);
+    const [expandedGroups, setExpandedGroups] = useState({}); // task_id -> bool
     const screenshotTimerRef = useRef(null);
 
     const load = useCallback(() => {
@@ -179,6 +180,18 @@ export default function Threads() {
         const groupFailed = group.threads.filter(t => t.status === 'error').length;
         const providerName = group.provider ? group.provider.charAt(0).toUpperCase() + group.provider.slice(1) : '';
         const taskLabel = TASK_TYPE_LABELS[group.task_type] || group.task_type;
+        const isExpanded = isHistory ? (expandedGroups[group.task_id] ?? false) : true;
+
+        const toggleExpand = () => {
+            if (isHistory) {
+                setExpandedGroups(prev => ({ ...prev, [group.task_id]: !prev[group.task_id] }));
+            }
+        };
+
+        // Overall group status for history
+        const groupStatus = groupDone > 0 && groupFailed === 0 ? 'done' : groupFailed > 0 && groupDone === 0 ? 'error' : groupFailed > 0 ? 'partial' : 'stopped';
+        const statusColor = groupStatus === 'done' ? '#10B981' : groupStatus === 'error' ? '#EF4444' : groupStatus === 'partial' ? '#F59E0B' : 'var(--text-muted)';
+        const statusLabel = groupStatus === 'done' ? 'Done' : groupStatus === 'error' ? 'Failed' : groupStatus === 'partial' ? 'Partial' : 'Stopped';
 
         return (
             <div key={group.task_id} style={{
@@ -187,17 +200,25 @@ export default function Threads() {
                 overflow: 'hidden',
             }}>
                 {/* Header */}
-                <div style={{
-                    padding: '8px 14px',
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    background: groupRunning > 0 ? 'rgba(6,182,212,0.03)' : 'transparent',
-                    borderBottom: '1px solid var(--border-default)',
-                    fontSize: '0.82em',
-                }}>
-                    <ProviderLogo provider={group.provider || 'mail'} size={20} />
+                <div
+                    onClick={toggleExpand}
+                    style={{
+                        padding: '8px 14px',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: groupRunning > 0 ? 'rgba(6,182,212,0.03)' : 'transparent',
+                        borderBottom: isExpanded ? '1px solid var(--border-default)' : 'none',
+                        fontSize: '0.82em',
+                        cursor: isHistory ? 'pointer' : 'default',
+                        userSelect: 'none',
+                    }}
+                >
+                    <ProviderLogo provider={group.provider || ''} size={20} />
                     <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>#{group.task_id}</span>
                     <span style={{ color: 'var(--text-secondary)' }}>{taskLabel} {providerName} × {group.threads.length}</span>
                     <div style={{ flex: 1 }} />
+                    {isHistory && !groupRunning && (
+                        <span style={{ fontSize: '0.85em', fontWeight: 700, color: statusColor }}>{statusLabel}</span>
+                    )}
                     <div style={{ display: 'flex', gap: 6, fontSize: '0.9em', fontWeight: 700 }}>
                         {groupDone > 0 && <span style={{ color: '#10B981' }}>{groupDone}✓</span>}
                         {groupFailed > 0 && <span style={{ color: '#EF4444' }}>{groupFailed}✗</span>}
@@ -207,10 +228,11 @@ export default function Threads() {
                         width: 7, height: 7, borderRadius: '50%', background: '#06B6D4',
                         boxShadow: '0 0 6px #06B6D4', animation: 'pulse 1.5s infinite',
                     }} />}
+                    {isHistory && <span style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>{isExpanded ? '▾' : '▸'}</span>}
                 </div>
 
-                {/* Threads */}
-                <div>{group.threads.map((t, i) => renderThread(t, i))}</div>
+                {/* Threads (collapsible for history) */}
+                {isExpanded && <div>{group.threads.map((t, i) => renderThread(t, i))}</div>}
             </div>
         );
     };

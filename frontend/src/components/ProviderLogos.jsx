@@ -11,8 +11,8 @@ const PROVIDER_IDS = ['gmail', 'yahoo', 'aol', 'outlook', 'hotmail', 'protonmail
 const LOGO_MAP = { yahoo_aol: 'yahoo', outlook_hotmail: 'outlook' };
 
 export function ProviderLogo({ provider, size = 40 }) {
-    if (!PROVIDER_IDS.includes(provider)) {
-        return <span style={{ fontSize: size * 0.5, fontWeight: 800 }}>?</span>;
+    if (!provider || !PROVIDER_IDS.includes(provider)) {
+        return <span style={{ fontSize: size * 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: size, height: size }}>📧</span>;
     }
     const logoFile = LOGO_MAP[provider] || provider;
     return (
