@@ -78,6 +78,47 @@ class CaptchaProvider:
             logger.error(f"CapGuru Error: {e}")
             return None
 
+    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "") -> str | None:
+        """Solve FunCaptcha / Arkose Labs via CapGuru (2Captcha-compatible API)."""
+        logger.info(f"CapGuru: solving FunCaptcha for {page_url}")
+        params = {
+            "key": self.api_key,
+            "method": "funcaptcha",
+            "publickey": public_key,
+            "pageurl": page_url,
+            "json": 1,
+        }
+        if surl:
+            params["surl"] = surl
+        try:
+            resp = requests.post(f"{self.base_url}/in.php", data=params, timeout=30)
+            data = resp.json()
+            if data.get("status") != 1:
+                logger.error(f"CapGuru FunCaptcha submit failed: {data}")
+                return None
+            task_id = data.get("request")
+            logger.info(f"CapGuru FunCaptcha Task ID: {task_id}")
+            for attempt in range(45):
+                time.sleep(3)
+                res = requests.get(
+                    f"{self.base_url}/res.php",
+                    params={"key": self.api_key, "action": "get", "id": task_id, "json": 1},
+                    timeout=15,
+                )
+                res_data = res.json()
+                if res_data.get("status") == 1:
+                    token = res_data.get("request")
+                    logger.info(f"CapGuru FunCaptcha solved (attempt {attempt + 1})")
+                    return token
+                if "CAPCHA_NOT_READY" not in str(res_data.get("request", "")):
+                    logger.error(f"CapGuru FunCaptcha error: {res_data}")
+                    return None
+            logger.error("CapGuru FunCaptcha: timeout after 45 attempts")
+            return None
+        except Exception as e:
+            logger.error(f"CapGuru FunCaptcha Error: {e}")
+            return None
+
     def solve_hcaptcha(self, sitekey: str, url: str) -> str | None:
         """Solve hCaptcha via CapGuru (used by ProtonMail)."""
         params = {
@@ -389,7 +430,13 @@ class CaptchaChain:
             logger.error(f"CaptchaChain: unknown type '{captcha_type}'")
             return None
 
-        for name, provider in self.providers:
+        # Smart provider ordering: FunCaptcha → 2Captcha first (CapSolver doesn't support Outlook FC)
+        providers_ordered = list(self.providers)
+        if captcha_type == "funcaptcha":
+            providers_ordered.sort(key=lambda p: 0 if p[0] == "twocaptcha" else 1)
+            logger.info(f"CaptchaChain: FunCaptcha mode - order: {[p[0] for p in providers_ordered]}")
+
+        for name, provider in providers_ordered:
             method = getattr(provider, method_name, None)
             if not method:
                 continue  # this provider doesn't support this type
@@ -397,7 +444,7 @@ class CaptchaChain:
                 logger.info(f"CaptchaChain: trying {name} for {captcha_type}")
                 result = method(**kwargs)
                 if result:
-                    logger.info(f"CaptchaChain: {name} solved {captcha_type} ")
+                    logger.info(f"CaptchaChain: {name} solved {captcha_type} ✓")
                     return result
                 logger.warning(f"CaptchaChain: {name} returned None for {captcha_type}")
             except Exception as e:

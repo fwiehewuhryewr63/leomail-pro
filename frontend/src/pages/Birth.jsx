@@ -34,17 +34,19 @@ export default function Birth() {
 
     /* ── Progress state ── */
     const [progress, setProgress] = useState({ completed: 0, total: 0, failed: 0, retrying: 0, queued: 0 });
+    const [threadLogs, setThreadLogs] = useState([]);
 
     useEffect(() => {
         fetch(`${API}/resources/batch`).then(r => r.json()).then(d => {
             setNamePacks(Array.isArray(d.name_packs) ? d.name_packs : []);
-            if (d.task_status?.birth) {
+        }).catch(() => { /* ignore */ });
+        // Check if autoreg is ACTUALLY running (engine status, not stale task record)
+        fetch(`${API}/engine/status`).then(r => r.json()).then(d => {
+            if (d.autoreg?.status === 'running') {
                 setRunning(true);
                 setResult({ status: 'running', message: 'Running...' });
             }
         }).catch(() => { /* ignore */ });
-
-
     }, []);
 
 
@@ -98,6 +100,10 @@ export default function Birth() {
                         failed: d.failed || 0, retrying: d.retrying || 0,
                         queued: (d.total || 0) - (d.completed || 0) - (d.failed || 0) - (d.retrying || 0),
                     });
+                    // Get real thread logs if available
+                    if (Array.isArray(d.thread_logs)) {
+                        setThreadLogs(d.thread_logs);
+                    }
                     if (!d.running) {
                         setRunning(false);
                         setResult({
@@ -282,10 +288,15 @@ export default function Birth() {
                                     : isRetrying ? <RefreshCw size={14} style={{ color: 'var(--warning)' }} />
                                         : <Circle size={14} style={{ color: 'var(--text-muted)' }} />;
 
-                            const statusText = isDone ? 'Registered ✓'
-                                : isFailed ? 'Proxy timeout'
-                                    : isRetrying ? 'SMS verification...'
-                                        : 'Queued';
+                            // Use real thread log data if available
+                            const tLog = threadLogs[i];
+                            const statusText = tLog?.status === 'completed' ? (tLog.email || 'Registered ✓')
+                                : tLog?.status === 'error' ? (tLog.error_message || 'Failed')
+                                    : tLog?.status === 'running' ? (tLog.current_step || 'Working...')
+                                        : isDone ? 'Registered ✓'
+                                            : isFailed ? 'Failed'
+                                                : isRetrying ? 'Retrying...'
+                                                    : 'Queued';
 
                             const statusColor = isDone ? 'var(--success)' : isFailed ? 'var(--danger)' : isRetrying ? 'var(--warning)' : 'var(--text-muted)';
 

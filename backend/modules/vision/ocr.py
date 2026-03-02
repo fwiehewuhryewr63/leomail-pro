@@ -25,14 +25,20 @@ except ImportError:
 
 # Try to find Tesseract binary on Windows
 import shutil
+import sys
 _tess = shutil.which("tesseract")
 if not _tess:
-    # Common Windows install paths
-    for p in [
+    # Check bundled path first (_internal/tesseract/ in PyInstaller builds)
+    _search_paths = []
+    if getattr(sys, '_MEIPASS', None):
+        _search_paths.append(str(Path(sys._MEIPASS) / "tesseract" / "tesseract.exe"))
+    # Then common Windows install paths
+    _search_paths.extend([
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
         r"C:\Tesseract-OCR\tesseract.exe",
-    ]:
+    ])
+    for p in _search_paths:
         if Path(p).exists():
             _tess = p
             break

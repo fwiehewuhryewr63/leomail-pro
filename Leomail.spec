@@ -35,8 +35,18 @@ if os.path.exists(dist_path):
 extra_datas = [
     (os.path.join(ROOT, 'version.json'), '.'),
 ]
+# Tesseract OCR (bundled for OCR support)
+tesseract_datas = []
+tesseract_path = os.path.join(ROOT, 'tesseract')
+if os.path.exists(tesseract_path):
+    for root_dir, dirs, files in os.walk(tesseract_path):
+        for f in files:
+            src = os.path.join(root_dir, f)
+            rel = os.path.relpath(src, ROOT)
+            dest = os.path.dirname(rel)
+            tesseract_datas.append((src, dest))
 
-all_datas = backend_datas + frontend_datas + extra_datas
+all_datas = backend_datas + frontend_datas + extra_datas + tesseract_datas
 
 a = Analysis(
     [os.path.join(ROOT, 'launcher.py')],
