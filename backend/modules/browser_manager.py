@@ -370,9 +370,16 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
     delete navigator.__proto__.webdriver;
 
-    // 2. Chrome runtime object
+    // 2. Chrome runtime object (full emulation)
     if (!window.chrome) {{
-        window.chrome = {{ runtime: {{}}, loadTimes: function(){{ return {{}} }}, csi: function(){{ return {{}} }} }};
+        window.chrome = {{}};
+    }}
+    if (!window.chrome.runtime) {{
+        window.chrome.runtime = {{ OnInstalledReason: {{ CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }}, PlatformArch: {{ ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }}, PlatformNaclArch: {{ ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }}, PlatformOs: {{ ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', WIN: 'win' }}, RequestUpdateCheckStatus: {{ NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }}, connect: function() {{ return {{}} }}, id: undefined, sendMessage: function() {{}} }};
+    }}
+    // chrome.app (real Chrome always has this)
+    if (!window.chrome.app) {{
+        window.chrome.app = {{ isInstalled: false, InstallState: {{ DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }}, RunningState: {{ CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }}, getDetails: function() {{ return null; }}, getIsInstalled: function() {{ return false; }} }};
     }}
 
     // 3. Navigator.platform - MUST match User-Agent
@@ -881,9 +888,27 @@ class BrowserManager:
         else:
             logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
 
-        # Override language header to match locale
+        # Override language + Client Hints headers to match locale/UA
+        # Extract Chrome version from UA for sec-ch-ua
+        import re as _re
+        _ch_match = _re.search(r'Chrome/(\d+)', ctx_ua)
+        _ch_ver = _ch_match.group(1) if _ch_match else '140'
+        _is_edge = 'Edg/' in ctx_ua
+        if _is_edge:
+            _edge_match = _re.search(r'Edg/(\d+)', ctx_ua)
+            _edge_ver = _edge_match.group(1) if _edge_match else _ch_ver
+            _sec_ch_ua = f'"Microsoft Edge";v="{_edge_ver}", "Chromium";v="{_ch_ver}", "Not_A Brand";v="24"'
+        else:
+            _sec_ch_ua = f'"Google Chrome";v="{_ch_ver}", "Chromium";v="{_ch_ver}", "Not_A Brand";v="24"'
+
+        _ch_platform = '"Windows"' if 'Windows' in ctx_ua else ('"macOS"' if 'Mac' in ctx_ua else ('"Android"' if 'Android' in ctx_ua else '"Linux"'))
+        _ch_mobile = '?1' if is_mobile else '?0'
+
         await context.set_extra_http_headers({
             "Accept-Language": f"{locale_str},{lang};q=0.9,en;q=0.8",
+            "sec-ch-ua": _sec_ch_ua,
+            "sec-ch-ua-mobile": _ch_mobile,
+            "sec-ch-ua-platform": _ch_platform,
         })
 
         logger.debug(

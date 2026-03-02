@@ -143,14 +143,39 @@ async def register_single_yahoo(
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
 
-        # Fast warmup - just a quick Google visit (2-3s instead of 15-30s)
-        _log("Quick session warmup...")
+        # ── Enhanced warmup: build Yahoo session/cookies BEFORE signup ──
+        # Yahoo's anti-bot checks for fresh sessions with no prior Yahoo cookies.
+        # Real users visit yahoo.com → build consent cookies → then signup.
+        _log("Session warmup (building Yahoo cookies)...")
         try:
-            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
-            await _human_delay(1, 2)
+            # Step A: Visit Yahoo main page (builds A3, GUC, EuConsent cookies)
+            await page.goto("https://www.yahoo.com", wait_until="domcontentloaded", timeout=20000)
+            await _human_delay(2, 4)
+
+            # Step B: Accept cookies/consent banner if present
+            try:
+                consent_btn = page.locator("button:has-text('Accept'), button:has-text('Agree'), button:has-text('OK'), button[name='agree']").first
+                if await consent_btn.is_visible(timeout=3000):
+                    await consent_btn.click()
+                    await _human_delay(1, 2)
+            except Exception:
+                pass
+
+            # Step C: Simulate browsing — scroll + mouse moves
+            await random_mouse_move(page, steps=3)
+            await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 400 + 200))")
+            await _human_delay(1, 3)
             await random_mouse_move(page, steps=2)
-        except Exception:
-            pass
+            await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 300 + 100))")
+            await _human_delay(1, 2)
+        except Exception as warmup_err:
+            _log(f"Warmup partial: {warmup_err}")
+            # Fallback: try simple Google visit
+            try:
+                await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
+                await _human_delay(1, 2)
+            except Exception:
+                pass
 
         # Step 1: Navigate to Yahoo signup
         _log("Opening Yahoo registration page...")
