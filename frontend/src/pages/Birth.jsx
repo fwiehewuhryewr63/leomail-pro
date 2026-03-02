@@ -48,15 +48,20 @@ export default function Birth() {
                 setResult({ status: 'running', message: 'Running...' });
             }
         }).catch(() => { /* ignore */ });
-        // Immediately fetch birth status so progress doesn't flash zeros
+        // Fetch birth status — only show if task is actually running (not stale finished task)
         fetch(`${API}/birth/status`).then(r => r.json()).then(d => {
-            setProgress({
-                completed: d.completed || 0, total: d.total || 0,
-                failed: d.failed || 0, retrying: d.retrying || 0,
-                queued: (d.total || 0) - (d.completed || 0) - (d.failed || 0) - (d.retrying || 0),
-            });
-            if (d.provider) setRunningProvider(d.provider);
-        }).catch(() => setProgress({ completed: 0, total: 0, failed: 0, retrying: 0, queued: 0 }));
+            if (d.running) {
+                setRunning(true);
+                setProgress({
+                    completed: d.completed || 0, total: d.total || 0,
+                    failed: d.failed || 0, retrying: d.retrying || 0,
+                    queued: Math.max(0, (d.total || 0) - (d.completed || 0) - (d.failed || 0) - (d.retrying || 0)),
+                });
+                if (d.provider) setRunningProvider(d.provider);
+                setResult({ status: 'running', message: 'Running...' });
+            }
+            // If not running, leave progress as null → shows clean "Press START"
+        }).catch(() => { /* leave progress null */ });
     }, []);
 
 
@@ -110,7 +115,7 @@ export default function Birth() {
                     setProgress({
                         completed: d.completed || 0, total: d.total || 0,
                         failed: d.failed || 0, retrying: d.retrying || 0,
-                        queued: (d.total || 0) - (d.completed || 0) - (d.failed || 0) - (d.retrying || 0),
+                        queued: Math.max(0, (d.total || 0) - (d.completed || 0) - (d.failed || 0) - (d.retrying || 0)),
                     });
                     // Get real thread logs if available
                     if (Array.isArray(d.thread_logs)) {
