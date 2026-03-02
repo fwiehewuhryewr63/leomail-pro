@@ -297,7 +297,7 @@ export default function Birth() {
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {Array.from({ length: Math.min(parseInt(threads) || 1, 10) }, (_, i) => {
+                        {Array.from({ length: Math.min(safeProgress.total || parseInt(threads) || 1, 10) }, (_, i) => {
                             const tIdx = i + 1;
                             const isActive = running && i < (safeProgress.completed + safeProgress.failed + safeProgress.retrying);
                             const isDone = i < safeProgress.completed;
