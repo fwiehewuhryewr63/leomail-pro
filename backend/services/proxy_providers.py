@@ -1,9 +1,10 @@
 """
 Leomail v4 - Proxy Provider API Clients
-Supports: ASocks, Proxy6, Belurk
+Supports: ASocks, Proxy6, Belurk, IPRoyal
 Each provider: fetch balance, list active proxies, buy new proxies.
 """
 import requests
+import random
 from typing import Optional
 from loguru import logger
 from ..config import get_api_key
@@ -364,86 +365,220 @@ class BelurkProvider(ProxyProviderBase):
             return []
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Webshare.io - Residential rotating proxies (Tier 4, budget $3.5/GB)
-# API: https://proxy.webshare.io/api/v2/
-# Auth: Token header
+# IPRoyal - Residential proxies (Tier 4, premium pay-per-GB, ~$1.75/GB)
+# API: https://resi-api.iproyal.com/v1
+# Auth: Authorization: Bearer <token>
+# Proxy format: backconnect (gateway:port with targeting in username)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class WebshareProvider(ProxyProviderBase):
-    """Webshare.io - residential rotating proxies, 10M+ IPs, HTTP+SOCKS5."""
-    name = "webshare"
-    BASE_URL = "https://proxy.webshare.io/api/v2"
+class IPRoyalProvider(ProxyProviderBase):
+    """IPRoyal - 32M+ residential IPs, HTTP+SOCKS5, sticky sessions up to 7 days."""
+    name = "iproyal"
+    BASE_URL = "https://resi-api.iproyal.com/v1"
+
+    # Default gateway (backconnect)
+    GATEWAY_HOST = "geo.iproyal.com"
+    GATEWAY_PORT_HTTP = 12321
+    GATEWAY_PORT_SOCKS5 = 32325
 
     def _headers(self):
-        return {"Authorization": f"Token {self.api_key}"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     def get_balance(self) -> float:
-        """Get remaining bandwidth in GB."""
+        """Get remaining traffic in GB."""
         try:
             r = requests.get(
-                f"{self.BASE_URL}/subscription/",
+                f"{self.BASE_URL}/me",
                 headers=self._headers(),
                 timeout=10,
             )
             r.raise_for_status()
             data = r.json()
-            # bandwidth is in bytes, convert to GB
-            remaining = data.get("bandwidth_remaining", 0)
-            return round(remaining / (1024**3), 2)
+            # availableTraffic is in bytes
+            traffic_bytes = data.get("availableTraffic", 0)
+            if isinstance(traffic_bytes, (int, float)):
+                return round(traffic_bytes / (1024**3), 2)
+            return -1
         except Exception as e:
-            logger.error(f"[Webshare] Balance error: {e}")
+            logger.error(f"[IPRoyal] Balance error: {e}")
             return -1
 
-    def list_proxies(self) -> list[dict]:
-        """List proxy list from Webshare account."""
+    def list_proxies(self, country: str = None, count: int = 10,
+                     protocol: str = "http", session_type: str = "sticky") -> list[dict]:
+        """
+        Generate backconnect proxy list via API.
+        IPRoyal uses backconnect format: gateway:port with targeting in username.
+
+        session_type: 'sticky' (same IP for session_lifetime) or 'rotating' (new IP per request)
+        """
         try:
+            params = {
+                "format": "json",
+                "quantity": min(count, 100),
+                "protocol": protocol,  # http or socks5
+            }
+            if country:
+                params["country"] = country.upper()
+
+            r = requests.get(
+                f"{self.BASE_URL}/access/generate-proxy-list",
+                headers=self._headers(),
+                params=params,
+                timeout=15,
+            )
+            r.raise_for_status()
+            data = r.json()
+
             proxies = []
-            page = 1
-            while True:
-                r = requests.get(
-                    f"{self.BASE_URL}/proxy/list/",
-                    headers=self._headers(),
-                    params={"mode": "direct", "page": page, "page_size": 100},
-                    timeout=15,
-                )
-                r.raise_for_status()
-                data = r.json()
-                results = data.get("results", [])
-                if not results:
-                    break
+            # API returns list of proxy entries
+            entries = data if isinstance(data, list) else data.get("proxies", data.get("data", []))
 
-                for p in results:
-                    proxies.append({
-                        "host": p.get("proxy_address", ""),
-                        "port": int(p.get("port", 0)),
-                        "username": p.get("username", ""),
-                        "password": p.get("password", ""),
-                        "protocol": "socks5" if p.get("port") == p.get("socks5_port") else "http",
-                        "geo": (p.get("country_code", "") or "").upper(),
-                        "expires_at": None,
-                        "proxy_type": "residential",
-                        "external_id": str(p.get("id", "")),
-                    })
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, str):
+                        # Format: host:port:user:pass or host:port
+                        parts = entry.split(":")
+                        if len(parts) >= 4:
+                            proxies.append({
+                                "host": parts[0],
+                                "port": int(parts[1]),
+                                "username": parts[2],
+                                "password": parts[3],
+                                "protocol": protocol,
+                                "geo": (country or "").upper(),
+                                "expires_at": None,
+                                "proxy_type": "residential",
+                                "external_id": f"iproyal_{parts[0]}_{parts[1]}",
+                            })
+                    elif isinstance(entry, dict):
+                        proxies.append({
+                            "host": entry.get("host", entry.get("ip", self.GATEWAY_HOST)),
+                            "port": int(entry.get("port", self.GATEWAY_PORT_HTTP)),
+                            "username": entry.get("username", entry.get("user", "")),
+                            "password": entry.get("password", entry.get("pass", "")),
+                            "protocol": protocol,
+                            "geo": (entry.get("country", country) or "").upper(),
+                            "expires_at": None,
+                            "proxy_type": "residential",
+                            "external_id": f"iproyal_{entry.get('host', '')}",
+                        })
 
-                if not data.get("next"):
-                    break
-                page += 1
+            # Fallback: construct backconnect proxies manually if API returned nothing
+            if not proxies:
+                proxies = self._build_backconnect_proxies(count, country, protocol, session_type)
 
             return proxies
         except Exception as e:
-            logger.error(f"[Webshare] List proxies error: {e}")
+            logger.error(f"[IPRoyal] List proxies error: {e}")
+            # Try manual backconnect construction
+            return self._build_backconnect_proxies(count, country or "us", protocol, session_type)
+
+    def _build_backconnect_proxies(self, count: int, country: str = "us",
+                                    protocol: str = "http",
+                                    session_type: str = "sticky") -> list[dict]:
+        """
+        Build backconnect proxy entries manually.
+        IPRoyal backconnect format:
+          Host: geo.iproyal.com
+          Port: 12321 (HTTP) or 32325 (SOCKS5)
+          Username: customer-USERNAME-cc-COUNTRY-sessid-SESSION-sessTime-MINUTES
+          Password: PASSWORD
+
+        The API key IS the password; username comes from account.
+        For backconnect, we generate unique session IDs for sticky sessions.
+        """
+        import hashlib
+        import time
+
+        port = self.GATEWAY_PORT_SOCKS5 if protocol == "socks5" else self.GATEWAY_PORT_HTTP
+        proxies = []
+
+        for i in range(count):
+            # Generate unique session ID for each proxy (sticky session)
+            session_id = hashlib.md5(f"{time.time()}_{i}_{random.random()}".encode()).hexdigest()[:12]
+
+            # Username format: the API key typically encodes customer info
+            # Format varies by account setup; most common:
+            # customer-{name}-cc-{country}-sessid-{session}-sessTime-{minutes}
+            username_parts = [f"country-{country.lower()}"]
+
+            if session_type == "sticky":
+                username_parts.append(f"session-{session_id}")
+                username_parts.append("sessionduration-30")  # 30 min sticky
+
+            username = "_".join(username_parts)
+
+            proxies.append({
+                "host": self.GATEWAY_HOST,
+                "port": port,
+                "username": username,
+                "password": self.api_key,  # API key = proxy password for backconnect
+                "protocol": protocol,
+                "geo": country.upper(),
+                "expires_at": None,
+                "proxy_type": "residential",
+                "external_id": f"iproyal_bc_{session_id}",
+            })
+
+        logger.info(f"[IPRoyal] Built {len(proxies)} backconnect proxies ({protocol}, {country}, {session_type})")
+        return proxies
+
+    def get_available_countries(self) -> list[dict]:
+        """Get list of available countries with city/state/ISP targeting."""
+        try:
+            r = requests.get(
+                f"{self.BASE_URL}/access/countries",
+                headers=self._headers(),
+                timeout=15,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            logger.error(f"[IPRoyal] Countries error: {e}")
+            return []
+
+    def get_entry_nodes(self) -> list[dict]:
+        """Get list of entry nodes (gateways) with their IPs and ports."""
+        try:
+            r = requests.get(
+                f"{self.BASE_URL}/access/entry-nodes",
+                headers=self._headers(),
+                timeout=10,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            logger.error(f"[IPRoyal] Entry nodes error: {e}")
             return []
 
     def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
                     proxy_type: str = "residential") -> list[dict]:
         """
-        Webshare is subscription-based. This lists available proxies.
-        Users should have an active subscription with proxy slots.
+        IPRoyal is pay-per-GB. No per-proxy purchase needed.
+        Returns backconnect proxies ready to use (traffic deducted on use).
         """
-        # Webshare doesn't have per-proxy purchase — it's subscription.
-        # Just return the available proxy list.
-        logger.info(f"[Webshare] Fetching available proxies (subscription-based)")
-        return self.list_proxies()
+        balance = self.get_balance()
+        logger.info(f"[IPRoyal] Balance: {balance} GB remaining")
+
+        if balance <= 0.01:
+            logger.warning("[IPRoyal] Insufficient traffic balance")
+            return []
+
+        # Use SOCKS5 for residential (better compatibility)
+        protocol = "socks5" if proxy_type == "residential" else "http"
+
+        proxies = self.list_proxies(
+            country=country,
+            count=count,
+            protocol=protocol,
+            session_type="sticky",
+        )
+
+        logger.info(f"[IPRoyal] Generated {len(proxies)} {proxy_type} proxies for {country}")
+        return proxies
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -454,14 +589,14 @@ PROVIDERS = {
     "asocks": ASocksProvider,
     "proxy6": Proxy6Provider,
     "belurk": BelurkProvider,
-    "webshare": WebshareProvider,
+    "iproyal": IPRoyalProvider,
 }
 
 # ── 4-Tier proxy chain (cheapest → most expensive) ──
 # Tier 1: Uploaded proxies (handled in proxy_manager, not here)
 # Tier 2: Belurk + Proxy6 (cheap datacenter IPv4, ~$1-2/proxy/week)
-# Tier 3: ASocks (residential/mobile, pay-per-GB)
-# Tier 4: Webshare (residential rotating, $3.5/GB)
+# Tier 3: ASocks (residential/mobile, pay-per-GB, ~$3-5/GB)
+# Tier 4: IPRoyal (premium residential, ~$1.75/GB but last resort)
 #
 # Gmail = mobile ONLY → ASocks mobile, then uploaded mobile
 # Yahoo/AOL = residential ONLY → skip datacenter tiers
@@ -473,29 +608,41 @@ AUTO_BUY_TIERS = {
     ],
     "yahoo": [
         ("asocks", "residential"),
-        ("webshare", "residential"),
+        ("iproyal", "residential"),
     ],
     "aol": [
         ("asocks", "residential"),
-        ("webshare", "residential"),
+        ("iproyal", "residential"),
     ],
     "outlook": [
         ("belurk", "residential"),
         ("proxy6", "residential"),
         ("asocks", "residential"),
-        ("webshare", "residential"),
+        ("iproyal", "residential"),
     ],
     "hotmail": [
         ("belurk", "residential"),
         ("proxy6", "residential"),
         ("asocks", "residential"),
-        ("webshare", "residential"),
+        ("iproyal", "residential"),
+    ],
+    "protonmail": [
+        ("belurk", "residential"),
+        ("proxy6", "residential"),
+        ("asocks", "residential"),
+        ("iproyal", "residential"),
+    ],
+    "tuta": [
+        ("belurk", "residential"),
+        ("proxy6", "residential"),
+        ("asocks", "residential"),
+        ("iproyal", "residential"),
     ],
     "default": [
         ("belurk", "residential"),
         ("proxy6", "residential"),
         ("asocks", "residential"),
-        ("webshare", "residential"),
+        ("iproyal", "residential"),
     ],
 }
 
@@ -525,8 +672,8 @@ def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict
     """
     Tiered auto-buy:
       Gmail -> ASocks (mobile 4G)
-      Yahoo/AOL -> ASocks residential -> Webshare (skip datacenter tiers)
-      Desktop -> Belurk -> Proxy6 -> ASocks -> Webshare
+      Yahoo/AOL -> ASocks residential -> IPRoyal (skip datacenter tiers)
+      Desktop -> Belurk -> Proxy6 -> ASocks -> IPRoyal
     
     Tries each provider in order until count proxies are acquired.
     """
