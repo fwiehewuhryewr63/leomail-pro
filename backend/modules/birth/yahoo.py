@@ -26,6 +26,7 @@ from ._helpers import (
     step_screenshot as _step_screenshot,
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
+    detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
     debug_screenshot as _debug_screenshot,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, order_sms_retry, get_next_sms_number,
@@ -413,6 +414,8 @@ async def register_single_yahoo(
 
         # Check for reCAPTCHA after submit
         await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+        # Check for FunCaptcha (Arkose Labs) - Yahoo's primary captcha
+        await _detect_and_solve_funcaptcha(page, captcha_provider, _log)
         await _human_delay(1, 2)
 
         # Yahoo shows a separate "Add your phone number" page after registration
@@ -646,10 +649,14 @@ async def register_single_yahoo(
                     await _human_click(page, get_code_btn)
                     await _human_delay(4, 7)
 
-                    # ── CRITICAL: Yahoo often shows reCAPTCHA AFTER clicking 'Get code' ──
+                    # ── CRITICAL: Yahoo often shows FunCaptcha/reCAPTCHA AFTER clicking 'Get code' ──
                     # We must detect and solve it BEFORE checking for challenge/fail!
                     for captcha_attempt in range(2):
-                        captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+                        # Try FunCaptcha first (Yahoo's primary captcha)
+                        captcha_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, _log)
+                        if not captcha_solved:
+                            # Fallback to reCAPTCHA
+                            captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
                         if captcha_solved:
                             _log(f"CAPTCHA solved after 'Get code' (attempt {captcha_attempt + 1})")
                             await _human_delay(3, 6)  # Wait for Yahoo to process

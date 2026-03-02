@@ -902,6 +902,186 @@ async def detect_and_solve_recaptcha(page, captcha_provider, log_fn=None):
         return False
 
 
+async def detect_and_solve_funcaptcha(page, captcha_provider, log_fn=None):
+    """
+    Detect and solve FunCaptcha / Arkose Labs on Yahoo pages.
+    Yahoo uses FunCaptcha (NOT reCAPTCHA) after phone submit.
+    
+    Detection: looks for Arkose iframe, data-pkey, or fc-token.
+    Solving: extracts publicKey + surl, sends to CaptchaChain (2captcha first).
+    Injection: sets fc-token and triggers callback.
+    
+    Returns True if FunCaptcha was found + solved, False otherwise.
+    """
+    if not captcha_provider:
+        return False
+
+    is_chain = isinstance(captcha_provider, CaptchaChain)
+    if not is_chain and not getattr(captcha_provider, 'api_key', None):
+        return False
+    if is_chain and not captcha_provider.providers:
+        return False
+
+    def _log(msg):
+        if log_fn:
+            log_fn(msg)
+        else:
+            logger.info(f"[FunCaptcha] {msg}")
+
+    try:
+        # ── Detect FunCaptcha on page ──
+        fc_data = await page.evaluate("""() => {
+            // Method 1: Arkose Labs iframe
+            const frames = document.querySelectorAll('iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], iframe[data-e2e="enforcement-frame"]');
+            let publicKey = null;
+            let surl = null;
+            
+            for (const f of frames) {
+                const src = f.getAttribute('src') || '';
+                // Extract public key from URL
+                const pkMatch = src.match(/[?&]pkey=([^&]+)/i) || src.match(/\/([A-F0-9-]{36})\//i);
+                if (pkMatch) publicKey = pkMatch[1];
+                // Extract surl
+                const surlMatch = src.match(/[?&]surl=([^&]+)/i);
+                if (surlMatch) surl = decodeURIComponent(surlMatch[1]);
+                if (!surl) {
+                    const urlObj = new URL(src, window.location.href);
+                    surl = urlObj.origin;
+                }
+            }
+            
+            // Method 2: data-pkey attribute on div
+            if (!publicKey) {
+                const pkey = document.querySelector('[data-pkey]');
+                if (pkey) publicKey = pkey.getAttribute('data-pkey');
+            }
+            
+            // Method 3: fc-token input
+            if (!publicKey) {
+                const fcToken = document.querySelector('input[name="fc-token"], #fc-token');
+                if (fcToken) {
+                    const val = fcToken.value || '';
+                    const m = val.match(/pk=([^|&]+)/);
+                    if (m) publicKey = m[1];
+                }
+            }
+            
+            // Method 4: window.__arklabsOptions or similar globals
+            if (!publicKey) {
+                try {
+                    if (window.arkose_public_key) publicKey = window.arkose_public_key;
+                    if (window.__arkLabsPublicKey) publicKey = window.__arkLabsPublicKey;
+                } catch(e) {}
+            }
+            
+            // Method 5: Script tags
+            if (!publicKey) {
+                const scripts = document.querySelectorAll('script[src*="arkoselabs"], script[data-pkey]');
+                for (const s of scripts) {
+                    const pk = s.getAttribute('data-pkey');
+                    if (pk) { publicKey = pk; break; }
+                    const src = s.getAttribute('src') || '';
+                    const m = src.match(/\/([A-F0-9-]{36})\//);
+                    if (m) { publicKey = m[1]; break; }
+                }
+            }
+            
+            if (!publicKey) return null;
+            
+            return {
+                publicKey: publicKey,
+                surl: surl || 'https://client-api.arkoselabs.com',
+                hasIframe: frames.length > 0,
+            };
+        }""")
+
+        if not fc_data:
+            return False
+
+        public_key = fc_data.get("publicKey")
+        surl = fc_data.get("surl", "https://client-api.arkoselabs.com")
+        _log(f"[FUNCAPTCHA] Detected! publicKey={public_key[:20]}... surl={surl}")
+
+        page_url = page.url
+
+        # ── Solve via CaptchaChain (2captcha first for FunCaptcha) ──
+        if is_chain:
+            _log(f"[CHAIN] Solving FunCaptcha via CaptchaChain ({len(captcha_provider.providers)} providers)")
+            token = await asyncio.to_thread(
+                captcha_provider.solve, "funcaptcha",
+                public_key=public_key, page_url=page_url, surl=surl
+            )
+        elif hasattr(captcha_provider, 'solve_funcaptcha'):
+            token = await asyncio.to_thread(
+                captcha_provider.solve_funcaptcha, public_key, page_url, surl
+            )
+        else:
+            _log("[WARN] Captcha provider doesn't support FunCaptcha")
+            return False
+
+        if not token:
+            _log("[FAIL] FunCaptcha solve failed - all providers returned None")
+            return False
+
+        _log(f"[OK] FunCaptcha solved! Token: {token[:50]}...")
+
+        # ── Inject token into page ──
+        injected = await page.evaluate(f"""() => {{
+            // Method 1: Set fc-token input
+            const fcInput = document.querySelector('input[name="fc-token"], #fc-token');
+            if (fcInput) {{
+                fcInput.value = '{token}';
+                fcInput.dispatchEvent(new Event('change', {{bubbles: true}}));
+            }}
+            
+            // Method 2: Call Arkose callback
+            try {{
+                if (typeof window.ArkoseEnforcement !== 'undefined') {{
+                    window.ArkoseEnforcement.setConfig({{data: {{token: '{token}'}}}});
+                }}
+            }} catch(e) {{}}
+            
+            // Method 3: Trigger form callbacks
+            try {{
+                if (typeof window.__arkoseCallback === 'function') {{
+                    window.__arkoseCallback('{token}');
+                }}
+            }} catch(e) {{}}
+            
+            // Method 4: Yahoo-specific - find and call verification callback
+            try {{
+                const evt = new CustomEvent('arkose-complete', {{detail: {{token: '{token}'}}}});
+                document.dispatchEvent(evt);
+            }} catch(e) {{}}
+            
+            return !!fcInput;
+        }}""")
+
+        _log(f"[OK] Token injected (fcInput found: {injected})")
+        await human_delay(2, 4)
+
+        # Try submitting the form after token injection
+        try:
+            submit_btn = await wait_for_any(page, [
+                'button[type="submit"]',
+                'button:has-text("Verify")',
+                'button:has-text("Continue")',
+                'button:has-text("Next")',
+            ], timeout=3000)
+            if submit_btn:
+                await human_click(page, submit_btn)
+                _log("Clicked submit after FunCaptcha solve")
+                await human_delay(3, 6)
+        except Exception:
+            pass
+
+        return True
+
+    except Exception as e:
+        logger.debug(f"FunCaptcha detection error: {e}")
+        return False
+
+
 # Phone country code mappings used by Yahoo/AOL SMS verification
 PHONE_COUNTRY_MAP = {
     "ru": "7", "ua": "380", "kz": "7", "cn": "86", "ph": "63", "id": "62",
