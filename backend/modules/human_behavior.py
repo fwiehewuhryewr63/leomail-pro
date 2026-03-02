@@ -843,3 +843,295 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
 
     elapsed = asyncio.get_event_loop().time() - start
     logger.debug(f"Post-reg warmup done: {elapsed:.1f}s ({provider})")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. FORM REVIEW SCAN (eyes scanning form before submit)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def form_review_scan(page, field_selectors: list[str] = None):
+    """
+    Simulate a human reviewing a filled form before clicking Submit.
+    Mouse traces from field to field (top→bottom), pausing at each
+    as if re-reading entered values. Anti-bot systems track this.
+    """
+    if not field_selectors:
+        # Auto-detect visible input fields
+        field_selectors = ['input[type="text"]', 'input[type="email"]',
+                          'input[type="password"]', 'input[type="tel"]',
+                          'select', 'textarea']
+
+    viewport = page.viewport_size or {"width": 1280, "height": 720}
+    visited = 0
+
+    for sel in field_selectors:
+        try:
+            els = page.locator(sel)
+            count = await els.count()
+            for i in range(count):
+                el = els.nth(i)
+                if not await el.is_visible():
+                    continue
+                box = await el.bounding_box()
+                if not box:
+                    continue
+
+                # Move mouse to field with Bezier
+                cx = box["x"] + box["width"] * random.uniform(0.2, 0.8)
+                cy = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+                await _move_mouse_to(page, cx, cy)
+
+                # Reading dwell (200-800ms per field)
+                await asyncio.sleep(random.uniform(0.2, 0.8))
+                visited += 1
+
+                if visited >= 6:  # Don't scan too many
+                    break
+        except Exception:
+            continue
+
+    # Final pause — "everything looks good" moment
+    if visited > 0:
+        await asyncio.sleep(random.uniform(0.4, 1.0))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. FOCUS / BLUR EVENT SIMULATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def focus_blur_field(page, selector: str):
+    """
+    Dispatch focus, input, change, blur events on a field.
+    Modern anti-bot (Arkose, PerimeterX) tracks these DOM events.
+    A bot that fills via JS but never triggers focus/blur is suspicious.
+    """
+    try:
+        el = page.locator(selector).first
+        if await el.count() == 0:
+            return
+
+        await el.evaluate("""el => {
+            el.dispatchEvent(new Event('focus', {bubbles: true}));
+            el.dispatchEvent(new Event('focusin', {bubbles: true}));
+        }""")
+        await asyncio.sleep(random.uniform(0.05, 0.15))
+
+        await el.evaluate("""el => {
+            el.dispatchEvent(new Event('input', {bubbles: true}));
+            el.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        await asyncio.sleep(random.uniform(0.05, 0.1))
+
+        await el.evaluate("""el => {
+            el.dispatchEvent(new Event('blur', {bubbles: true}));
+            el.dispatchEvent(new Event('focusout', {bubbles: true}));
+        }""")
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. READING-SPEED AWARE DWELL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def reading_dwell(page, min_seconds: float = 1.0, max_seconds: float = 5.0):
+    """
+    Pause proportional to visible text content length.
+    More text on page → longer reading dwell. Plus some mouse drift.
+    """
+    try:
+        text_length = await page.evaluate("document.body.innerText.length")
+        # ~250 WPM average reading speed, ~5 chars/word
+        estimated_read_time = (text_length / 5 / 250) * 60  # seconds
+        dwell = max(min_seconds, min(max_seconds, estimated_read_time * random.uniform(0.1, 0.3)))
+    except Exception:
+        dwell = random.uniform(min_seconds, max_seconds)
+
+    # Drift mouse while "reading"
+    elapsed = 0
+    viewport = page.viewport_size or {"width": 1280, "height": 720}
+    while elapsed < dwell:
+        dx = random.gauss(0, 8)
+        dy = random.gauss(0, 5)
+        cx = max(10, min(viewport["width"] - 10, int(viewport["width"] * 0.5 + dx)))
+        cy = max(10, min(viewport["height"] - 10, int(viewport["height"] * 0.4 + dy)))
+        try:
+            await page.mouse.move(cx, cy)
+        except Exception:
+            pass
+        pause = random.uniform(0.2, 0.5)
+        await asyncio.sleep(pause)
+        elapsed += pause
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. CLIPBOARD PASTE SIMULATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def clipboard_paste(page, selector: str, text: str):
+    """
+    Simulate Ctrl+V paste (some humans copy-paste passwords from managers).
+    Uses clipboard API to set content, then keyboard shortcut.
+    ~20% of real users paste passwords instead of typing.
+    """
+    try:
+        el = page.locator(selector).first
+        box = await el.bounding_box()
+        if box:
+            cx = box["x"] + box["width"] * 0.5 + random.gauss(0, 5)
+            cy = box["y"] + box["height"] * 0.5 + random.gauss(0, 3)
+            await _move_mouse_to(page, cx, cy)
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+            await page.mouse.click(cx, cy)
+        else:
+            await el.click()
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+
+        # Set clipboard and paste
+        await page.evaluate(f"navigator.clipboard.writeText('{text}')")
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        await page.keyboard.press("Control+a")  # Select all first
+        await asyncio.sleep(random.uniform(0.05, 0.15))
+        await page.keyboard.press("Control+v")
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+    except Exception:
+        # Fallback: fill directly
+        try:
+            await page.locator(selector).first.fill(text)
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 13. NATURAL TAB/CLICK FIELD NAVIGATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def natural_tab_navigate(page, from_selector: str = None, to_selector: str = None):
+    """
+    Navigate between fields using Tab or mouse click (mixed).
+    Real humans alternate between keyboard and mouse navigation.
+    ~40% Tab, ~60% mouse click for form fields.
+    """
+    use_tab = random.random() < 0.4
+
+    if use_tab:
+        await page.keyboard.press("Tab")
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+    elif to_selector:
+        await human_click(page, to_selector)
+    else:
+        # Just Tab if no target selector
+        await page.keyboard.press("Tab")
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 14. MICRO-HESITATION (before important actions)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def micro_hesitation(page, action_name: str = "submit"):
+    """
+    Brief freeze before important actions (Submit, Confirm, Continue).
+    Real humans hesitate 0.5-2s before clicking Submit — re-reading the button,
+    mentally confirming. Bots click instantly. This is detected.
+    """
+    # Brief mouse freeze (stop moving)
+    await asyncio.sleep(random.uniform(0.3, 0.8))
+
+    # Tiny mouse jitter (hand tension before pressing)
+    viewport = page.viewport_size or {"width": 1280, "height": 720}
+    for _ in range(random.randint(1, 3)):
+        dx = random.gauss(0, 3)
+        dy = random.gauss(0, 2)
+        try:
+            await page.mouse.move(
+                viewport["width"] // 2 + int(dx),
+                viewport["height"] // 2 + int(dy)
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(random.uniform(0.1, 0.2))
+
+    # Final pause — "ok, I'll click now"
+    await asyncio.sleep(random.uniform(0.2, 0.5))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 15. SCROLL TO ELEMENT (natural scrolling to bring element into view)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def scroll_to_element(page, selector: str):
+    """
+    Smoothly scroll to bring an element into viewport.
+    Uses incremental scrolling instead of instant scrollIntoView().
+    Anti-bot systems flag instant viewport jumps.
+    """
+    try:
+        el = page.locator(selector).first
+        if await el.count() == 0:
+            return
+
+        box = await el.bounding_box()
+        if not box:
+            # Element exists but not in layout — use JS scroll
+            await el.evaluate("el => el.scrollIntoView({behavior: 'smooth', block: 'center'})")
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+            return
+
+        viewport = page.viewport_size or {"width": 1280, "height": 720}
+        vh = viewport["height"]
+
+        # Check if element is visible in viewport
+        if box["y"] >= 0 and box["y"] + box["height"] <= vh:
+            return  # Already visible
+
+        # Calculate scroll needed
+        scroll_needed = box["y"] - vh * 0.4  # target 40% from top
+
+        # Smooth scroll in chunks
+        direction = 1 if scroll_needed > 0 else -1
+        remaining = abs(scroll_needed)
+        chunks = random.randint(3, 6)
+
+        for i in range(chunks):
+            chunk = (remaining / (chunks - i)) * random.uniform(0.8, 1.2)
+            chunk = min(chunk, remaining) * direction
+            try:
+                await page.mouse.wheel(0, chunk)
+                await asyncio.sleep(random.uniform(0.04, 0.12))
+            except Exception:
+                break
+            remaining -= abs(chunk)
+            if remaining <= 5:
+                break
+
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 16. WINDOW / VIEWPORT EVENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def simulate_window_focus(page):
+    """
+    Dispatch window focus/visibilitychange events.
+    Tab-switching is normal human behavior. Anti-bot systems track if
+    a window NEVER loses/regains focus (bots don't switch tabs).
+    """
+    try:
+        # Simulate brief tab switch (user checking something else)
+        if random.random() < 0.15:
+            await page.evaluate("""
+                document.dispatchEvent(new Event('visibilitychange'));
+                window.dispatchEvent(new Event('blur'));
+            """)
+            await asyncio.sleep(random.uniform(1, 4))  # "looked at another tab"
+            await page.evaluate("""
+                document.dispatchEvent(new Event('visibilitychange'));
+                window.dispatchEvent(new Event('focus'));
+            """)
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+    except Exception:
+        pass
