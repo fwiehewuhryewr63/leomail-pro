@@ -239,7 +239,7 @@ async def test_service(service: str):
             result = provider.get_balance()
             if result > 0:
                 return {"status": "ok", "message": "Proxy connection OK! ✅"}
-            return {"status": "error", "message": "Proxy connection failed - check key format (api_key:api_secret)"}
+            return {"status": "error", "message": "API auth failed - check key format (apiKey:apiSecret from dashboard)"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     elif service in ("asocks", "proxy6", "belurk", "iproyal"):

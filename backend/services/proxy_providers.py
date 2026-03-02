@@ -365,10 +365,11 @@ class BelurkProvider(ProxyProviderBase):
             return []
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Proxy-Cheap - Residential backconnect proxies (Tier 4, ~$3.49/GB)
-# Credentials: unique per user from dashboard (app.proxy-cheap.com → My Services)
-# Key format stored: host:port:username:password
-# Country/session targeting via password suffixes
+# Proxy-Cheap - Residential proxies (Tier 4, ~$3.49/GB)
+# API docs: https://docs.proxy-cheap.com
+# Auth: X-Api-Key + X-Api-Secret headers (from app.proxy-cheap.com/api-keys)
+# API base: https://api.proxy-cheap.com
+# Services: rotating-residential, rotating-mobile, static-residential-ipv4
 # No identity verification required
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -376,129 +377,170 @@ class ProxyCheapProvider(ProxyProviderBase):
     """
     Proxy-Cheap - 6M+ residential IPs, HTTP+SOCKS5.
     
-    API key format: host:port:username:password
-    (from Proxy-Cheap dashboard → My Services → proxy credentials)
+    API key format: apiKey:apiSecret
+    (from app.proxy-cheap.com → API Keys section)
     
-    Country targeting: appended to password as _country-XX
-    Session stickiness: appended to password as _session-ID_lifetime-30m
+    Uses REST API for ordering; proxy credentials come from purchased orders.
     """
     name = "proxycheap"
+    BASE_URL = "https://api.proxy-cheap.com"
 
-    def _parse_credentials(self):
-        """Parse stored key into host, port, username, password."""
-        parts = self.api_key.strip().split(":")
-        if len(parts) >= 4:
-            return {
-                "host": parts[0].strip(),
-                "port": int(parts[1].strip()),
-                "username": parts[2].strip(),
-                "password": ":".join(parts[3:]).strip(),  # password may contain colons
-            }
-        elif len(parts) == 3:
-            # host:port:password (no username)
-            return {
-                "host": parts[0].strip(),
-                "port": int(parts[1].strip()),
-                "username": "",
-                "password": parts[2].strip(),
-            }
-        elif len(parts) == 2:
-            # host:port only
-            return {
-                "host": parts[0].strip(),
-                "port": int(parts[1].strip()),
-                "username": "",
-                "password": "",
-            }
-        # Single value — treat as host
-        return {"host": self.api_key.strip(), "port": 8080, "username": "", "password": ""}
+    def _parse_keys(self):
+        """Parse stored 'apiKey:apiSecret' into two values."""
+        if ":" in self.api_key:
+            parts = self.api_key.split(":", 1)
+            return parts[0].strip(), parts[1].strip()
+        return self.api_key.strip(), self.api_key.strip()
+
+    def _headers(self):
+        api_key, api_secret = self._parse_keys()
+        return {
+            "X-Api-Key": api_key,
+            "X-Api-Secret": api_secret,
+            "Content-Type": "application/json",
+        }
 
     def get_balance(self) -> float:
         """
-        Test connectivity through the proxy.
-        Returns 1.0 if proxy works, -1 if not.
-        No balance API available for regular Proxy-Cheap users.
+        Validate API keys by hitting /v2/order (services list).
+        Returns 1.0 if keys work, -1 if not.
         """
         try:
-            creds = self._parse_credentials()
-            
-            if creds["username"] and creds["password"]:
-                proxy_url = f"http://{creds['username']}:{creds['password']}@{creds['host']}:{creds['port']}"
-            else:
-                proxy_url = f"http://{creds['host']}:{creds['port']}"
-
             r = requests.get(
-                "https://httpbin.org/ip",
-                proxies={"http": proxy_url, "https": proxy_url},
+                f"{self.BASE_URL}/v2/order",
+                headers=self._headers(),
                 timeout=15,
             )
+            if r.status_code == 401 or r.status_code == 403:
+                logger.error(f"[ProxyCheap] Auth failed: {r.status_code}")
+                return -1
             if r.ok:
-                ip = r.json().get("origin", "unknown")
-                logger.info(f"[ProxyCheap] Proxy test OK, IP: {ip}")
+                data = r.json()
+                logger.info(f"[ProxyCheap] API connection OK, services: {len(data) if isinstance(data, list) else 'N/A'}")
                 return 1.0
+            logger.error(f"[ProxyCheap] API error: {r.status_code} {r.text[:200]}")
             return -1
         except Exception as e:
-            logger.error(f"[ProxyCheap] Connection test error: {e}")
+            logger.error(f"[ProxyCheap] Connection error: {e}")
             return -1
+
+    def get_services(self) -> list[dict]:
+        """Get available services & plans from /v2/order."""
+        try:
+            r = requests.get(
+                f"{self.BASE_URL}/v2/order",
+                headers=self._headers(),
+                timeout=15,
+            )
+            r.raise_for_status()
+            return r.json() if isinstance(r.json(), list) else [r.json()]
+        except Exception as e:
+            logger.error(f"[ProxyCheap] Services error: {e}")
+            return []
+
+    def get_setup(self, service_id: str, plan_id: str = None) -> dict:
+        """Get available configuration (countries, ISPs) for a service."""
+        try:
+            params = {}
+            if plan_id:
+                params["planId"] = plan_id
+            r = requests.get(
+                f"{self.BASE_URL}/v2/order/{service_id}",
+                headers=self._headers(),
+                params=params,
+                timeout=15,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            logger.error(f"[ProxyCheap] Setup error for {service_id}: {e}")
+            return {}
+
+    def get_order_proxies(self, order_id: str) -> list[dict]:
+        """Get proxy credentials for a completed order."""
+        try:
+            r = requests.get(
+                f"{self.BASE_URL}/orders/{order_id}/proxies",
+                headers=self._headers(),
+                timeout=15,
+            )
+            r.raise_for_status()
+            data = r.json()
+            proxies = []
+            entries = data if isinstance(data, list) else data.get("data", data.get("proxies", []))
+            for entry in entries:
+                if isinstance(entry, dict):
+                    proxies.append({
+                        "host": entry.get("host", entry.get("ip", "")),
+                        "port": int(entry.get("port", 0)),
+                        "username": entry.get("username", entry.get("user", "")),
+                        "password": entry.get("password", entry.get("pass", "")),
+                        "protocol": entry.get("protocol", "http"),
+                        "geo": entry.get("country", "").upper(),
+                        "expires_at": entry.get("expiresAt", None),
+                        "proxy_type": "residential",
+                        "external_id": f"proxycheap_{entry.get('id', '')}",
+                    })
+            return proxies
+        except Exception as e:
+            logger.error(f"[ProxyCheap] Order proxies error: {e}")
+            return []
 
     def list_proxies(self, country: str = None, count: int = 10,
                      protocol: str = "http", session_type: str = "sticky") -> list[dict]:
-        """Generate proxy entries with optional country/session targeting."""
-        return self._build_proxies(count, country or "us", protocol, session_type)
-
-    def _build_proxies(self, count: int, country: str = "us",
-                       protocol: str = "http",
-                       session_type: str = "sticky") -> list[dict]:
         """
-        Build proxy entries from dashboard credentials.
-        Proxy-Cheap targeting via password suffixes:
-          password_country-us_session-RANDOM_lifetime-30m
+        Try ordering rotating-residential proxies via API.
+        If ordering fails, return empty (user needs to buy traffic on dashboard).
         """
-        import hashlib
-        import time
+        try:
+            # Try to execute an order for rotating residential
+            service_id = "rotating-residential"
+            payload = {
+                "serviceId": service_id,
+                "traffic": 1,  # 1 GB minimum
+            }
+            if country:
+                payload["country"] = country.upper()
 
-        creds = self._parse_credentials()
-        proxies = []
+            r = requests.post(
+                f"{self.BASE_URL}/v2/order/{service_id}/execute",
+                headers=self._headers(),
+                json=payload,
+                timeout=30,
+            )
 
-        for i in range(count):
-            session_id = hashlib.md5(f"{time.time()}_{i}_{random.random()}".encode()).hexdigest()[:10]
+            if r.ok:
+                data = r.json()
+                order_id = data.get("id", data.get("orderId"))
+                if order_id:
+                    return self.get_order_proxies(str(order_id))
 
-            # Build password with targeting suffixes
-            password = creds["password"]
-            password += f"_country-{country.lower()}"
-            if session_type == "sticky":
-                password += f"_session-{session_id}_lifetime-30m"
-
-            proxies.append({
-                "host": creds["host"],
-                "port": creds["port"],
-                "username": creds["username"],
-                "password": password,
-                "protocol": protocol,
-                "geo": country.upper(),
-                "expires_at": None,
-                "proxy_type": "residential",
-                "external_id": f"proxycheap_{session_id}",
-            })
-
-        logger.info(f"[ProxyCheap] Built {len(proxies)} proxies ({protocol}, {country}, {session_type})")
-        return proxies
+            logger.warning(f"[ProxyCheap] Order failed: {r.status_code} {r.text[:200]}")
+            return []
+        except Exception as e:
+            logger.error(f"[ProxyCheap] List proxies error: {e}")
+            return []
 
     def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
                     proxy_type: str = "residential") -> list[dict]:
         """
-        Proxy-Cheap is pay-per-GB.
-        Returns proxies with targeting - traffic deducted on use.
+        Buy proxies via Proxy-Cheap API.
+        For rotating-residential, purchases traffic (pay-per-GB).
         """
+        # First validate API keys
         balance = self.get_balance()
         if balance < 0:
-            logger.warning("[ProxyCheap] Proxy connection test failed, skipping")
+            logger.warning("[ProxyCheap] API validation failed, skipping")
             return []
 
-        protocol = "socks5" if proxy_type == "residential" else "http"
-        proxies = self._build_proxies(count, country, protocol, "sticky")
+        proxies = self.list_proxies(
+            country=country,
+            count=count,
+            protocol="socks5" if proxy_type == "residential" else "http",
+            session_type="sticky",
+        )
 
-        logger.info(f"[ProxyCheap] Generated {len(proxies)} {proxy_type} proxies for {country}")
+        logger.info(f"[ProxyCheap] Got {len(proxies)} proxies for {country}")
         return proxies
 
 
