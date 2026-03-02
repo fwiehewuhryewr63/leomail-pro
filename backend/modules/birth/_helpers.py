@@ -313,19 +313,21 @@ async def order_sms_with_chain(
     for provider_name, provider in sms_chain:
         _log(f"[SMS] >> Trying provider: {provider_name}")
 
-        # Use order_best_number if available, otherwise order_number_from_countries
+        # ALWAYS use order_number_from_countries — NEVER order_best_number
+        # order_best_number ignores country which causes wrong country numbers!
+        # Each provider's order_number_from_countries already sorts by price DESC
+        # (most expensive = best quality) within the given country list.
         order = None
         try:
-            if hasattr(provider, 'order_best_number'):
-                _log(f"[SMS] {provider_name}: ordering BEST (most expensive) number for {service}")
-                order = await asyncio.to_thread(provider.order_best_number, service)
-            elif hasattr(provider, 'order_number_from_countries'):
+            if hasattr(provider, 'order_number_from_countries'):
+                _log(f"[SMS] {provider_name}: ordering from countries {expanded_countries[:5]}... (price DESC)")
                 order = await asyncio.to_thread(
                     provider.order_number_from_countries, service, expanded_countries
                 )
             else:
                 # Fallback: try countries one by one
                 for country in expanded_countries[:5]:
+                    _log(f"[SMS] {provider_name}: trying {country}...")
                     order = await asyncio.to_thread(provider.order_number, service, country)
                     if order and "error" not in order:
                         break

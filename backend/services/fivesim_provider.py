@@ -185,13 +185,41 @@ class FiveSimProvider:
     def order_number_from_countries(self, service: str = "gmail", countries: list = None, blacklist: set = None) -> dict:
         """
         Order a number from allowed countries list.
+        Sorted by PRICE DESC (most expensive = best quality real numbers).
         Tries each country in order, skipping blacklisted.
         """
+        import random
         if not countries:
             return self.order_number(service, "auto")
 
         product = FIVESIM_PRODUCTS.get(service, "other")
         available = [c for c in countries if not blacklist or c not in blacklist]
+
+        # ── Sort by price DESC: most expensive countries first ──
+        all_prices = {}
+        try:
+            price_data = self.get_prices(service)
+            if price_data:
+                for country_name, info in price_data.items():
+                    # Find sms_cc for this country_name
+                    for sms_cc, cn in FIVESIM_COUNTRIES.items():
+                        if cn == country_name:
+                            # info has operator keys, each with cost
+                            if isinstance(info, dict):
+                                # Get max cost across operators (most expensive = best quality)
+                                max_cost = 0
+                                for op_name, op_info in info.items():
+                                    if isinstance(op_info, dict) and "cost" in op_info:
+                                        max_cost = max(max_cost, op_info["cost"])
+                                if max_cost > 0:
+                                    all_prices[sms_cc] = max_cost
+                            break
+                available.sort(key=lambda c: all_prices.get(c, 0), reverse=True)
+                if all_prices:
+                    top3 = [(c, all_prices.get(c, "?")) for c in available[:3]]
+                    logger.info(f"5sim: sorted by price DESC - top: {top3}")
+        except Exception as e:
+            logger.warning(f"5sim: price sort failed ({e}), using original order")
 
         for attempt in range(3):
             for c in available:
@@ -203,7 +231,8 @@ class FiveSimProvider:
                     phone = result["phone"]
                     if phone.startswith("+"):
                         phone = phone[1:]
-                    logger.info(f"5sim: [OK] {c} - {phone}")
+                    cost = all_prices.get(c, "?")
+                    logger.info(f"5sim: [OK] {c} (${cost}) - {phone}")
                     self._last_country = c
                     return {
                         "id": str(result["id"]),
