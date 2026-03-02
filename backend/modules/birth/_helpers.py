@@ -178,6 +178,61 @@ def reset_chain_state(service: str):
     _sms_chain_state.pop(service, None)
 
 
+async def scrape_phone_dropdown(page, _log=None) -> list[str]:
+    """Scrape Yahoo/AOL phone country code dropdown to get available prefixes.
+    Returns list of phone prefixes like ['1', '44', '55', ...].
+    """
+    if _log is None:
+        _log = lambda msg: logger.info(msg)
+    try:
+        prefixes = await page.evaluate("""() => {
+            const results = [];
+            // Method 1: <select> with country codes
+            const selects = document.querySelectorAll('select');
+            for (const sel of selects) {
+                for (const opt of sel.options) {
+                    const m = opt.text.match(/\\+(\\d{1,4})/);
+                    if (m && !results.includes(m[1])) results.push(m[1]);
+                }
+            }
+            // Method 2: listbox items
+            if (results.length === 0) {
+                const items = document.querySelectorAll('[role="option"], [data-country]');
+                for (const item of items) {
+                    const text = item.textContent || '';
+                    const m = text.match(/\\+(\\d{1,4})/);
+                    if (m && !results.includes(m[1])) results.push(m[1]);
+                }
+            }
+            return results;
+        }""")
+        if prefixes and len(prefixes) > 0:
+            _log(f"Scraped {len(prefixes)} country prefixes from dropdown")
+            return prefixes
+    except Exception as e:
+        _log(f"Dropdown scrape failed: {e}")
+    return []
+
+
+# ── SMS backoff tracking (prevent hammering providers) ──
+_sms_backoff = {}  # {service: {"fails": int, "last_fail": float}}
+
+
+def _reset_sms_backoff(service: str):
+    """Reset backoff after successful SMS order."""
+    _sms_backoff.pop(service, None)
+
+
+def _record_sms_fail(service: str):
+    """Record an SMS failure for the service."""
+    import time
+    if service not in _sms_backoff:
+        _sms_backoff[service] = {"fails": 0, "last_fail": 0}
+    _sms_backoff[service]["fails"] += 1
+    _sms_backoff[service]["last_fail"] = time.time()
+    logger.warning(f"[SMS] {service} fail #{_sms_backoff[service]['fails']}")
+
+
 async def order_sms_with_chain(
     service: str,
     sms_provider,
