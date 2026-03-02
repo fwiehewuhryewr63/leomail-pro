@@ -29,7 +29,7 @@ from ._helpers import (
     detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
     debug_screenshot as _debug_screenshot,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
-    order_sms_with_chain, order_sms_retry, get_next_sms_number,
+    order_sms_with_chain, order_sms_retry, get_next_sms_number, get_sms_chain,
     reset_chain_state, SMS_CODE_TIMEOUT,
     export_account_to_file,
 )
@@ -515,21 +515,53 @@ async def register_single_yahoo(
             except Exception:
                 pass
 
-            # ── STEP 2: Order SMS matching Yahoo's country if possible ──
+            # ── STEP 2: Order SMS for Yahoo's displayed country ──
+            # CRITICAL: Yahoo's country code is READ-ONLY (React-controlled).
+            # We MUST get a number for the country Yahoo shows, or the number
+            # will be rejected as "incorrect". Try ALL providers for that country
+            # before falling back to other countries.
             proxy_geo = getattr(proxy, 'geo', None) if proxy else None
-            # Override proxy_geo with Yahoo's detected country for best match
             preferred_geo = yahoo_country_for_sms or proxy_geo
-            _log(f"Ordering number for Yahoo SMS (preferred country: {preferred_geo})...")
+            order = None
+            active_sms_provider = None
+            expanded_countries = []
 
-            order, active_sms_provider, expanded_countries = await order_sms_with_chain(
-                service="yahoo",
-                sms_provider=sms_provider,
-                proxy_geo=preferred_geo,
-                page=page,
-                scrape_dropdown=True,
-                _log=_log,
-                _err=_err,
-            )
+            if yahoo_country_for_sms:
+                _log(f"[SMS] Must get number for Yahoo's country: {yahoo_country_for_sms} (+{yahoo_detected_prefix})")
+                # Try each provider individually for Yahoo's country ONLY
+                sms_chain = get_sms_chain()
+                for provider_name, provider in sms_chain:
+                    _log(f"[SMS] Trying {provider_name} for {yahoo_country_for_sms}...")
+                    try:
+                        result = await asyncio.to_thread(
+                            provider.order_number, "yahoo", yahoo_country_for_sms
+                        )
+                        if result and "error" not in result:
+                            order = result
+                            active_sms_provider = provider
+                            expanded_countries = [yahoo_country_for_sms]
+                            _log(f"[OK] {provider_name}: got {yahoo_country_for_sms} number: {result.get('number', '?')}")
+                            break
+                        else:
+                            err = result.get("error", "?") if result else "no response"
+                            _log(f"[SMS] {provider_name}: no {yahoo_country_for_sms} numbers ({err})")
+                    except Exception as e:
+                        _log(f"[SMS] {provider_name} error: {e}")
+
+            # Fallback: if Yahoo's country has no numbers, use full chain
+            if not order:
+                if yahoo_country_for_sms:
+                    _log(f"[WARN] No numbers for {yahoo_country_for_sms} on any provider. Trying other countries...")
+                _log(f"Ordering number for Yahoo SMS (preferred country: {preferred_geo})...")
+                order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+                    service="yahoo",
+                    sms_provider=sms_provider,
+                    proxy_geo=preferred_geo,
+                    page=page,
+                    scrape_dropdown=True,
+                    _log=_log,
+                    _err=_err,
+                )
 
             if not order:
                 return None
