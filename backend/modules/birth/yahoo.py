@@ -556,9 +556,43 @@ async def register_single_yahoo(
             local_number = phone_number.lstrip("+")
             if phone_prefix and local_number.startswith(phone_prefix):
                 local_number = local_number[len(phone_prefix):]
-                _log(f"Stripped prefix +{phone_prefix}, entering: {local_number}")
+                _log(f"Stripped prefix +{phone_prefix}, entering: {local_number} ({len(local_number)} digits)")
             else:
-                _log(f"Entering as-is: {local_number}")
+                _log(f"Entering as-is: {local_number} ({len(local_number)} digits)")
+
+            # ── Validate local number length (reject virtual numbers with wrong format) ──
+            MAX_LOCAL_DIGITS = 12
+            MIN_LOCAL_DIGITS = 6
+            if len(local_number) > MAX_LOCAL_DIGITS or len(local_number) < MIN_LOCAL_DIGITS:
+                _log(f"[WARN] Number {local_number} has {len(local_number)} digits - invalid! "
+                     f"Expected {MIN_LOCAL_DIGITS}-{MAX_LOCAL_DIGITS}. Canceling & re-ordering...")
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                except Exception:
+                    pass
+                # Re-order with next provider via chain
+                order, sms_provider_new, expanded_countries = await order_sms_with_chain(
+                    service="yahoo",
+                    sms_provider=sms_provider,
+                    proxy_geo=preferred_geo,
+                    page=page,
+                    scrape_dropdown=False,
+                    _log=_log,
+                    _err=_err,
+                )
+                if not order:
+                    _err("All SMS providers returned invalid-length numbers")
+                    return None
+                sms_provider = sms_provider_new
+                phone_number = order["number"]
+                order_id = order["id"]
+                sms_country = order.get("country", "")
+                phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+                local_number = phone_number.lstrip("+")
+                if phone_prefix and local_number.startswith(phone_prefix):
+                    local_number = local_number[len(phone_prefix):]
+                _log(f"Re-ordered number: {local_number} ({len(local_number)} digits)")
+                _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
 
             # ── STEP 4: Change Yahoo's country code IF it doesn't match ──
             # Detect what country Yahoo is currently showing on the page
