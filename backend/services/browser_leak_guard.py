@@ -144,10 +144,11 @@ def get_browser_memory_usage_mb() -> float:
     return total_bytes / (1024 * 1024)
 
 
-async def periodic_leak_guard(interval_seconds: int = 120, max_age_seconds: int = 300):
+async def periodic_leak_guard(interval_seconds: int = 120, max_age_seconds: int = 900):
     """
     Background coroutine that periodically checks for and kills orphaned browsers.
-    Run as asyncio.create_task(periodic_leak_guard()) on startup.
+    IMPORTANT: Skips cleanup when autoreg/birth tasks are actively running
+    to avoid killing in-use browser processes.
     """
     import asyncio
     logger.info(f"[LeakGuard] Started - checking every {interval_seconds}s for processes older than {max_age_seconds}s")
@@ -155,9 +156,23 @@ async def periodic_leak_guard(interval_seconds: int = 120, max_age_seconds: int 
     while True:
         try:
             await asyncio.sleep(interval_seconds)
-            killed = kill_orphaned_browsers(max_age_seconds)
-            if killed:
-                mem_mb = get_browser_memory_usage_mb()
-                logger.info(f"[LeakGuard] Remaining browser memory: {mem_mb:.0f} MB")
+            # Check if ANY engine is currently running - if so, DON'T kill anything!
+            # Active task browsers are NOT orphans
+            skip = False
+            try:
+                from .engine_manager import engine_manager, EngineType
+                for etype in EngineType:
+                    if engine_manager.is_running(etype):
+                        logger.debug(f"[LeakGuard] Engine {etype.value} running - skipping cleanup")
+                        skip = True
+                        break
+            except Exception:
+                pass  # If we can't check, be safe and skip
+
+            if not skip:
+                killed = kill_orphaned_browsers(max_age_seconds)
+                if killed:
+                    mem_mb = get_browser_memory_usage_mb()
+                    logger.info(f"[LeakGuard] Remaining browser memory: {mem_mb:.0f} MB")
         except Exception as e:
             logger.debug(f"[LeakGuard] Error: {e}")
