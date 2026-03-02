@@ -207,19 +207,25 @@ class ProxyManager:
 
         proxies = query.all()
 
-        # For strict providers (Yahoo, Gmail): prioritize mobile > residential/socks5/https
-        # socks5/https are protocol types for residential proxies, NOT datacenter
-        strict_providers = ('yahoo', 'gmail')
-        if provider and provider.lower() in strict_providers:
+        # Gmail: prioritize mobile proxies (ONLY Gmail needs mobile)
+        if provider and provider.lower() == 'gmail':
             def proxy_priority(p):
                 pt = (p.proxy_type or '').lower()
-                if pt == 'mobile':
-                    return 0  # Best: mobile
-                else:
-                    return 1  # Good: residential (socks5/https/http)
+                return 0 if pt == 'mobile' else 1
             proxies.sort(key=proxy_priority)
             mobile_count = sum(1 for p in proxies if (p.proxy_type or '').lower() == 'mobile')
             logger.info(f"[ProxyPool] {provider}: {len(proxies)} total proxies ({mobile_count} mobile, {len(proxies) - mobile_count} residential)")
+        else:
+            # All other providers: sort by usage (least-used first)
+            def _pool_usage_key(p):
+                total = sum(getattr(p, f, 0) or 0 for f in (
+                    'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
+                    'use_hotmail', 'use_protonmail', 'use_tuta'))
+                ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
+                return (total, ts)
+            proxies.sort(key=_pool_usage_key)
+            if provider:
+                logger.info(f"[ProxyPool] {provider}: {len(proxies)} proxies (sorted least-used first)")
 
         if len(proxies) <= count:
             return proxies
@@ -369,8 +375,9 @@ class ProxyManager:
             if group_filter is not None:
                 query = query.filter(group_filter)
             # Cooldown: minimum interval between uses on same proxy
-            cooldown_minutes = {"yahoo": 30, "aol": 30, "gmail": 30,
-                                "outlook": 15, "hotmail": 15}.get(provider.lower(), 20)
+            # Short cooldowns to avoid starving the pool
+            cooldown_minutes = {"yahoo": 10, "aol": 10, "gmail": 20,
+                                "outlook": 5, "hotmail": 5}.get(provider.lower(), 10)
             from datetime import datetime, timedelta
             cutoff = datetime.utcnow() - timedelta(minutes=cooldown_minutes)
             query = query.filter(
