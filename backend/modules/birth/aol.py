@@ -29,7 +29,8 @@ from ._helpers import (
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
-    order_sms_with_chain, order_sms_retry,
+    order_sms_with_chain, order_sms_retry, get_next_sms_number,
+    reset_chain_state, SMS_CODE_TIMEOUT,
     export_account_to_file,
 )
 
@@ -130,6 +131,11 @@ async def register_single_aol(
 
     _active_sms = None  # Track SMS order for crash recovery
     _sms_success = False
+    _current_sms_provider_name = None  # Track provider name for chain rotation
+
+    # Reset SMS chain state for this registration attempt
+    reset_chain_state("aol")
+
     try:
         page = await context.new_page()
         thread_id = thread_log.id if thread_log else 0
@@ -383,6 +389,13 @@ async def register_single_aol(
                 return None
 
             sms_provider = active_sms_provider
+            _cls = type(active_sms_provider).__name__.lower()
+            if 'grizzly' in _cls:
+                _current_sms_provider_name = 'grizzly'
+            elif 'fivesim' in _cls or '5sim' in _cls:
+                _current_sms_provider_name = '5sim'
+            else:
+                _current_sms_provider_name = 'simsms'
 
             phone_number = order["number"]
             order_id = order["id"]
@@ -465,13 +478,17 @@ async def register_single_aol(
                             await asyncio.to_thread(sms_provider.cancel_order, order_id)
                         except Exception:
                             pass
-                        new_order = await order_sms_retry(
+                        new_order, new_provider, new_provider_name = await get_next_sms_number(
                             service="aol",
-                            active_provider=sms_provider,
+                            current_provider=sms_provider,
+                            current_provider_name=_current_sms_provider_name or 'simsms',
                             expanded_countries=[page_country] + [c for c in expanded_countries if c != page_country],
-                            used_numbers={phone_number},
                             _log=_log,
+                            _err=_err,
                         )
+                        if new_provider:
+                            sms_provider = new_provider
+                            _current_sms_provider_name = new_provider_name
                         if new_order:
                             phone_number = new_order["number"]
                             order_id = new_order["id"]
@@ -621,14 +638,18 @@ async def register_single_aol(
                     except Exception:
                         pass
 
-                    # Order new number via shared retry function
-                    new_order = await order_sms_retry(
+                    # Order new number via chain rotation (3 attempts/provider, then next)
+                    new_order, new_provider, new_provider_name = await get_next_sms_number(
                         service="aol",
-                        active_provider=sms_provider,
+                        current_provider=sms_provider,
+                        current_provider_name=_current_sms_provider_name or 'simsms',
                         expanded_countries=expanded_countries,
-                        used_numbers={phone_number},
                         _log=_log,
+                        _err=_err,
                     )
+                    if new_provider:
+                        sms_provider = new_provider
+                        _current_sms_provider_name = new_provider_name
                     if not new_order:
                         _err("SMS error getting new number")
                         return None

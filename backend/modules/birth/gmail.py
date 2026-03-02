@@ -27,8 +27,9 @@ from ._helpers import (
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
-    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2,
-    order_sms_with_chain,
+    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
+    order_sms_with_chain, get_next_sms_number,
+    reset_chain_state, SMS_CODE_TIMEOUT,
     export_account_to_file,
 )
 
@@ -97,6 +98,9 @@ async def register_single_gmail(
         logger.debug(f"[Gmail] Vision not available: {ve}")
 
     try:
+        # Reset SMS chain state for this registration attempt
+        reset_chain_state("gmail")
+
         page = await context.new_page()
         thread_id = thread_log.id if thread_log else 0
         ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
@@ -359,74 +363,181 @@ async def register_single_gmail(
                     return None
 
                 sms_provider = active_sms_provider
+                _cls = type(active_sms_provider).__name__.lower()
+                if 'grizzly' in _cls:
+                    _current_sms_provider_name = 'grizzly'
+                elif 'fivesim' in _cls or '5sim' in _cls:
+                    _current_sms_provider_name = '5sim'
+                else:
+                    _current_sms_provider_name = 'simsms'
 
                 phone_number = order["number"]
                 order_id = order["id"]
                 _log(f"Number: {phone_number}")
 
-                # Format phone for Google
-                display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+                # ── SMS RETRY LOOP: 3 attempts per provider, rotate through chain ──
+                sms_verified = False
+                max_sms_retries = 9  # 3 providers × 3 attempts = max 9 total
 
-                await page.locator(phone_sel).first.click()
-                await _human_delay(0.3, 0.6)
-                await page.locator(phone_sel).first.fill(display_phone)
-                await _human_delay(0.5, 1)
+                for sms_attempt in range(max_sms_retries):
+                    if sms_attempt > 0:
+                        _log(f"SMS attempt #{sms_attempt + 1}...")
 
-                # Click Next / Send
-                send_btn = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Next")', '#next button'], timeout=5000)
-                if send_btn:
-                    await page.locator(send_btn).first.click()
-                else:
-                    await page.keyboard.press("Enter")
+                    # Format phone for Google
+                    display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
 
-                # Notify SMS service that number was used
-                try:
-                    if hasattr(sms_provider, 'set_status'):
-                        await asyncio.to_thread(sms_provider.set_status, order_id, 1)
-                except Exception:
-                    pass
+                    await page.locator(phone_sel).first.click()
+                    await _human_delay(0.3, 0.6)
+                    await page.locator(phone_sel).first.fill(display_phone)
+                    await _human_delay(0.5, 1)
 
-                _log("Waiting for SMS code...")
-                sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
+                    # Click Next / Send
+                    send_btn = await _wait_for_any(page, ['button:has-text("Next")', 'button:has-text("Next")', '#next button'], timeout=5000)
+                    if send_btn:
+                        await page.locator(send_btn).first.click()
+                    else:
+                        await page.keyboard.press("Enter")
 
-                sms_code = None
-                if isinstance(sms_result, dict):
-                    sms_code = sms_result.get("code")
-                    if sms_result.get("error"):
-                        _err(f"SMS error: {sms_result['error']}")
+                    await _human_delay(3, 5)
+
+                    # Check if Google rejected the number
+                    try:
+                        page_text = await page.locator('body').inner_text()
+                        rejection_phrases = [
+                            "phone number can't be used",
+                            "couldn't verify",
+                            "not a valid phone",
+                            "invalid phone",
+                            "try a different number",
+                            "this number cannot be used",
+                            "not supported",
+                        ]
+                        is_rejected = any(p.lower() in page_text.lower() for p in rejection_phrases)
+                    except Exception:
+                        is_rejected = False
+
+                    if is_rejected:
+                        _log(f"Google rejected number {display_phone} — getting new one via chain")
                         try:
                             await asyncio.to_thread(sms_provider.cancel_number, order_id)
                         except Exception:
                             pass
-                        return None
-                elif isinstance(sms_result, str):
-                    sms_code = sms_result
 
-                if not sms_code:
-                    _err("SMS code not received")
+                        new_order, new_provider, new_provider_name = await get_next_sms_number(
+                            service="gmail",
+                            current_provider=sms_provider,
+                            current_provider_name=_current_sms_provider_name or 'simsms',
+                            expanded_countries=expanded_countries,
+                            _log=_log,
+                            _err=_err,
+                        )
+                        if not new_order:
+                            _err("All SMS providers exhausted for Gmail")
+                            return None
+                        if new_provider:
+                            sms_provider = new_provider
+                            _current_sms_provider_name = new_provider_name
+                        phone_number = new_order["number"]
+                        order_id = new_order["id"]
+                        _log(f"New number: {phone_number}")
+
+                        # Clear and re-enter
+                        phone_sel = await _wait_for_any(page, [
+                            'input[type="tel"]', 'input[name="phoneNumber"]', '#phoneNumberId',
+                        ], timeout=5000)
+                        if not phone_sel:
+                            _err("Phone field disappeared after rejection")
+                            return None
+                        continue
+
+                    # Phone accepted — wait for code
+                    # Notify SMS service that number was used
                     try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                        if hasattr(sms_provider, 'set_status'):
+                            await asyncio.to_thread(sms_provider.set_status, order_id, 1)
                     except Exception:
                         pass
+
+                    _log(f"Waiting for SMS code ({SMS_CODE_TIMEOUT}s timeout)...")
+                    sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, SMS_CODE_TIMEOUT, BIRTH_CANCEL_EVENT)
+
+                    sms_code = None
+                    if isinstance(sms_result, dict):
+                        sms_code = sms_result.get("code")
+                        if sms_result.get("error"):
+                            _log(f"SMS error: {sms_result['error']}")
+                    elif isinstance(sms_result, str):
+                        sms_code = sms_result
+
+                    if not sms_code:
+                        _log(f"SMS code not received in {SMS_CODE_TIMEOUT}s — trying next number")
+                        try:
+                            await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                        except Exception:
+                            pass
+
+                        new_order, new_provider, new_provider_name = await get_next_sms_number(
+                            service="gmail",
+                            current_provider=sms_provider,
+                            current_provider_name=_current_sms_provider_name or 'simsms',
+                            expanded_countries=expanded_countries,
+                            _log=_log,
+                            _err=_err,
+                        )
+                        if not new_order:
+                            _err("All SMS providers exhausted for Gmail")
+                            return None
+                        if new_provider:
+                            sms_provider = new_provider
+                            _current_sms_provider_name = new_provider_name
+                        phone_number = new_order["number"]
+                        order_id = new_order["id"]
+                        _log(f"New number: {phone_number}")
+
+                        # Go back to phone entry — use browser Back or re-find field
+                        phone_sel = await _wait_for_any(page, [
+                            'input[type="tel"]', 'input[name="phoneNumber"]', '#phoneNumberId',
+                        ], timeout=5000)
+                        if not phone_sel:
+                            # Try going back
+                            try:
+                                await page.go_back()
+                                await _human_delay(2, 3)
+                                phone_sel = await _wait_for_any(page, [
+                                    'input[type="tel"]', 'input[name="phoneNumber"]',
+                                ], timeout=5000)
+                            except Exception:
+                                pass
+                        if not phone_sel:
+                            _err("Cannot get back to phone entry for retry")
+                            return None
+                        continue
+
+                    # Got SMS code!
+                    _log(f"SMS code: {sms_code}")
+                    code_sel = await _wait_for_any(page, ['input[type="tel"]', 'input[name="code"]', '#code'], timeout=15000)
+                    if code_sel:
+                        await page.locator(code_sel).first.fill(sms_code)
+                        await _human_delay(0.5, 1)
+                        verify_btn = await _wait_for_any(page, ['button:has-text("Verify")', 'button:has-text("Подтвердить")', 'button:has-text("Next")'], timeout=5000)
+                        if verify_btn:
+                            await page.locator(verify_btn).first.click()
+                        else:
+                            await page.keyboard.press("Enter")
+
+                    # Complete SMS activation
+                    try:
+                        if hasattr(sms_provider, 'complete_activation'):
+                            await asyncio.to_thread(sms_provider.complete_activation, order_id)
+                    except Exception:
+                        pass
+
+                    sms_verified = True
+                    break
+
+                if not sms_verified:
+                    _err("Failed to verify SMS after all attempts")
                     return None
-
-                _log(f"SMS code: {sms_code}")
-                code_sel = await _wait_for_any(page, ['input[type="tel"]', 'input[name="code"]', '#code'], timeout=15000)
-                if code_sel:
-                    await page.locator(code_sel).first.fill(sms_code)
-                    await _human_delay(0.5, 1)
-                    verify_btn = await _wait_for_any(page, ['button:has-text("Verify")', 'button:has-text("Подтвердить")', 'button:has-text("Next")'], timeout=5000)
-                    if verify_btn:
-                        await page.locator(verify_btn).first.click()
-                    else:
-                        await page.keyboard.press("Enter")
-
-                # Complete SMS activation
-                try:
-                    if hasattr(sms_provider, 'complete_activation'):
-                        await asyncio.to_thread(sms_provider.complete_activation, order_id)
-                except Exception:
-                    pass
 
                 await _human_delay(3, 5)
             else:
