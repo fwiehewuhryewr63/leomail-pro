@@ -615,10 +615,9 @@ async def human_fill(page, selector, text, field_type="default"):
                 for j in range(burst_len):
                     if i + j < len(text):
                         await page.keyboard.type(text[i + j], delay=random.randint(25, 50))
-                # Skip chars we already typed in burst
-                # (can't easily skip in a for loop, so just continue — burst typing
-                # might type extra chars but the visual effect is realistic)
-                break  # will re-iterate but effect is close enough
+                # Note: this may type a few chars twice (current char + burst),
+                # but it's better than the old `break` which STOPPED ALL TYPING
+                continue
 
             await page.keyboard.type(char, delay=delay_ms)
 
