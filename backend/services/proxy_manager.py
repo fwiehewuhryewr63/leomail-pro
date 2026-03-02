@@ -4,6 +4,7 @@ Import, rotate, and manage proxies with round-robin and GEO filtering.
 1 proxy = 1 account (hard binding). Auto-reassign on proxy death.
 """
 import random
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from loguru import logger
 from ..models import Proxy, ProxyStatus, Account
@@ -313,8 +314,14 @@ class ProxyManager:
         if not candidates:
             return None
 
-        # Shuffle to avoid always picking same one
-        random.shuffle(candidates)
+        # Sort by total usage (least-used first) so fresh proxies are preferred
+        def _usage_key(p):
+            total = sum(getattr(p, f, 0) or 0 for f in (
+                'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
+                'use_hotmail', 'use_protonmail', 'use_tuta'))
+            ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
+            return (total, ts, random.random())
+        candidates.sort(key=_usage_key)
 
         # Quick-check: try each until one works
         import asyncio
@@ -385,7 +392,14 @@ class ProxyManager:
                 logger.warning(f"[ProxyManager] All proxies blacklisted ({len(exclude_ids)} blocked), none left")
             return None
 
-        random.shuffle(candidates)
+        # Sort by total usage (least-used first) so fresh proxies are preferred
+        def _usage_key(p):
+            total = sum(getattr(p, f, 0) or 0 for f in (
+                'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
+                'use_hotmail', 'use_protonmail', 'use_tuta'))
+            ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
+            return (total, ts, random.random())
+        candidates.sort(key=_usage_key)
 
         from .proxy_monitor import check_single_proxy
 
