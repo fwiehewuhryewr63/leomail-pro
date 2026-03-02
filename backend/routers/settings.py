@@ -230,7 +230,19 @@ async def test_service(service: str):
             return {"status": "ok", "message": f"Connected! Balance: {balance} RUB"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    elif service in ("asocks", "proxy6", "belurk", "iproyal", "proxycheap"):
+    elif service == "proxycheap":
+        try:
+            from ..services.proxy_providers import get_proxy_provider
+            provider = get_proxy_provider(service)
+            if not provider:
+                return {"status": "error", "message": f"No API key for {service}"}
+            result = provider.get_balance()
+            if result > 0:
+                return {"status": "ok", "message": "Proxy connection OK! ✅"}
+            return {"status": "error", "message": "Proxy connection failed - check key format (api_key:api_secret)"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    elif service in ("asocks", "proxy6", "belurk", "iproyal"):
         try:
             from ..services.proxy_providers import get_proxy_provider
             provider = get_proxy_provider(service)

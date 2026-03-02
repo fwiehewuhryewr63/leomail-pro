@@ -399,34 +399,32 @@ class ProxyCheapProvider(ProxyProviderBase):
         }
 
     def get_balance(self) -> float:
-        """Get account balance in USD."""
+        """
+        Proxy-Cheap has no public balance API for regular users.
+        Instead, test connectivity through the backconnect proxy.
+        Returns 1.0 if proxy works, -1 if not.
+        """
         try:
+            # Build one test proxy
+            test_proxies = self._build_backconnect_proxies(1, "us", "http", "rotating")
+            if not test_proxies:
+                return -1
+
+            tp = test_proxies[0]
+            proxy_url = f"http://{tp['username']}:{tp['password']}@{tp['host']}:{tp['port']}"
+
             r = requests.get(
-                f"{self.BASE_URL}/services",
-                headers=self._headers(),
-                timeout=10,
+                "https://httpbin.org/ip",
+                proxies={"http": proxy_url, "https": proxy_url},
+                timeout=15,
             )
-            r.raise_for_status()
-            data = r.json()
-            # Response contains balance or available traffic
-            if isinstance(data, dict):
-                bal = data.get("balance", data.get("credit", data.get("available_traffic", -1)))
-                if isinstance(bal, (int, float)):
-                    return round(float(bal), 2)
-            # Try alternative balance endpoint
-            r2 = requests.get(
-                f"{self.BASE_URL}/balance",
-                headers=self._headers(),
-                timeout=10,
-            )
-            if r2.ok:
-                d2 = r2.json()
-                bal = d2.get("balance", d2.get("credit", -1))
-                if isinstance(bal, (int, float)):
-                    return round(float(bal), 2)
+            if r.ok:
+                ip = r.json().get("origin", "unknown")
+                logger.info(f"[ProxyCheap] Proxy test OK, IP: {ip}")
+                return 1.0  # Proxy works
             return -1
         except Exception as e:
-            logger.error(f"[ProxyCheap] Balance error: {e}")
+            logger.error(f"[ProxyCheap] Connection test error: {e}")
             return -1
 
     def list_proxies(self, country: str = None, count: int = 10,
