@@ -261,35 +261,84 @@ async def register_single_yahoo(
         await page.mouse.wheel(0, random.randint(30, 80))
         await _human_delay(0.5, 1.0)
 
-        # Yahoo birthday: input[type="tel"] fields, NOT selects
+        # Yahoo birthday fields - multiple detection strategies
+        # Strategy 1: CSS selectors (name, placeholder, autocomplete, aria-label)
         month_sel = await _wait_for_any(page, [
             'input[name="mm"]', 'input[placeholder="MM"]',
             'input[placeholder*="Month"]', 'input[placeholder*="onth"]',
             'input[aria-label="Birthday month"]', 'input[aria-label*="onth"]',
-            'input[id$="-mm"]',
+            'input[id$="-mm"]', 'input[id*="month"]',
+            'input[autocomplete="bday-month"]',
+            '#usernamereg-month',
         ], timeout=5000)
         if month_sel:
             await _human_fill(page, month_sel, str(birthday.month).zfill(2))
             await _human_delay(0.5, 1.2)
+        else:
+            _log("[WARN] Month field not found by CSS - trying JS fallback")
 
         day_sel = await _wait_for_any(page, [
             'input[name="dd"]', 'input[placeholder="DD"]',
             'input[placeholder*="Day"]', 'input[placeholder*="ay"]',
             'input[aria-label="Birthday day"]', 'input[aria-label*="day"]',
-            'input[id$="-dd"]',
+            'input[id$="-dd"]', 'input[id*="day"]',
+            'input[autocomplete="bday-day"]',
+            '#usernamereg-day',
         ], timeout=3000)
         if day_sel:
             await _human_fill(page, day_sel, str(birthday.day))
             await _human_delay(0.5, 1.0)
+        else:
+            _log("[WARN] Day field not found by CSS - trying JS fallback")
 
         year_sel = await _wait_for_any(page, [
             'input[name="yyyy"]', 'input[placeholder="YYYY"]',
             'input[placeholder*="Year"]', 'input[placeholder*="ear"]',
             'input[aria-label="Birthday year"]', 'input[aria-label*="ear"]',
-            'input[id$="-yyyy"]',
+            'input[id$="-yyyy"]', 'input[id*="year"]',
+            'input[autocomplete="bday-year"]',
+            '#usernamereg-year',
         ], timeout=3000)
         if year_sel:
             await _human_fill(page, year_sel, str(birthday.year))
+        else:
+            _log("[WARN] Year field not found by CSS - trying JS fallback")
+
+        # Strategy 2: JavaScript fallback for ALL birthday fields
+        # Find inputs near "Month"/"Day"/"Year" labels by proximity
+        if not month_sel or not day_sel or not year_sel:
+            _log("Using JS fallback for birthday fields...")
+            bday_result = await page.evaluate(f"""() => {{
+                const filled = [];
+                // Find all text labels on page
+                const allText = document.querySelectorAll('label, span, div, p');
+                const fields = [
+                    {{ label: /month/i, value: '{str(birthday.month).zfill(2)}' }},
+                    {{ label: /day/i, value: '{str(birthday.day)}' }},
+                    {{ label: /year/i, value: '{str(birthday.year)}' }},
+                ];
+                for (const field of fields) {{
+                    for (const el of allText) {{
+                        if (field.label.test(el.textContent) && el.textContent.length < 30) {{
+                            // Found label - look for nearby input
+                            const parent = el.closest('fieldset, div, section, form');
+                            if (parent) {{
+                                const input = parent.querySelector('input:not([type="hidden"]):not([type="checkbox"])');
+                                if (input && !input.value) {{
+                                    input.value = field.value;
+                                    input.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                    input.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                    filled.push(el.textContent.trim().substring(0, 20));
+                                    break;
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+                return filled;
+            }}""")
+            if bday_result:
+                _log(f"JS fallback filled: {bday_result}")
 
         await _human_delay(1.5, 3.0)  # Human reviews form before submitting
 
