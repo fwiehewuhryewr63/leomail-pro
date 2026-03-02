@@ -9,7 +9,7 @@ from pathlib import Path
 from loguru import logger
 
 from ...config import load_config, get_api_key
-from ...services.captcha_provider import CaptchaProvider
+from ...services.captcha_provider import CaptchaProvider, get_captcha_chain, CaptchaChain
 from ...services.sms_provider import GrizzlySMS
 from ...services.simsms_provider import SimSmsProvider
 from ...services.fivesim_provider import FiveSimProvider
@@ -431,6 +431,12 @@ async def order_sms_retry(
 
 
 def get_captcha_provider():
+    """Return a CaptchaChain with all configured providers for auto-fallback.
+    Falls back to single CapGuru if chain has no providers."""
+    chain = get_captcha_chain()
+    if chain.providers:
+        return chain
+    # Legacy fallback: single CapGuru
     key = get_api_key("capguru") or ""
     return CaptchaProvider(api_key=key) if key else None
 
@@ -659,11 +665,17 @@ async def wait_and_find(page, selectors: list[str], step_name: str,
 
 async def detect_and_solve_recaptcha(page, captcha_provider, log_fn=None):
     """
-    Universal reCAPTCHA detector + solver.
-    Checks if a reCAPTCHA iframe is present, extracts sitekey, solves via CapGuru.
+    Universal reCAPTCHA detector + solver with CaptchaChain fallback.
+    Supports both CaptchaChain (multi-provider) and single CaptchaProvider.
     Returns True if captcha was solved, False if no captcha found.
     """
-    if not captcha_provider or not captcha_provider.api_key:
+    if not captcha_provider:
+        return False
+    # Check if provider is usable
+    is_chain = isinstance(captcha_provider, CaptchaChain)
+    if not is_chain and not getattr(captcha_provider, 'api_key', None):
+        return False
+    if is_chain and not captcha_provider.providers:
         return False
 
     def _log(msg):
@@ -709,12 +721,21 @@ async def detect_and_solve_recaptcha(page, captcha_provider, log_fn=None):
         _log(f"Sitekey: {sitekey[:20]}...")
 
         page_url = page.url
-        token = await asyncio.to_thread(
-            captcha_provider.solve_captcha, page_url, sitekey
-        )
+
+        # Use CaptchaChain if available (tries all providers in order)
+        if is_chain:
+            _log(f"[CHAIN] Solving via CaptchaChain ({len(captcha_provider.providers)} providers)")
+            token = await asyncio.to_thread(
+                captcha_provider.solve, "recaptcha_v2",
+                website_url=page_url, website_key=sitekey
+            )
+        else:
+            token = await asyncio.to_thread(
+                captcha_provider.solve_captcha, page_url, sitekey
+            )
 
         if not token:
-            _log("[FAIL] Failed to solve CAPTCHA")
+            _log("[FAIL] All CAPTCHA providers failed")
             return False
 
         _log("[OK] CAPTCHA solved! Injecting token...")

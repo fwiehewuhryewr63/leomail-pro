@@ -228,6 +228,15 @@ async def run_birth_task(request: BirthRequest):
             country_blacklist = set()  # countries that failed SMS
             proxy_blacklist = set()    # proxy IDs that got E500/banned
             consecutive_failures = [0]  # stop task after 30 in a row (with cooldown at 15)
+            # ── Resource Exhaustion Tracking (2 rounds = stop) ──
+            # Each counter tracks consecutive failures caused by a specific resource.
+            # After 2 full rounds through all providers of that resource type → stop.
+            sms_round_fails = [0]      # consecutive SMS failures
+            captcha_round_fails = [0]  # consecutive CAPTCHA failures
+            proxy_round_fails = [0]    # consecutive proxy failures
+            SMS_MAX_ROUNDS = 6         # 2 rounds × 3 SMS providers
+            CAPTCHA_MAX_ROUNDS = 6     # 2 rounds × 3 captcha providers
+            PROXY_MAX_ROUNDS = 8       # 2 rounds × 4 proxy tiers
 
             async def worker(worker_id: int):
                 """Worker keeps registering until target reached."""
@@ -410,6 +419,10 @@ async def run_birth_task(request: BirthRequest):
                                 registered_accounts.append(account)
                                 success_counter[0] += 1
                                 consecutive_failures[0] = 0  # reset on success
+                                # Reset all resource exhaustion counters on success
+                                sms_round_fails[0] = 0
+                                captcha_round_fails[0] = 0
+                                proxy_round_fails[0] = 0
                                 task.completed_items = success_counter[0]
 
                             db.commit()
@@ -451,6 +464,35 @@ async def run_birth_task(request: BirthRequest):
 
                             db.commit()
                             logger.info(f"[Birth] [FAIL] Worker {worker_id}: attempt {current_attempt} failed, retrying...")
+
+                            # ── Classify failure reason for resource exhaustion ──
+                            err_msg = (thread_log.error_message or "").lower()
+                            async with job_lock:
+                                if any(x in err_msg for x in ["sms", "phone", "code not received", "no numbers", "verification code"]):
+                                    sms_round_fails[0] += 1
+                                    captcha_round_fails[0] = 0
+                                    proxy_round_fails[0] = 0
+                                    if sms_round_fails[0] >= SMS_MAX_ROUNDS:
+                                        task.stop_reason = f"Process stopped — SMS exhausted ({SMS_MAX_ROUNDS} consecutive SMS failures, 2 full rounds through all providers)"
+                                        return
+                                elif any(x in err_msg for x in ["captcha", "recaptcha", "funcaptcha", "hcaptcha", "captcha_fail"]):
+                                    captcha_round_fails[0] += 1
+                                    sms_round_fails[0] = 0
+                                    proxy_round_fails[0] = 0
+                                    if captcha_round_fails[0] >= CAPTCHA_MAX_ROUNDS:
+                                        task.stop_reason = f"Process stopped — CAPTCHA exhausted ({CAPTCHA_MAX_ROUNDS} consecutive failures, all captcha providers failed)"
+                                        return
+                                elif any(x in err_msg for x in ["e500", "ip", "blocked", "proxy", "datacenter", "asn"]):
+                                    proxy_round_fails[0] += 1
+                                    sms_round_fails[0] = 0
+                                    captcha_round_fails[0] = 0
+                                    if proxy_round_fails[0] >= PROXY_MAX_ROUNDS:
+                                        task.stop_reason = f"Process stopped — Proxy exhausted ({PROXY_MAX_ROUNDS} consecutive proxy failures, all proxy tiers failed)"
+                                        return
+                                else:
+                                    # Unknown error — don't reset resource counters
+                                    pass
+
                             await asyncio.sleep(random.uniform(2, 5))
 
                     except Exception as e:
