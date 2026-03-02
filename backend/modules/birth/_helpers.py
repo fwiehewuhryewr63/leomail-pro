@@ -82,25 +82,24 @@ def get_sms_provider(provider_name: str):
         return SimSmsProvider(key) if key else None
 
 
-# SMS provider priority for fallback chain
-SMS_FALLBACK_ORDER = ["simsms", "grizzly", "5sim"]
+# SMS provider priority: 5sim first, then GrizzlySMS, then SimSMS
+SMS_FALLBACK_ORDER = ["5sim", "grizzly", "simsms"]
+
+# Max attempts per SMS provider before moving to next
+SMS_MAX_ATTEMPTS_PER_PROVIDER = 3
+
+# SMS code wait timeout per attempt (5 minutes)
+SMS_CODE_TIMEOUT = 300
 
 
-def get_sms_chain(primary: str) -> list:
-    """Return ordered list of SMS providers: primary first, then fallbacks.
-    Only includes providers that have an API key configured."""
+def get_sms_chain(primary: str = None) -> list:
+    """Return ALL configured SMS providers in fixed order: 5sim → GrizzlySMS → SimSMS.
+    The 'primary' parameter is ignored — order is always fixed."""
     chain = []
-    # Primary first
-    p = get_sms_provider(primary)
-    if p:
-        chain.append((primary, p))
-    # Then fallbacks in order
     for name in SMS_FALLBACK_ORDER:
-        if name == primary:
-            continue
-        fb = get_sms_provider(name)
-        if fb:
-            chain.append((name, fb))
+        provider = get_sms_provider(name)
+        if provider:
+            chain.append((name, provider))
     return chain
 
 
@@ -158,79 +157,25 @@ COUNTRY_FALLBACK_PRIORITY = [
 ]
 
 
-async def scrape_phone_dropdown(page, _log=None) -> list[str]:
-    """
-    Scrape Yahoo/AOL phone country dropdown to get available phone prefixes.
-    Returns list of phone prefixes (e.g. ["1", "44", "55"]).
-    """
-    try:
-        prefixes = await page.evaluate("""() => {
-            const prefixes = [];
-            // Method 1: <select> options with country codes
-            const selects = document.querySelectorAll('select');
-            for (const sel of selects) {
-                for (const opt of sel.options) {
-                    const m = opt.text.match(/\\+(\\d{1,4})/);
-                    if (m) prefixes.push(m[1]);
-                    const vm = (opt.value || '').match(/^(\\d{1,4})$/);
-                    if (vm) prefixes.push(vm[1]);
-                }
-            }
-            // Method 2: data attributes or list items
-            if (prefixes.length === 0) {
-                const items = document.querySelectorAll('[data-code], [data-country-code], li[role="option"]');
-                for (const el of items) {
-                    const code = el.getAttribute('data-code') || el.getAttribute('data-country-code') || '';
-                    if (code) prefixes.push(code);
-                    const m = el.textContent.match(/\\+(\\d{1,4})/);
-                    if (m) prefixes.push(m[1]);
-                }
-            }
-            return [...new Set(prefixes)];
-        }""")
-        if prefixes and _log:
-            _log(f"Dropdown: {len(prefixes)} countries (examples: +{', +'.join(prefixes[:5])})")
-        return prefixes or []
-    except Exception as e:
-        if _log:
-            _log(f"Dropdown scraping failed: {e}")
-        return []
+# ── Per-task SMS chain state tracker ──
+# Tracks which provider we're on and how many attempts used
+_sms_chain_state = {}  # {service: {"provider_idx": int, "attempt": int, "used_numbers": set}}
 
 
-# ── SMS Exponential Backoff Tracker ──
-# Prevents hammering SMS providers when they're down
-_sms_backoff = {}  # {service: {"fails": int, "last_fail": float}}
-_SMS_BACKOFF_BASE = 10    # seconds
-_SMS_BACKOFF_MAX = 120    # max seconds
+def _get_chain_state(service: str) -> dict:
+    """Get or create chain state for a service (yahoo, outlook, etc.)."""
+    if service not in _sms_chain_state:
+        _sms_chain_state[service] = {
+            "provider_idx": 0,
+            "attempt": 0,
+            "used_numbers": set(),
+        }
+    return _sms_chain_state[service]
 
 
-def _get_sms_backoff_delay(service: str) -> float:
-    """Get current backoff delay for a service. Returns 0 if no backoff needed."""
-    import time
-    info = _sms_backoff.get(service)
-    if not info or info["fails"] == 0:
-        return 0
-    delay = min(_SMS_BACKOFF_BASE * (2 ** (info["fails"] - 1)), _SMS_BACKOFF_MAX)
-    # Check if enough time passed since last fail
-    elapsed = time.time() - info.get("last_fail", 0)
-    remaining = delay - elapsed
-    return max(0, remaining)
-
-
-def _record_sms_fail(service: str):
-    """Record an SMS ordering failure for backoff calculation."""
-    import time
-    if service not in _sms_backoff:
-        _sms_backoff[service] = {"fails": 0, "last_fail": 0}
-    _sms_backoff[service]["fails"] += 1
-    _sms_backoff[service]["last_fail"] = time.time()
-    logger.debug(f"SMS backoff [{service}]: fails={_sms_backoff[service]['fails']}")
-
-
-def _reset_sms_backoff(service: str):
-    """Reset backoff after successful SMS order."""
-    _sms_backoff[service] = {"fails": 0, "last_fail": 0}
-    logger.debug(f"SMS backoff [{service}]: reset")
+def reset_chain_state(service: str):
+    """Reset chain state (call at start of each registration attempt)."""
+    _sms_chain_state.pop(service, None)
 
 
 async def order_sms_with_chain(
@@ -243,17 +188,17 @@ async def order_sms_with_chain(
     _err=None,
 ) -> tuple:
     """
-    Universal SMS ordering with auto-intelligence:
-    1. Auto-detect country from proxy geo / page dropdown / fallback priority
-    2. Try all configured SMS providers in chain order
-    3. Zero user input required
-
+    Order an SMS number using the fixed provider chain: 5sim → GrizzlySMS → SimSMS.
+    
+    Always orders the MOST EXPENSIVE / highest quality numbers.
+    Ignores the passed sms_provider — uses fixed chain order instead.
+    
     Args:
         service: "yahoo", "aol", "gmail", "outlook"
-        sms_provider: primary SMS provider instance
+        sms_provider: ignored (kept for API compat), chain always uses fixed order
         proxy_geo: ISO2 country code from proxy (e.g. "BR", "US")
         page: Playwright page for dropdown scraping (Yahoo/AOL only)
-        scrape_dropdown: whether to scrape phone country dropdown (False for Gmail)
+        scrape_dropdown: whether to scrape phone country dropdown
         _log: logging function
         _err: error logging function
 
@@ -266,56 +211,32 @@ async def order_sms_with_chain(
     if not _err:
         _err = lambda msg: logger.error(msg)
 
-    if not sms_provider:
-        _err(f"{service.upper()} requires SMS but no SMS provider configured")
-        return None, None, []
-
-    # Exponential backoff - wait if previous attempts failed
-    backoff_delay = _get_sms_backoff_delay(service)
-    if backoff_delay > 0:
-        _log(f"[WAIT] SMS backoff: waiting {backoff_delay:.0f}с before ordering ({_sms_backoff.get(service, {}).get('fails', 0)} consecutive fails)")
-        await asyncio.sleep(backoff_delay)
-
-    # ── Step 1: Build ordered country list ──
-    detected_country = None  # from page dropdown
+    # ── Build ordered country list ──
     expanded_countries = []
 
-    # Priority 1: proxy GEO (MUST match for Gmail, should match for Yahoo/AOL)
+    # Priority 1: proxy GEO
     if proxy_geo:
         proxy_sms = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
         if proxy_sms:
             expanded_countries.append(proxy_sms)
             _log(f"Proxy geo {proxy_geo} -> SMS country: {proxy_sms}")
 
-    # Priority 2: dropdown scraping (Yahoo/AOL - detect page's displayed country)
+    # Priority 2: dropdown scraping (Yahoo/AOL)
     dropdown_countries = []
     if scrape_dropdown and page:
         prefixes = await scrape_phone_dropdown(page, _log)
         if prefixes:
-            # Find which prefix the page currently shows (first in dropdown = current)
-            for prefix in prefixes[:3]:
-                cc = PREFIX_TO_SMS_COUNTRY.get(prefix)
-                if cc:
-                    if not detected_country:
-                        detected_country = cc
-                    if cc not in dropdown_countries:
-                        dropdown_countries.append(cc)
-            # Add all dropdown countries
             for prefix in prefixes:
                 cc = PREFIX_TO_SMS_COUNTRY.get(prefix)
                 if cc and cc not in dropdown_countries:
                     dropdown_countries.append(cc)
             _log(f"Dropdown countries: {dropdown_countries[:10]}...")
 
-    # Merge: detected first (if matches proxy), then proxy, then dropdown, then fallback
-    if detected_country and detected_country not in expanded_countries:
-        expanded_countries.insert(0, detected_country)
-
     for c in dropdown_countries:
         if c not in expanded_countries:
             expanded_countries.append(c)
 
-    # Priority 3: fallback countries (if we have < 3 options)
+    # Priority 3: fallback countries
     if len(expanded_countries) < 3:
         for c in COUNTRY_FALLBACK_PRIORITY:
             if c not in expanded_countries:
@@ -323,55 +244,159 @@ async def order_sms_with_chain(
 
     _log(f"SMS countries (priority): {expanded_countries[:8]}...")
 
-    # ── Step 2: Build provider chain ──
-    _cls = type(sms_provider).__name__.lower()
-    if 'grizzly' in _cls:
-        _primary = 'grizzly'
-    elif 'fivesim' in _cls or '5sim' in _cls:
-        _primary = '5sim'
-    else:
-        _primary = 'simsms'
-
-    sms_chain = get_sms_chain(_primary)
+    # ── Build provider chain (FIXED order: 5sim → grizzly → simsms) ──
+    sms_chain = get_sms_chain()
     if not sms_chain:
-        sms_chain = [("primary", sms_provider)]
+        _err("No SMS providers configured!")
+        return None, None, expanded_countries
 
-    # ── Step 3: Try each provider with expanded country list ──
+    _log(f"[SMS] Chain: {[n for n, _ in sms_chain]} | {SMS_MAX_ATTEMPTS_PER_PROVIDER} attempts/provider")
+
+    # ── Try each provider with up to 3 attempts ──
+    state = _get_chain_state(service)
+
     for provider_name, provider in sms_chain:
-        _log(f"[SMS] Trying SMS: {provider_name}")
+        _log(f"[SMS] >> Trying provider: {provider_name}")
 
-        # Method 1: order_number_from_countries (tries all countries internally)
-        if hasattr(provider, 'order_number_from_countries'):
-            try:
+        # Use order_best_number if available, otherwise order_number_from_countries
+        order = None
+        try:
+            if hasattr(provider, 'order_best_number'):
+                _log(f"[SMS] {provider_name}: ordering BEST (most expensive) number for {service}")
+                order = await asyncio.to_thread(provider.order_best_number, service)
+            elif hasattr(provider, 'order_number_from_countries'):
                 order = await asyncio.to_thread(
                     provider.order_number_from_countries, service, expanded_countries
                 )
-                if order and "error" not in order:
-                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} - {order.get('number', '')}")
-                    _reset_sms_backoff(service)
-                    return order, provider, expanded_countries
-                _log(f"{provider_name} from_countries: {order.get('error', '') if order else 'empty'}")
-            except Exception as e:
-                _log(f"{provider_name} from_countries error: {e}")
+            else:
+                # Fallback: try countries one by one
+                for country in expanded_countries[:5]:
+                    order = await asyncio.to_thread(provider.order_number, service, country)
+                    if order and "error" not in order:
+                        break
+        except Exception as e:
+            _log(f"[SMS] {provider_name} order error: {e}")
+            continue
 
-        # Method 2: try countries one by one
-        for country in expanded_countries[:5]:
-            try:
-                order = await asyncio.to_thread(provider.order_number, service, country)
-                if order and "error" not in order:
-                    _log(f"[OK] {provider_name}: number from {order.get('country', '?')} - {order.get('number', '')}")
-                    _reset_sms_backoff(service)
-                    return order, provider, expanded_countries
-            except Exception as e:
-                _log(f"{provider_name}/{country}: {e}")
-
-        _log(f"[FAIL] {provider_name}: all countries exhausted")
+        if order and "error" not in order:
+            number = order.get("number", "")
+            # Skip if we already used this number
+            if number in state["used_numbers"]:
+                _log(f"[SMS] Number {number} already used, skipping")
+                continue
+            
+            state["used_numbers"].add(number)
+            state["provider_idx"] = SMS_FALLBACK_ORDER.index(provider_name) if provider_name in SMS_FALLBACK_ORDER else 0
+            state["attempt"] = 1
+            
+            _log(f"[OK] {provider_name}: number from {order.get('country', '?')} - {number}")
+            _reset_sms_backoff(service)
+            return order, provider, expanded_countries
+        
+        err_msg = order.get("error", "empty") if order else "no response"
+        _log(f"[SMS] {provider_name}: {err_msg}")
 
     _record_sms_fail(service)
-    _err(f"Failed to order SMS from any provider for {service} (next attempt in {_get_sms_backoff_delay(service):.0f}с)")
+    _err(f"[FAIL] All SMS providers exhausted for {service}")
     return None, None, expanded_countries
 
 
+async def get_next_sms_number(
+    service: str,
+    current_provider,
+    current_provider_name: str,
+    expanded_countries: list,
+    _log=None,
+    _err=None,
+) -> tuple:
+    """
+    Get the next SMS number after a failure (rejected number or code timeout).
+    
+    Implements the chain rotation logic:
+    - Up to 3 attempts per provider
+    - After 3 fails → move to next provider (5sim → grizzly → simsms)
+    - Returns (order_dict, provider, provider_name) or (None, None, None)
+    """
+    if not _log:
+        _log = lambda msg: logger.info(msg)
+    if not _err:
+        _err = lambda msg: logger.error(msg)
+
+    state = _get_chain_state(service)
+    sms_chain = get_sms_chain()
+    
+    if not sms_chain:
+        _err("No SMS providers configured!")
+        return None, None, None
+
+    # Find current provider index in chain
+    current_idx = None
+    for i, (name, _) in enumerate(sms_chain):
+        if name == current_provider_name:
+            current_idx = i
+            break
+    
+    if current_idx is None:
+        current_idx = 0
+
+    # Check if we still have attempts left on current provider
+    if state["attempt"] < SMS_MAX_ATTEMPTS_PER_PROVIDER:
+        state["attempt"] += 1
+        provider_name = current_provider_name
+        provider = current_provider
+        _log(f"[SMS] Retry #{state['attempt']}/{SMS_MAX_ATTEMPTS_PER_PROVIDER} on {provider_name}")
+    else:
+        # Move to next provider
+        next_idx = current_idx + 1
+        if next_idx >= len(sms_chain):
+            _err(f"[SMS] All providers exhausted ({SMS_MAX_ATTEMPTS_PER_PROVIDER} attempts each × {len(sms_chain)} providers)")
+            return None, None, None
+        
+        provider_name, provider = sms_chain[next_idx]
+        state["provider_idx"] = next_idx
+        state["attempt"] = 1
+        _log(f"[SMS] Switching to {provider_name} (attempt 1/{SMS_MAX_ATTEMPTS_PER_PROVIDER})")
+
+    # Order new number from this provider
+    order = None
+    try:
+        if hasattr(provider, 'order_best_number'):
+            _log(f"[SMS] {provider_name}: ordering BEST number for {service}")
+            order = await asyncio.to_thread(provider.order_best_number, service)
+        elif hasattr(provider, 'order_number_from_countries'):
+            order = await asyncio.to_thread(
+                provider.order_number_from_countries, service, expanded_countries
+            )
+        else:
+            for country in expanded_countries[:5]:
+                order = await asyncio.to_thread(provider.order_number, service, country)
+                if order and "error" not in order:
+                    break
+    except Exception as e:
+        _log(f"[SMS] {provider_name} order error: {e}")
+        # Try to move to next provider recursively
+        state["attempt"] = SMS_MAX_ATTEMPTS_PER_PROVIDER  # Force next provider
+        return await get_next_sms_number(service, provider, provider_name, expanded_countries, _log, _err)
+
+    if order and "error" not in order:
+        number = order.get("number", "")
+        if number in state["used_numbers"]:
+            _log(f"[SMS] Duplicate number {number}, getting another...")
+            return await get_next_sms_number(service, provider, provider_name, expanded_countries, _log, _err)
+        
+        state["used_numbers"].add(number)
+        _log(f"[OK] {provider_name} #{state['attempt']}: {order.get('country', '?')} - {number}")
+        return order, provider, provider_name
+
+    err_msg = order.get("error", "empty") if order else "no response"
+    _log(f"[SMS] {provider_name}: {err_msg}")
+    
+    # This attempt failed to get a number — force move to next provider
+    state["attempt"] = SMS_MAX_ATTEMPTS_PER_PROVIDER
+    return await get_next_sms_number(service, provider, provider_name, expanded_countries, _log, _err)
+
+
+# Keep backward-compatible alias
 async def order_sms_retry(
     service: str,
     active_provider,
@@ -380,39 +405,29 @@ async def order_sms_retry(
     _log=None,
 ) -> dict | None:
     """
-    Retry SMS order after rejection (wrong code, number rejected by provider).
-    Uses the same provider and expanded country list, skipping already-used numbers.
-
-    Returns order_dict or None.
+    DEPRECATED: Use get_next_sms_number() instead.
+    Kept for backward compatibility with existing code.
     """
     if not _log:
         _log = lambda msg: logger.info(msg)
 
-    if not active_provider:
-        _log("Retry: no active SMS provider")
-        return None
+    # Determine provider name
+    _cls = type(active_provider).__name__.lower()
+    if 'grizzly' in _cls:
+        pname = 'grizzly'
+    elif 'fivesim' in _cls or '5sim' in _cls:
+        pname = '5sim'
+    else:
+        pname = 'simsms'
 
-    if not used_numbers:
-        used_numbers = set()
-
-    _log(f"[RETRY] Retry SMS order for {service}...")
-
-    # Try from expanded countries
-    for country in expanded_countries[:8]:
-        try:
-            order = await asyncio.to_thread(active_provider.order_number, service, country)
-            if order and "error" not in order:
-                number = order.get("number", "")
-                if number in used_numbers:
-                    _log(f"Number {number} already used, skipping")
-                    continue
-                _log(f"[OK] Retry: number from {country} - {number}")
-                return order
-        except Exception as e:
-            _log(f"Retry {country}: {e}")
-
-    _log("[FAIL] Retry: all countries exhausted")
-    return None
+    order, provider, provider_name = await get_next_sms_number(
+        service=service,
+        current_provider=active_provider,
+        current_provider_name=pname,
+        expanded_countries=expanded_countries,
+        _log=_log,
+    )
+    return order
 
 
 def get_captcha_provider():

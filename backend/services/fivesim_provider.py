@@ -326,3 +326,66 @@ class FiveSimProvider:
 
         prices.sort(key=lambda x: x["cost"])
         return {"prices": prices}
+
+    def order_best_number(self, service: str = "gmail") -> dict:
+        """
+        Auto-select MOST EXPENSIVE country for best quality real numbers.
+        Sorts by price descending - premium real-SIM providers first.
+        Falls back to hardcoded premium country list if prices unavailable.
+        """
+        product = FIVESIM_PRODUCTS.get(service, "other")
+
+        # Step 1: Get prices and sort by cost DESC (most expensive = best quality)
+        try:
+            prices_data = self.get_prices(service)
+            prices = prices_data.get("prices", [])
+            if prices:
+                # Sort by cost DESC - most expensive first = highest quality
+                prices.sort(key=lambda x: x["cost"], reverse=True)
+                logger.info(f"5sim: {len(prices)} countries, top prices: "
+                           f"{[(p['country'], p['cost']) for p in prices[:5]]}")
+
+                # Try each country, most expensive first
+                for p in prices:
+                    if p.get("count", 0) <= 0:
+                        continue
+                    country = p["country"]
+                    country_name = FIVESIM_COUNTRIES.get(country, p.get("country_name", country))
+                    result = self._get(f"/user/buy/activation/{country_name}/any/{product}")
+                    if result and "id" in result and "phone" in result:
+                        phone = result["phone"]
+                        if phone.startswith("+"):
+                            phone = phone[1:]
+                        logger.info(f"5sim: [BEST] {country} @ {p['cost']}₽ - {phone}")
+                        self._last_country = country
+                        return {
+                            "id": str(result["id"]),
+                            "number": phone,
+                            "country": country,
+                            "service": service,
+                        }
+                    logger.debug(f"5sim best: {country} @ {p['cost']}₽ -> no numbers")
+        except Exception as e:
+            logger.warning(f"5sim: prices unavailable ({e}), falling back to premium list")
+
+        # Step 2: Fallback to premium countries (hardcoded, sorted by typical quality)
+        premium_countries = ["de", "uk", "nl", "se", "at", "fr", "it", "us", "ca", "pl"]
+        for c in premium_countries:
+            country_name = FIVESIM_COUNTRIES.get(c)
+            if not country_name:
+                continue
+            result = self._get(f"/user/buy/activation/{country_name}/any/{product}")
+            if result and "id" in result and "phone" in result:
+                phone = result["phone"]
+                if phone.startswith("+"):
+                    phone = phone[1:]
+                logger.info(f"5sim: [FALLBACK] {c} - {phone}")
+                self._last_country = c
+                return {
+                    "id": str(result["id"]),
+                    "number": phone,
+                    "country": c,
+                    "service": service,
+                }
+
+        return {"error": "5sim: no premium numbers available"}
