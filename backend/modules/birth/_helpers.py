@@ -14,11 +14,11 @@ from ...services.sms_provider import GrizzlySMS
 from ...services.simsms_provider import SimSmsProvider
 from ...services.fivesim_provider import FiveSimProvider
 
-
-DEBUG_SCREENSHOT_DIR = str(Path(__file__).resolve().parent.parent.parent / "user_data" / "debug_screenshots")
+from ...database import USER_DATA_DIR as _USER_DATA_DIR
+DEBUG_SCREENSHOT_DIR = str(_USER_DATA_DIR / "debug_screenshots")
 
 # ── Auto-export file for market-format accounts ──
-ACCOUNTS_EXPORT_FILE = Path(__file__).resolve().parent.parent.parent / "user_data" / "accounts_export.txt"
+ACCOUNTS_EXPORT_FILE = _USER_DATA_DIR / "accounts_export.txt"
 
 
 def export_account_to_file(account, extra_fields: dict = None):

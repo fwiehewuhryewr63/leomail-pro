@@ -9,7 +9,8 @@ from pathlib import Path
 from loguru import logger
 
 # Directory for debug screenshots
-SCREENSHOT_DIR = str(Path(__file__).resolve().parent.parent.parent / "user_data" / "debug_screenshots")
+from ..database import USER_DATA_DIR as _USER_DATA_DIR
+SCREENSHOT_DIR = str(_USER_DATA_DIR / "debug_screenshots")
 
 # Global registry: thread_log_id -> {"page": Page, "context": ctx, "engine": "warmup"|"work"|"birth"}
 ACTIVE_PAGES: dict[int, dict] = {}

@@ -7,9 +7,11 @@ from loguru import logger
 from pathlib import Path
 import os
 
+from ..database import USER_DATA_DIR
+
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
-LOG_FILE = Path("user_data/logs/leomail.log")
+LOG_FILE = USER_DATA_DIR / "logs" / "leomail.log"
 
 
 @router.get("/")
