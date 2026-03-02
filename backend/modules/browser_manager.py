@@ -686,18 +686,18 @@ class BrowserManager:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-infobars",
                 # Performance
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
-                # WebRTC IP leak prevention (CRITICAL)
-                "--disable-features=WebRtcHideLocalIpsWithMdns",
+                # Combine ALL --disable-features in ONE arg (Chrome ignores duplicates!)
+                "--disable-features=WebRtcHideLocalIpsWithMdns,AudioServiceOutOfProcess,IsolateOrigins,site-per-process",
+                # WebRTC IP leak prevention
                 "--enforce-webrtc-ip-permission-check",
                 "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-                # Anti-fingerprint
-                "--disable-reading-from-canvas",
-                "--disable-features=AudioServiceOutOfProcess",
+                # NOTE: --disable-reading-from-canvas REMOVED!
+                # It blocked Yahoo's fingerprint scripts → "Enable JavaScript" error.
+                # Canvas protection is already in stealth JS (seeded noise).
                 # Window
                 "--window-size=1920,1080",
             ]
