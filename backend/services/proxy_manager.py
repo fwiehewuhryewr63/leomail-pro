@@ -207,6 +207,18 @@ class ProxyManager:
 
         proxies = query.all()
 
+        # ── ASN-based filtering: skip datacenter proxies for strict services ──
+        if provider and provider.lower() in ('yahoo', 'aol', 'gmail'):
+            try:
+                from .asn_checker import is_suitable_for
+                before = len(proxies)
+                proxies = [p for p in proxies if is_suitable_for(p.host, provider.lower())]
+                skipped = before - len(proxies)
+                if skipped > 0:
+                    logger.info(f"[ProxyPool] ASN filter: skipped {skipped}/{before} unsuitable proxies for {provider}")
+            except Exception as e:
+                logger.debug(f"[ProxyPool] ASN check skipped: {e}")
+
         # Gmail: prioritize mobile proxies (ONLY Gmail needs mobile)
         if provider and provider.lower() == 'gmail':
             def proxy_priority(p):
@@ -385,6 +397,18 @@ class ProxyManager:
             )
 
         candidates = query.all()
+
+        # ── ASN-based filtering: skip datacenter proxies for strict services ──
+        if provider and provider.lower() in ('yahoo', 'aol', 'gmail'):
+            try:
+                from .asn_checker import is_suitable_for
+                before = len(candidates)
+                candidates = [p for p in candidates if is_suitable_for(p.host, provider.lower())]
+                skipped = before - len(candidates)
+                if skipped > 0:
+                    logger.info(f"[ProxyManager] ASN filter: skipped {skipped}/{before} datacenter proxies for {provider}")
+            except Exception as e:
+                logger.debug(f"[ProxyManager] ASN check skipped: {e}")
 
         # If no non-blacklisted proxies, try ANY unbound active proxy
         # but ONLY if there's no blacklist (first run) - never ignore blacklist

@@ -363,6 +363,88 @@ class BelurkProvider(ProxyProviderBase):
             logger.error(f"[Belurk] Buy error: {e}")
             return []
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Webshare.io - Residential rotating proxies (Tier 4, budget $3.5/GB)
+# API: https://proxy.webshare.io/api/v2/
+# Auth: Token header
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class WebshareProvider(ProxyProviderBase):
+    """Webshare.io - residential rotating proxies, 10M+ IPs, HTTP+SOCKS5."""
+    name = "webshare"
+    BASE_URL = "https://proxy.webshare.io/api/v2"
+
+    def _headers(self):
+        return {"Authorization": f"Token {self.api_key}"}
+
+    def get_balance(self) -> float:
+        """Get remaining bandwidth in GB."""
+        try:
+            r = requests.get(
+                f"{self.BASE_URL}/subscription/",
+                headers=self._headers(),
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json()
+            # bandwidth is in bytes, convert to GB
+            remaining = data.get("bandwidth_remaining", 0)
+            return round(remaining / (1024**3), 2)
+        except Exception as e:
+            logger.error(f"[Webshare] Balance error: {e}")
+            return -1
+
+    def list_proxies(self) -> list[dict]:
+        """List proxy list from Webshare account."""
+        try:
+            proxies = []
+            page = 1
+            while True:
+                r = requests.get(
+                    f"{self.BASE_URL}/proxy/list/",
+                    headers=self._headers(),
+                    params={"mode": "direct", "page": page, "page_size": 100},
+                    timeout=15,
+                )
+                r.raise_for_status()
+                data = r.json()
+                results = data.get("results", [])
+                if not results:
+                    break
+
+                for p in results:
+                    proxies.append({
+                        "host": p.get("proxy_address", ""),
+                        "port": int(p.get("port", 0)),
+                        "username": p.get("username", ""),
+                        "password": p.get("password", ""),
+                        "protocol": "socks5" if p.get("port") == p.get("socks5_port") else "http",
+                        "geo": (p.get("country_code", "") or "").upper(),
+                        "expires_at": None,
+                        "proxy_type": "residential",
+                        "external_id": str(p.get("id", "")),
+                    })
+
+                if not data.get("next"):
+                    break
+                page += 1
+
+            return proxies
+        except Exception as e:
+            logger.error(f"[Webshare] List proxies error: {e}")
+            return []
+
+    def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
+                    proxy_type: str = "residential") -> list[dict]:
+        """
+        Webshare is subscription-based. This lists available proxies.
+        Users should have an active subscription with proxy slots.
+        """
+        # Webshare doesn't have per-proxy purchase — it's subscription.
+        # Just return the available proxy list.
+        logger.info(f"[Webshare] Fetching available proxies (subscription-based)")
+        return self.list_proxies()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Factory + Tiered Auto-Buy
@@ -372,16 +454,48 @@ PROVIDERS = {
     "asocks": ASocksProvider,
     "proxy6": Proxy6Provider,
     "belurk": BelurkProvider,
+    "webshare": WebshareProvider,
 }
 
-# Tiered auto-buy order:
-# Gmail -> ASocks (mobile 4G)
-# Everything else (desktop) -> Proxy6 -> Belurk (fallback)
+# ── 4-Tier proxy chain (cheapest → most expensive) ──
+# Tier 1: Uploaded proxies (handled in proxy_manager, not here)
+# Tier 2: Belurk + Proxy6 (cheap datacenter IPv4, ~$1-2/proxy/week)
+# Tier 3: ASocks (residential/mobile, pay-per-GB)
+# Tier 4: Webshare (residential rotating, $3.5/GB)
+#
+# Gmail = mobile ONLY → ASocks mobile, then uploaded mobile
+# Yahoo/AOL = residential ONLY → skip datacenter tiers
+# Outlook/Proton/Tuta = any → use cheapest first
+
 AUTO_BUY_TIERS = {
-    "gmail": [("asocks", "mobile")],
-    "default": [
-        ("proxy6", "residential"),
+    "gmail": [
+        ("asocks", "mobile"),
+    ],
+    "yahoo": [
+        ("asocks", "residential"),
+        ("webshare", "residential"),
+    ],
+    "aol": [
+        ("asocks", "residential"),
+        ("webshare", "residential"),
+    ],
+    "outlook": [
         ("belurk", "residential"),
+        ("proxy6", "residential"),
+        ("asocks", "residential"),
+        ("webshare", "residential"),
+    ],
+    "hotmail": [
+        ("belurk", "residential"),
+        ("proxy6", "residential"),
+        ("asocks", "residential"),
+        ("webshare", "residential"),
+    ],
+    "default": [
+        ("belurk", "residential"),
+        ("proxy6", "residential"),
+        ("asocks", "residential"),
+        ("webshare", "residential"),
     ],
 }
 
@@ -411,7 +525,8 @@ def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict
     """
     Tiered auto-buy:
       Gmail -> ASocks (mobile 4G)
-      Desktop -> Proxy6 -> Belurk (fallback)
+      Yahoo/AOL -> ASocks residential -> Webshare (skip datacenter tiers)
+      Desktop -> Belurk -> Proxy6 -> ASocks -> Webshare
     
     Tries each provider in order until count proxies are acquired.
     """
@@ -444,4 +559,5 @@ def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict
         logger.warning(f"[AutoBuy] Failed to buy any proxies for {provider}")
 
     return all_bought
+
 
