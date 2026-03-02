@@ -588,19 +588,29 @@ async def register_single_yahoo(
                 except Exception:
                     pass
 
-                # Method 2: JS setter on input elements
+                # Method 2: JS setter + React-compatible events on country code input
                 if not country_changed:
                     try:
                         changed = await page.evaluate(f"""() => {{
                             const inputs = document.querySelectorAll('input');
                             for (const inp of inputs) {{
                                 const val = inp.value.trim();
-                                if (val.startsWith('+') && val.length <= 5) {{
-                                    const setter = Object.getOwnPropertyDescriptor(
+                                if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {{
+                                    // Use React-compatible setter
+                                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
                                         window.HTMLInputElement.prototype, 'value').set;
-                                    setter.call(inp, '+{sms_prefix}');
+                                    nativeInputValueSetter.call(inp, '+{sms_prefix}');
+                                    // Fire multiple events for React/Vue/Angular
                                     inp.dispatchEvent(new Event('input', {{bubbles: true}}));
                                     inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                    inp.dispatchEvent(new KeyboardEvent('keydown', {{bubbles: true}}));
+                                    inp.dispatchEvent(new KeyboardEvent('keyup', {{bubbles: true}}));
+                                    // Also try React fiber hack
+                                    const tracker = inp._valueTracker;
+                                    if (tracker) {{
+                                        tracker.setValue(val);  // Set OLD value so React sees a diff
+                                    }}
+                                    inp.dispatchEvent(new Event('input', {{bubbles: true}}));
                                     return true;
                                 }}
                             }}
@@ -609,6 +619,25 @@ async def register_single_yahoo(
                         if changed:
                             country_changed = True
                             _log(f"Country code changed via JS input: +{sms_prefix}")
+                    except Exception:
+                        pass
+
+                # Method 3: Click country input → Ctrl+A → type new prefix
+                if not country_changed:
+                    try:
+                        cc_input = await _wait_for_any(page, [
+                            'input[value^="+"]',
+                        ], timeout=3000)
+                        if cc_input:
+                            el = page.locator(cc_input).first
+                            await el.click()
+                            await _human_delay(0.3, 0.5)
+                            await page.keyboard.press("Control+a")
+                            await _human_delay(0.1, 0.2)
+                            await page.keyboard.type(f"+{sms_prefix}", delay=50)
+                            await _human_delay(0.3, 0.5)
+                            country_changed = True
+                            _log(f"Country code changed via keyboard: +{sms_prefix}")
                     except Exception:
                         pass
 
