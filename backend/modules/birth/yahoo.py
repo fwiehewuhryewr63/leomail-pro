@@ -482,15 +482,49 @@ async def register_single_yahoo(
                 _err("Yahoo requires SMS but no SMS provider configured")
                 return None
 
-            # ── STEP 1: Order SMS via shared auto-intelligence ──
-            # Uses proxy geo + page dropdown to pick country, tries all providers
+            # ── STEP 1: Detect what country Yahoo shows on phone page ──
+            # Instead of ordering random country and trying to change Yahoo's UI,
+            # detect Yahoo's displayed country code and order SMS for THAT country.
+            yahoo_detected_prefix = None
+            yahoo_country_for_sms = None
+            try:
+                yahoo_detected_prefix = await page.evaluate("""() => {
+                    // Look for the country code input (small field showing "+353" etc.)
+                    const inputs = document.querySelectorAll('input');
+                    for (const inp of inputs) {
+                        const val = inp.value.trim();
+                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                            return val.replace('+', '');
+                        }
+                    }
+                    // Check select elements
+                    const selects = document.querySelectorAll('select');
+                    for (const sel of selects) {
+                        const opt = sel.options[sel.selectedIndex];
+                        if (opt) {
+                            const m = opt.text.match(/\\+(\\d{1,4})/);
+                            if (m) return m[1];
+                        }
+                    }
+                    return null;
+                }""")
+                if yahoo_detected_prefix:
+                    yahoo_detected_prefix = str(yahoo_detected_prefix).strip()
+                    yahoo_country_for_sms = PREFIX_TO_SMS_COUNTRY.get(yahoo_detected_prefix)
+                    _log(f"Yahoo shows: +{yahoo_detected_prefix} → SMS country: {yahoo_country_for_sms or 'unknown'}")
+            except Exception:
+                pass
+
+            # ── STEP 2: Order SMS matching Yahoo's country if possible ──
             proxy_geo = getattr(proxy, 'geo', None) if proxy else None
-            _log("Ordering number for Yahoo SMS...")
+            # Override proxy_geo with Yahoo's detected country for best match
+            preferred_geo = yahoo_country_for_sms or proxy_geo
+            _log(f"Ordering number for Yahoo SMS (preferred country: {preferred_geo})...")
 
             order, active_sms_provider, expanded_countries = await order_sms_with_chain(
                 service="yahoo",
                 sms_provider=sms_provider,
-                proxy_geo=proxy_geo,
+                proxy_geo=preferred_geo,
                 page=page,
                 scrape_dropdown=True,
                 _log=_log,
