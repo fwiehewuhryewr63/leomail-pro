@@ -801,17 +801,52 @@ async def register_single_yahoo(
             await random_mouse_move(page, steps=2)
             await _human_delay(2.0, 4.0)
 
-            # Click "Get code by text" button (the purple button)
+            # Click "Get code by text" button (SMS only — NEVER WhatsApp!)
+            # Yahoo shows different layouts:
+            # 1) "Receive code by text" (purple button) + "Receive code on WhatsApp" (link)
+            # 2) "Get code on WhatsApp" (purple button) + "Receive code by text" (link)
+            # We MUST click SMS, not WhatsApp
             get_code_btn = await _wait_for_any(page, [
+                'button:has-text("Receive code by text")',
                 'button:has-text("Get code by text")',
                 'button:has-text("code by text")',
-                'button:has-text("Получить код")',
+                'button:has-text("Получить код по SMS")',
                 'button:has-text("Text me")',
                 'button:has-text("Send code")',
-                'button[type="submit"]',
-                'button[data-type="sms"]',
-                '#send-code-button',
+                'button:has-text("Enviar código")',
             ], timeout=5000)
+
+            # If no SMS button found, check for SMS as a link (below WhatsApp button)
+            if not get_code_btn:
+                _log("[WARN] No SMS button — checking for SMS link...")
+                sms_link = await _wait_for_any(page, [
+                    'a:has-text("Receive code by text")',
+                    'a:has-text("code by text")',
+                    'a:has-text("Text me")',
+                    'a:has-text("Enviar código por texto")',
+                    'button:has-text("Receive code")',
+                ], timeout=3000)
+                if sms_link:
+                    get_code_btn = sms_link
+                    _log("[OK] Found SMS as link (below WhatsApp button)")
+
+            # Last resort: generic submit ONLY if no WhatsApp is visible
+            if not get_code_btn:
+                has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
+                if has_whatsapp == 0:
+                    get_code_btn = await _wait_for_any(page, [
+                        'button[type="submit"]',
+                        '#send-code-button',
+                        'button[data-type="sms"]',
+                    ], timeout=3000)
+                    _log("Using generic submit button (no WhatsApp detected)")
+                else:
+                    _log("[ERR] Only WhatsApp available, no SMS option — pressing Enter as fallback")
+                    # Try pressing Enter as some Yahoo layouts send SMS on Enter
+                    try:
+                        await page.keyboard.press("Enter")
+                    except Exception:
+                        pass
 
             if get_code_btn:
                 # ── RETRY LOOP: if Yahoo rejects the number, try up to 3 new numbers ──

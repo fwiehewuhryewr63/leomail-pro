@@ -375,8 +375,9 @@ async def human_type(page, selector: str, text: str, clear: bool = True,
     base_max = profile["base_max"]
     think_chance = profile["think_chance"]
 
-    # Typo rate: 5-8% for most fields, 0% for codes/phone (digits don't typo naturally)
-    typo_rate = 0.0 if field_type in ("code", "phone") else random.uniform(0.04, 0.08)
+    # Typos DISABLED — risk of real errors outweighs anti-bot benefit
+    # (fingerprint/timing/behavior are much more effective)
+    typo_rate = 0.0
 
     i = 0
     while i < len(text):
