@@ -28,6 +28,7 @@ class SettingsUpdate(BaseModel):
     proxy6_key: Optional[str] = None
     belurk_key: Optional[str] = None
     iproyal_key: Optional[str] = None
+    proxycheap_key: Optional[str] = None
     auto_buy_enabled: Optional[bool] = None
     auto_buy_max_spend: Optional[float] = None
     headless: Optional[bool] = None
@@ -89,6 +90,9 @@ async def get_settings():
             },
             "iproyal": {
                 "api_key": mask_key(config.get("proxy_providers", {}).get("iproyal", {}).get("api_key", "")),
+            },
+            "proxycheap": {
+                "api_key": mask_key(config.get("proxy_providers", {}).get("proxycheap", {}).get("api_key", "")),
             }
         },
         "auto_buy": config.get("auto_buy", {"enabled": False, "max_spend_usd": 10.0}),
@@ -127,6 +131,8 @@ async def update_settings(update: SettingsUpdate):
         config.setdefault("proxy_providers", {}).setdefault("belurk", {})["api_key"] = update.belurk_key
     if update.iproyal_key is not None:
         config.setdefault("proxy_providers", {}).setdefault("iproyal", {})["api_key"] = update.iproyal_key
+    if update.proxycheap_key is not None:
+        config.setdefault("proxy_providers", {}).setdefault("proxycheap", {})["api_key"] = update.proxycheap_key
     if update.auto_buy_enabled is not None:
         config.setdefault("auto_buy", {})["enabled"] = update.auto_buy_enabled
     if update.auto_buy_max_spend is not None:
@@ -224,7 +230,7 @@ async def test_service(service: str):
             return {"status": "ok", "message": f"Connected! Balance: {balance} RUB"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    elif service in ("asocks", "proxy6", "belurk", "iproyal"):
+    elif service in ("asocks", "proxy6", "belurk", "iproyal", "proxycheap"):
         try:
             from ..services.proxy_providers import get_proxy_provider
             provider = get_proxy_provider(service)
