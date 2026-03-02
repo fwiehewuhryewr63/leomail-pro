@@ -841,12 +841,16 @@ async def register_single_yahoo(
                     ], timeout=3000)
                     _log("Using generic submit button (no WhatsApp detected)")
                 else:
-                    _log("[ERR] Only WhatsApp available, no SMS option — pressing Enter as fallback")
-                    # Try pressing Enter as some Yahoo layouts send SMS on Enter
-                    try:
-                        await page.keyboard.press("Enter")
-                    except Exception:
-                        pass
+                    _err("[FATAL] Only WhatsApp available — no SMS option. Thread dead.")
+                    # Cancel the SMS order — we can't use it
+                    if _active_sms:
+                        try:
+                            await asyncio.to_thread(
+                                _active_sms["provider"].cancel_number, _active_sms["order_id"]
+                            )
+                        except Exception:
+                            pass
+                    return None
 
             if get_code_btn:
                 # ── RETRY LOOP: if Yahoo rejects the number, try up to 3 new numbers ──
