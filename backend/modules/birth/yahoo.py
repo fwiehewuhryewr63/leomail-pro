@@ -296,6 +296,32 @@ async def register_single_yahoo(
         await page.mouse.wheel(0, random.randint(100, 200))
         await _human_delay(0.8, 1.5)
 
+        # ── Check for 'I agree to these terms' checkbox (Yahoo 2025+ forms) ──
+        terms_checkbox = await _wait_for_any(page, [
+            'input[type="checkbox"]',
+            'label:has-text("I agree") input',
+            '#reg-terms', '#terms',
+        ], timeout=3000)
+        if terms_checkbox:
+            try:
+                is_checked = await page.locator(terms_checkbox).first.is_checked()
+                if not is_checked:
+                    _log("Checking 'I agree to terms' checkbox...")
+                    await _human_click(page, terms_checkbox)
+                    await _human_delay(0.8, 1.5)
+            except Exception:
+                # Fallback: click the label if checkbox isn't directly clickable
+                try:
+                    label = await _wait_for_any(page, [
+                        'label:has-text("I agree")',
+                        'label:has-text("agree to these terms")',
+                    ], timeout=2000)
+                    if label:
+                        await _human_click(page, label)
+                        await _human_delay(0.5, 1.0)
+                except Exception:
+                    pass
+
         # Click Next / Continue / Submit - with "Email not available" retry
         _log("Submitting form (Next)...")
         submit_btn = await _wait_for_any(page, [
@@ -775,8 +801,84 @@ async def register_single_yahoo(
                 await page.keyboard.press("Enter")
                 await _human_delay(4, 7)
         else:
-            _log("[WARN] Phone page not found - Yahoo may not have moved to next step")
+            _log("[WARN] Phone page not found - checking for terms/checkbox page...")
             await _debug_screenshot(page, "4_yahoo_no_phone_page", _log)
+
+            # Yahoo might be showing terms page or password error - check current URL
+            current_url = page.url or ""
+            _log(f"Current URL: {current_url}")
+
+            # Check if still on /account/create — password may be invalid or terms not checked
+            if "/account/create" in current_url and "/error" not in current_url:
+                # Try to find and fix password error
+                try:
+                    page_text = await page.locator('body').inner_text()
+                    if 'must contain at least 8' in page_text.lower() or 'weak' in page_text.lower():
+                        _log("[FIX] Password rejected — re-entering stronger password...")
+                        pwd_retry = await _wait_for_any(page, [
+                            'input[type="password"]', 'input[name="password"]',
+                        ], timeout=3000)
+                        if pwd_retry:
+                            await page.locator(pwd_retry).first.fill("")
+                            await _human_delay(0.3, 0.5)
+                            # Generate a new stronger password
+                            password = generate_password(16)
+                            await _human_fill(page, pwd_retry, password)
+                            await _human_delay(1.5, 2.5)
+                except Exception:
+                    pass
+
+                # Try terms checkbox again
+                terms_cb = await _wait_for_any(page, [
+                    'input[type="checkbox"]',
+                    'label:has-text("I agree") input',
+                ], timeout=3000)
+                if terms_cb:
+                    try:
+                        is_checked = await page.locator(terms_cb).first.is_checked()
+                        if not is_checked:
+                            _log("[FIX] Checking terms checkbox...")
+                            await _human_click(page, terms_cb)
+                            await _human_delay(0.8, 1.5)
+                    except Exception:
+                        try:
+                            label = await _wait_for_any(page, [
+                                'label:has-text("I agree")',
+                            ], timeout=2000)
+                            if label:
+                                await _human_click(page, label)
+                                await _human_delay(0.5, 1.0)
+                        except Exception:
+                            pass
+
+                # Re-submit the form
+                _log("Re-submitting form after fixes...")
+                resubmit = await _wait_for_any(page, [
+                    'button[name="signup"]', 'button:has-text("Next")',
+                    'button[type="submit"]', 'button:has-text("Continue")',
+                ], timeout=5000)
+                if resubmit:
+                    await _human_click(page, resubmit)
+                else:
+                    await page.keyboard.press("Enter")
+                await _human_delay(5, 10)
+
+                # Re-check for phone page
+                phone_page_input = await _wait_for_any(page, [
+                    'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
+                    'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
+                    'input[data-type="phone"]', 'input[autocomplete="tel"]',
+                ], timeout=15000)
+
+                if phone_page_input:
+                    _log("Phone page appeared after re-submit!")
+                    # Continue to the phone handling logic below — but we can't
+                    # easily restart the block, so we need a different approach.
+                    # For now, return None and let retry handle it
+                    _err("Registration not completed - retry needed after form fixes")
+                    return None
+
+            _err("Registration not completed")
             return None
 
         # Check for reCAPTCHA after phone submit
