@@ -257,7 +257,7 @@ export default function Settings() {
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6' }} />
                     <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Providers (API)</span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                     {PROXY_API_SERVICES.map(svc => {
                         const status = getStatus(svc);
                         const maskedVal = getKeyValue(svc.configPath);
