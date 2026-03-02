@@ -597,119 +597,79 @@ async def register_single_yahoo(
             if country_needs_change:
                 _log(f"Yahoo shows +{yahoo_page_prefix}, SMS number +{sms_prefix} - need to change")
 
-                # Method 1: select_option on <select> elements (Yahoo uses <select> for country)
+                # Method 1: Playwright .fill() on country code input (React-compatible)
                 try:
-                    selects = await page.locator('select').all()
-                    for sel in selects:
-                        try:
-                            # Find option matching our prefix
-                            changed_via_select = await page.evaluate(f"""(sel) => {{
-                                for (const opt of sel.options) {{
-                                    if (opt.text.includes('+{sms_prefix}') || opt.value === '{sms_prefix}' || opt.value === '{target_iso}') {{
-                                        sel.value = opt.value;
-                                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                        return true;
-                                    }}
-                                }}
-                                return false;
-                            }}""", sel)
-                            if changed_via_select:
+                    all_inputs = await page.locator('input').all()
+                    for inp in all_inputs:
+                        val = (await inp.input_value()).strip()
+                        if val.startswith('+') and 2 <= len(val) <= 5:
+                            _log(f"Found country code input: {val} → changing to +{sms_prefix}")
+                            await inp.fill(f"+{sms_prefix}")
+                            await _human_delay(0.3, 0.5)
+                            # Verify the change took effect
+                            new_val = (await inp.input_value()).strip()
+                            if new_val == f"+{sms_prefix}":
                                 country_changed = True
-                                _log(f"Country code changed via <select>: +{sms_prefix}")
+                                _log(f"[OK] Country code changed via .fill(): +{sms_prefix}")
+                            else:
+                                _log(f"[WARN] .fill() didn't stick: {new_val}")
+                            break
+                except Exception as e:
+                    _log(f"[WARN] .fill() method failed: {e}")
+
+                # Method 2: Click → triple-click select all → type
+                if not country_changed:
+                    try:
+                        all_inputs = await page.locator('input').all()
+                        for inp in all_inputs:
+                            val = (await inp.input_value()).strip()
+                            if val.startswith('+') and 2 <= len(val) <= 5:
+                                await inp.click(click_count=3)  # Triple-click to select all
+                                await _human_delay(0.2, 0.3)
+                                await page.keyboard.type(f"+{sms_prefix}", delay=50)
+                                await _human_delay(0.3, 0.5)
+                                new_val = (await inp.input_value()).strip()
+                                if f"{sms_prefix}" in new_val:
+                                    country_changed = True
+                                    _log(f"[OK] Country code changed via keyboard: +{sms_prefix}")
                                 break
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
-                # Method 2: JS setter + React-compatible events on country code input
-                if not country_changed:
-                    try:
-                        changed = await page.evaluate(f"""() => {{
-                            const inputs = document.querySelectorAll('input');
-                            for (const inp of inputs) {{
-                                const val = inp.value.trim();
-                                if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {{
-                                    // Use React-compatible setter
-                                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                                        window.HTMLInputElement.prototype, 'value').set;
-                                    nativeInputValueSetter.call(inp, '+{sms_prefix}');
-                                    // Fire multiple events for React/Vue/Angular
-                                    inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                    inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                    inp.dispatchEvent(new KeyboardEvent('keydown', {{bubbles: true}}));
-                                    inp.dispatchEvent(new KeyboardEvent('keyup', {{bubbles: true}}));
-                                    // Also try React fiber hack
-                                    const tracker = inp._valueTracker;
-                                    if (tracker) {{
-                                        tracker.setValue(val);  // Set OLD value so React sees a diff
-                                    }}
-                                    inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                    return true;
-                                }}
-                            }}
-                            return false;
-                        }}""")
-                        if changed:
-                            country_changed = True
-                            _log(f"Country code changed via JS input: +{sms_prefix}")
-                    except Exception:
-                        pass
-
-                # Method 3: Click country input → Ctrl+A → type new prefix
-                if not country_changed:
-                    try:
-                        cc_input = await _wait_for_any(page, [
-                            'input[value^="+"]',
-                        ], timeout=3000)
-                        if cc_input:
-                            el = page.locator(cc_input).first
-                            await el.click()
-                            await _human_delay(0.3, 0.5)
-                            await page.keyboard.press("Control+a")
-                            await _human_delay(0.1, 0.2)
-                            await page.keyboard.type(f"+{sms_prefix}", delay=50)
-                            await _human_delay(0.3, 0.5)
-                            country_changed = True
-                            _log(f"Country code changed via keyboard: +{sms_prefix}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _log(f"[WARN] Keyboard method failed: {e}")
 
                 if not country_changed:
-                    # Country change failed - the page still shows +yahoo_page_prefix
-                    # DO NOT enter a number formatted for +sms_prefix into +yahoo_page_prefix field!
-                    # Instead: cancel current number and re-order one matching the page's country
+                    # Country change failed - cancel SMS and re-order for Yahoo's country
                     page_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
                     if page_country:
-                        _log(f"[WARN] Не удалось сменить +{yahoo_page_prefix}->+{sms_prefix}. "
-                             f"Canceling number and ordering from {page_country} (countries: +{yahoo_page_prefix})")
-                        # Cancel current order
+                        _log(f"[WARN] Can't change +{yahoo_page_prefix}→+{sms_prefix}. "
+                             f"Canceling & re-ordering for {page_country}...")
                         try:
-                            await asyncio.to_thread(sms_provider.cancel_order, order_id)
+                            await asyncio.to_thread(sms_provider.cancel_number, order_id)
                         except Exception:
                             pass
-                        # Re-order from page's country
-                        new_order = await order_sms_retry(
-                            service="yahoo",
-                            active_provider=sms_provider,
-                            expanded_countries=[page_country] + [c for c in expanded_countries if c != page_country],
-                            used_numbers={phone_number},
-                            _log=_log,
-                        )
-                        if new_order:
-                            phone_number = new_order["number"]
-                            order_id = new_order["id"]
-                            sms_country = new_order.get("country", page_country)
-                            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
-                            local_number = phone_number.lstrip("+")
-                            if phone_prefix and local_number.startswith(phone_prefix):
-                                local_number = local_number[len(phone_prefix):]
-                            _log(f"[OK] New number for +{yahoo_page_prefix}: {local_number}")
-                        else:
-                            _err(f"Failed to order number for +{yahoo_page_prefix}")
-                            return None
+                        # Re-order from Yahoo's displayed country only
+                        try:
+                            new_order = await asyncio.to_thread(
+                                sms_provider.order_number, "yahoo", page_country
+                            )
+                            if new_order and "error" not in new_order:
+                                phone_number = new_order["number"]
+                                order_id = new_order["id"]
+                                sms_country = new_order.get("country", page_country)
+                                phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+                                local_number = phone_number.lstrip("+")
+                                if phone_prefix and local_number.startswith(phone_prefix):
+                                    local_number = local_number[len(phone_prefix):]
+                                _log(f"[OK] New number for +{yahoo_page_prefix}: {local_number}")
+                                _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
+                            else:
+                                err_msg = new_order.get("error", "unknown") if new_order else "no response"
+                                _log(f"[WARN] No {page_country} numbers: {err_msg} - entering full number as-is")
+                                local_number = f"{sms_prefix}{local_number}"
+                        except Exception as e:
+                            _log(f"[WARN] Re-order failed: {e} - entering full number as-is")
+                            local_number = f"{sms_prefix}{local_number}"
                     else:
-                        _log(f"[WARN] Failed to change code, unknown prefix +{yahoo_page_prefix} - entering full number")
+                        _log(f"[WARN] Unknown prefix +{yahoo_page_prefix} - entering full number")
                         local_number = f"{sms_prefix}{local_number}"
 
             # Human-like: read the page text first (real person would read instructions)
