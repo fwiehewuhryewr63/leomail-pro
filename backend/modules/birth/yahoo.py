@@ -688,44 +688,58 @@ async def register_single_yahoo(
             if country_needs_change:
                 _log(f"Yahoo shows +{yahoo_page_prefix}, SMS number +{sms_prefix} - need to change")
 
-                # Method 1: Playwright .fill() on country code input (React-compatible)
+                # Yahoo uses a native <select name="shortCountryCode"> with ISO2 values
+                # e.g. <option value="US" data-code="+1">United States (+1)</option>
+                # Using select_option() properly triggers React onChange
                 try:
-                    all_inputs = await page.locator('input').all()
-                    for inp in all_inputs:
-                        val = (await inp.input_value()).strip()
-                        if val.startswith('+') and 2 <= len(val) <= 5:
-                            _log(f"Found country code input: {val} → changing to +{sms_prefix}")
-                            await inp.fill(f"+{sms_prefix}")
-                            await _human_delay(0.3, 0.5)
-                            # Verify the change took effect
-                            new_val = (await inp.input_value()).strip()
-                            if new_val == f"+{sms_prefix}":
-                                country_changed = True
-                                _log(f"[OK] Country code changed via .fill(): +{sms_prefix}")
-                            else:
-                                _log(f"[WARN] .fill() didn't stick: {new_val}")
-                            break
-                except Exception as e:
-                    _log(f"[WARN] .fill() method failed: {e}")
+                    select_el = page.locator('select[name="shortCountryCode"], select[id^="countryCode"]').first
+                    if await select_el.is_visible(timeout=3000):
+                        # Convert SMS country to ISO2 (e.g. "us" -> "US")
+                        target_iso = COUNTRY_TO_ISO2.get(sms_country, sms_country).upper()
+                        _log(f"Selecting country in dropdown: {target_iso} (+{sms_prefix})")
 
-                # Method 2: Click → triple-click select all → type
+                        # Method 1: select by option value (ISO2 code)
+                        await select_el.select_option(value=target_iso)
+                        await _human_delay(0.5, 1.0)
+
+                        # Verify the change
+                        new_val = await select_el.input_value()
+                        if new_val == target_iso:
+                            country_changed = True
+                            _log(f"[OK] Country code changed via select: {target_iso} (+{sms_prefix})")
+                        else:
+                            _log(f"[WARN] select_option: value is {new_val}, expected {target_iso}")
+
+                            # Method 2: try by label text containing the prefix
+                            try:
+                                await select_el.select_option(label=f"(+{sms_prefix})")
+                                await _human_delay(0.3, 0.5)
+                                country_changed = True
+                                _log(f"[OK] Country code changed via label match: +{sms_prefix}")
+                            except Exception:
+                                _log(f"[WARN] Label match also failed")
+                    else:
+                        _log("[WARN] Country code <select> not found/visible")
+                except Exception as e:
+                    _log(f"[WARN] select_option failed: {e}")
+
+                # Fallback: try .fill() on input (for non-select layouts)
                 if not country_changed:
                     try:
                         all_inputs = await page.locator('input').all()
                         for inp in all_inputs:
                             val = (await inp.input_value()).strip()
                             if val.startswith('+') and 2 <= len(val) <= 5:
-                                await inp.click(click_count=3)  # Triple-click to select all
-                                await _human_delay(0.2, 0.3)
-                                await page.keyboard.type(f"+{sms_prefix}", delay=50)
+                                _log(f"Fallback: .fill() on input: {val} → +{sms_prefix}")
+                                await inp.fill(f"+{sms_prefix}")
                                 await _human_delay(0.3, 0.5)
                                 new_val = (await inp.input_value()).strip()
-                                if f"{sms_prefix}" in new_val:
+                                if new_val == f"+{sms_prefix}":
                                     country_changed = True
-                                    _log(f"[OK] Country code changed via keyboard: +{sms_prefix}")
+                                    _log(f"[OK] Country code changed via .fill(): +{sms_prefix}")
                                 break
                     except Exception as e:
-                        _log(f"[WARN] Keyboard method failed: {e}")
+                        _log(f"[WARN] .fill() fallback failed: {e}")
 
                 if not country_changed:
                     # Country change failed - cancel SMS and re-order for Yahoo's country
