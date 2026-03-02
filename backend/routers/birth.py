@@ -35,6 +35,7 @@ from ..modules.birth.aol import register_single_aol
 from ..modules.birth.protonmail import register_single_protonmail
 from ..modules.birth.tuta import register_single_tuta
 from ..modules.birth._helpers import get_sms_provider as _get_sms_provider
+from ..services.proxy_providers import tiered_auto_buy
 from ..modules.birth._helpers import get_captcha_provider as _get_captcha_provider
 from ..services.engine_manager import engine_manager, EngineType
 
@@ -283,10 +284,27 @@ async def run_birth_task(request: BirthRequest):
                         )
                         if not proxy:
                             if proxy_blacklist:
-                                # Try clearing blacklist after cooldown instead of stopping
-                                logger.warning(f"[Birth] Worker {worker_id}: all proxies blacklisted ({len(proxy_blacklist)}), cooldown 5min then retry...")
-                                await asyncio.sleep(300)  # 5 min cooldown
-                                proxy_blacklist.clear()  # Reset blacklist - give proxies another chance
+                                # All proxies blacklisted - try auto-buying from external services
+                                logger.warning(f"[Birth] Worker {worker_id}: all proxies blacklisted ({len(proxy_blacklist)}), attempting auto-buy...")
+                                try:
+                                    new_proxies = await asyncio.to_thread(
+                                        tiered_auto_buy,
+                                        provider=request.provider,
+                                        count=2,
+                                        country="us",
+                                    )
+                                    if new_proxies:
+                                        for np in new_proxies:
+                                            proxy_pool.append(np)
+                                        proxy_blacklist.clear()
+                                        logger.info(f"[Birth] Auto-bought {len(new_proxies)} proxies, retrying...")
+                                        continue
+                                except Exception as e:
+                                    logger.warning(f"[Birth] Auto-buy failed: {e}")
+                                # Fallback: cooldown + clear blacklist
+                                logger.warning(f"[Birth] Worker {worker_id}: auto-buy failed, cooldown 5min then retry...")
+                                await asyncio.sleep(300)
+                                proxy_blacklist.clear()
                                 continue
                             elif proxy_pool:
                                 logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting...")
@@ -600,6 +618,15 @@ async def birth_status(db: Session = Depends(get_db)):
     ).order_by(Task.created_at.desc()).first()
 
     if running_task:
+        # Extract provider from task details
+        task_provider = None
+        if running_task.details:
+            # details format: "Registering N provider accounts"
+            parts = (running_task.details or "").split()
+            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail', 'tuta']:
+                if p in running_task.details.lower():
+                    task_provider = p
+                    break
         return {
             "running": True,
             "task_id": running_task.id,
@@ -608,6 +635,7 @@ async def birth_status(db: Session = Depends(get_db)):
             "failed": running_task.failed_items or 0,
             "status": "running",
             "stop_reason": running_task.stop_reason,
+            "provider": task_provider,
         }
 
     # Check last finished task
@@ -616,6 +644,12 @@ async def birth_status(db: Session = Depends(get_db)):
     ).order_by(Task.created_at.desc()).first()
 
     if last_task:
+        task_provider = None
+        if last_task.details:
+            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail', 'tuta']:
+                if p in last_task.details.lower():
+                    task_provider = p
+                    break
         return {
             "running": False,
             "task_id": last_task.id,
@@ -625,6 +659,7 @@ async def birth_status(db: Session = Depends(get_db)):
             "status": last_task.status,
             "stop_reason": last_task.stop_reason,
             "error": last_task.details if last_task.status == "failed" else None,
+            "provider": task_provider,
         }
 
     return {"running": False, "task_id": None}

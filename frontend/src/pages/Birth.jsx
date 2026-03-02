@@ -26,6 +26,7 @@ export default function Birth() {
     const [threads, setThreads] = useState(5);
     const [_farmName, _setFarmName] = useState('');
     const [running, setRunning] = useState(false);
+    const [runningProvider, setRunningProvider] = useState(null); // actual provider of running task
     const [result, setResult] = useState(null);
     const [namePacks, setNamePacks] = useState([]);
     const [selectedNamePacks, setSelectedNamePacks] = useState([]);
@@ -33,7 +34,7 @@ export default function Birth() {
     const [stopModal, setStopModal] = useState(false);
 
     /* ── Progress state ── */
-    const [progress, setProgress] = useState({ completed: 0, total: 0, failed: 0, retrying: 0, queued: 0 });
+    const [progress, setProgress] = useState(null); // null = not loaded yet
     const [threadLogs, setThreadLogs] = useState([]);
 
     useEffect(() => {
@@ -47,11 +48,21 @@ export default function Birth() {
                 setResult({ status: 'running', message: 'Running...' });
             }
         }).catch(() => { /* ignore */ });
+        // Immediately fetch birth status so progress doesn't flash zeros
+        fetch(`${API}/birth/status`).then(r => r.json()).then(d => {
+            setProgress({
+                completed: d.completed || 0, total: d.total || 0,
+                failed: d.failed || 0, retrying: d.retrying || 0,
+                queued: (d.total || 0) - (d.completed || 0) - (d.failed || 0) - (d.retrying || 0),
+            });
+            if (d.provider) setRunningProvider(d.provider);
+        }).catch(() => setProgress({ completed: 0, total: 0, failed: 0, retrying: 0, queued: 0 }));
     }, []);
 
 
     const startBirth = () => {
         setRunning(true);
+        setRunningProvider(provider); // track which provider is actually running
         setResult(null);
         setProgress({ completed: 0, total: parseInt(quantity) || 0, failed: 0, retrying: 0, queued: parseInt(quantity) || 0 });
         fetch(`${API}/birth/start`, {
@@ -77,6 +88,7 @@ export default function Birth() {
             .then(r => r.json())
             .then(d => {
                 setRunning(false);
+                setRunningProvider(null);
                 setStopModal(false);
                 setResult({
                     status: 'stopped',
@@ -85,7 +97,7 @@ export default function Birth() {
                         : `Graceful stop: waiting for ${d.stopped} tasks`
                 });
             })
-            .catch(() => { setRunning(false); setStopModal(false); });
+            .catch(() => { setRunning(false); setRunningProvider(null); setStopModal(false); });
     };
 
     /* Poll status */
@@ -104,8 +116,10 @@ export default function Birth() {
                     if (Array.isArray(d.thread_logs)) {
                         setThreadLogs(d.thread_logs);
                     }
+                    if (d.provider) setRunningProvider(d.provider);
                     if (!d.running) {
                         setRunning(false);
+                        setRunningProvider(null);
                         setResult({
                             status: d.status === 'failed' ? 'error' : 'completed',
                             message: `${d.status === 'failed' ? '⛔' : '✅'} Done: ${d.completed}/${d.total}, errors: ${d.failed}`
@@ -116,7 +130,9 @@ export default function Birth() {
         return () => clearInterval(iv);
     }, [running]);
 
-    const pct = progress.total > 0 ? Math.round(progress.completed / progress.total * 100) : 0;
+    const safeProgress = progress || { completed: 0, total: 0, failed: 0, retrying: 0, queued: 0 };
+    const pct = safeProgress.total > 0 ? Math.round(safeProgress.completed / safeProgress.total * 100) : 0;
+    const displayProvider = runningProvider || provider; // use actual running provider for display
 
     return (
         <div className="page">
@@ -254,11 +270,11 @@ export default function Birth() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <span style={{ fontSize: '0.82em', fontWeight: 600, color: 'var(--text-secondary)' }}>Progress</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82em' }}>
-                        <span style={{ color: 'var(--text-muted)' }}>{progress.completed} / {progress.total} ({pct}%)</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--success)' }}><CheckCircle size={12} /> {progress.completed}</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--danger)' }}><XCircle size={12} /> {progress.failed}</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--warning)' }}><RefreshCw size={12} /> {progress.retrying}</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--text-muted)' }}><Circle size={12} /> {progress.queued}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>{safeProgress.completed} / {safeProgress.total} ({pct}%)</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--success)' }}><CheckCircle size={12} /> {safeProgress.completed}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--danger)' }}><XCircle size={12} /> {safeProgress.failed}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--warning)' }}><RefreshCw size={12} /> {safeProgress.retrying}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--text-muted)' }}><Circle size={12} /> {safeProgress.queued}</span>
                     </div>
                 </div>
                 <div className="progress-bar">
@@ -270,7 +286,7 @@ export default function Birth() {
             <div className="card" style={{ padding: '16px 24px' }}>
                 <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Thread monitor</div>
 
-                {!running && progress.total === 0 ? (
+                {!running && safeProgress.total === 0 ? (
                     <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: '0.85em' }}>
                         Press START to begin registration
                     </div>
@@ -278,10 +294,10 @@ export default function Birth() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {Array.from({ length: Math.min(parseInt(threads) || 1, 10) }, (_, i) => {
                             const tIdx = i + 1;
-                            const isActive = running && i < (progress.completed + progress.failed + progress.retrying);
-                            const isDone = i < progress.completed;
-                            const isFailed = i >= progress.completed && i < progress.completed + progress.failed;
-                            const isRetrying = i >= progress.completed + progress.failed && i < progress.completed + progress.failed + progress.retrying;
+                            const isActive = running && i < (safeProgress.completed + safeProgress.failed + safeProgress.retrying);
+                            const isDone = i < safeProgress.completed;
+                            const isFailed = i >= safeProgress.completed && i < safeProgress.completed + safeProgress.failed;
+                            const isRetrying = i >= safeProgress.completed + safeProgress.failed && i < safeProgress.completed + safeProgress.failed + safeProgress.retrying;
 
                             const statusIcon = isDone ? <CheckCircle size={14} style={{ color: 'var(--success)' }} />
                                 : isFailed ? <XCircle size={14} style={{ color: 'var(--danger)' }} />
@@ -318,11 +334,11 @@ export default function Birth() {
                                     </div>
 
                                     {/* Provider logo */}
-                                    <ProviderLogo provider={provider} size={24} />
+                                    <ProviderLogo provider={displayProvider} size={24} />
 
                                     {/* Email placeholder */}
                                     <span style={{ fontSize: '0.82em', color: isDone ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: isDone ? 500 : 400 }}>
-                                        {isDone ? `user${tIdx}@${provider}.com` : '—'}
+                                        {isDone ? `user${tIdx}@${displayProvider}.com` : '—'}
                                     </span>
 
                                     {/* Status */}
