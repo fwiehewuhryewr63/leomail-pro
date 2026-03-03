@@ -156,7 +156,8 @@ async def monitor_all_proxies(max_fails: int = 3):
             if result["alive"]:
                 proxy.response_time_ms = result["response_time_ms"]
                 proxy.fail_count = 0
-                proxy.status = ProxyStatus.ACTIVE
+                # Respect BOUND status — don't overwrite if proxy is bound to account
+                proxy.status = ProxyStatus.BOUND if proxy.bound_account_id else ProxyStatus.ACTIVE
                 if result.get("external_ip") and result["external_ip"] not in ("unknown", "tcp-only"):
                     proxy.external_ip = result["external_ip"]
                 if result.get("geo"):
@@ -198,7 +199,8 @@ async def monitor_all_proxies(max_fails: int = 3):
                 proxy, result = item
                 proxy.last_check = datetime.utcnow()
                 if result["alive"]:
-                    proxy.status = ProxyStatus.ACTIVE
+                    # Respect BOUND status on revive
+                    proxy.status = ProxyStatus.BOUND if proxy.bound_account_id else ProxyStatus.ACTIVE
                     proxy.fail_count = 0
                     proxy.response_time_ms = result["response_time_ms"]
                     if result.get("external_ip") and result["external_ip"] not in ("unknown", "tcp-only"):
@@ -206,9 +208,10 @@ async def monitor_all_proxies(max_fails: int = 3):
                     if result.get("geo"):
                         proxy.geo = result["geo"]
                     revived_count += 1
+                    new_status = "BOUND" if proxy.bound_account_id else "ACTIVE"
                     logger.info(
                         f"[RETRY] Proxy REVIVED: {proxy.host}:{proxy.port} ({proxy.proxy_type}) "
-                        f"{result['response_time_ms']}ms - back to ACTIVE"
+                        f"{result['response_time_ms']}ms - back to {new_status}"
                     )
 
             if revived_count > 0:
@@ -253,7 +256,8 @@ async def check_proxy_once(proxy_id: int) -> dict:
         if result["alive"]:
             proxy.response_time_ms = result["response_time_ms"]
             proxy.fail_count = 0
-            proxy.status = ProxyStatus.ACTIVE
+            # Respect BOUND status
+            proxy.status = ProxyStatus.BOUND if proxy.bound_account_id else ProxyStatus.ACTIVE
             if result.get("external_ip") and result["external_ip"] not in ("unknown", "tcp-only"):
                 proxy.external_ip = result["external_ip"]
             if result.get("geo"):
