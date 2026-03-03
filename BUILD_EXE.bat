@@ -14,13 +14,13 @@ echo.
 
 :: Step 1: Install build dependencies
 echo  [1/4] Установка зависимостей для сборки...
-pip install pyinstaller pywebview --quiet
+pip install pyinstaller --quiet
 if errorlevel 1 (
-    echo  [ERROR] Не удалось установить pyinstaller/pywebview!
+    echo  [ERROR] Не удалось установить pyinstaller!
     pause
     exit /b 1
 )
-echo        pyinstaller + pywebview OK.
+echo        pyinstaller OK.
 
 :: Step 2: Build frontend
 echo  [2/4] Сборка фронтенда...
@@ -39,7 +39,7 @@ cd /d "%ROOT%"
 
 :: Step 3: Build EXE with PyInstaller
 echo  [3/4] Сборка EXE через PyInstaller...
-pyinstaller --clean --noconfirm Leomail.spec
+python -m PyInstaller --clean --noconfirm Leomail.spec
 if errorlevel 1 (
     echo  [ERROR] PyInstaller — ошибка!
     echo  Проверьте логи выше.
