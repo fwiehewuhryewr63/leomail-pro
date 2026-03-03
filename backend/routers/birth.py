@@ -301,7 +301,7 @@ async def run_birth_task(request: BirthRequest):
                                                 password=np.get("password", ""),
                                                 protocol=np.get("protocol", "http"),
                                                 geo=np.get("geo", "US"),
-                                                status=ProxyStatus.ALIVE,
+                                                status=ProxyStatus.ACTIVE,
                                                 external_id=np.get("external_id", ""),
                                                 source=np.get("source", "auto-buy"),
                                             )
@@ -534,7 +534,7 @@ async def run_birth_task(request: BirthRequest):
                                                         password=np.get("password", ""),
                                                         protocol=np.get("protocol", "http"),
                                                         geo=np.get("geo", "US"),
-                                                        status=ProxyStatus.ALIVE,
+                                                        status=ProxyStatus.ACTIVE,
                                                         external_id=np.get("external_id", ""),
                                                         source=np.get("source", "auto-buy"),
                                                     )

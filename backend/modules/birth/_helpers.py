@@ -968,7 +968,7 @@ async def detect_and_solve_funcaptcha(page, captcha_provider, log_fn=None):
 
     try:
         # ── Detect FunCaptcha on page ──
-        fc_data = await page.evaluate("""() => {
+        fc_data = await page.evaluate(r"""() => {
             // Method 1: Arkose Labs iframe
             const frames = document.querySelectorAll('iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], iframe[data-e2e="enforcement-frame"]');
             let publicKey = null;
