@@ -140,12 +140,11 @@ class ProxyManager:
     YA_LIMIT = 3      # Yahoo+AOL combined limit
     OH_LIMIT = 3      # Outlook+Hotmail combined limit
     PT_LIMIT = 3      # ProtonMail limit
-    TT_LIMIT = 3      # Tuta limit
 
-    def get_unbound_proxy(self, geo: str = None, device_type: str = None, provider: str = None) -> Proxy | None:
+    def get_unbound_proxy(self, geo: str = None, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
-        Filters by device_type and per-provider-GROUP usage limit.
-        Groups: Gmail=G (limit 1, mobile-only), Yahoo+AOL=YA (limit 3), Outlook+Hotmail=OH (limit 3).
+        Filters by per-provider-GROUP usage limit.
+        Groups: Gmail=G (limit 1, mobile proxy), Yahoo+AOL=YA (limit 3), Outlook+Hotmail=OH (limit 3).
         Marks fully exhausted proxies as EXHAUSTED.
         NO FALLBACK: returns None if no matching proxy found.
         """
@@ -154,13 +153,9 @@ class ProxyManager:
             Proxy.bound_account_id == None,  # noqa: E711
         )
 
-        # Gmail: FORCE mobile proxy type
+        # Gmail: FORCE mobile proxy type (IP-based trust)
         if provider and provider.lower() == 'gmail':
             query = query.filter(Proxy.proxy_type == 'mobile')
-        elif device_type:
-            if device_type.startswith('phone'):
-                query = query.filter(Proxy.proxy_type == 'mobile')
-            # Desktop: include ALL proxy types (http, socks5, mobile)
 
         if provider:
             group_filter = self._provider_group_filter(provider)
@@ -182,20 +177,17 @@ class ProxyManager:
             return random.choice(proxies)
         return None  # NO FALLBACK
 
-    def get_proxy_pool(self, count: int, geo: str = None, device_type: str = None, provider: str = None) -> list[Proxy]:
+    def get_proxy_pool(self, count: int, geo: str = None, provider: str = None) -> list[Proxy]:
         """Get N unique proxies for batch operation.
-        Filters by device_type and per-provider usage limit.
-        Gmail: mobile-only. Yahoo/Gmail: mobile proxies prioritized.
+        Filters by per-provider usage limit.
+        Gmail: mobile proxy type forced.
         NO FALLBACK: returns empty list if no matching proxies.
         """
         query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
 
-        # Gmail: FORCE mobile proxy type
+        # Gmail: FORCE mobile proxy type (IP-based trust)
         if provider and provider.lower() == 'gmail':
             query = query.filter(Proxy.proxy_type == 'mobile')
-        elif device_type:
-            if device_type.startswith('phone'):
-                query = query.filter(Proxy.proxy_type == 'mobile')
 
         if provider:
             group_filter = self._provider_group_filter(provider)
@@ -232,7 +224,7 @@ class ProxyManager:
             def _pool_usage_key(p):
                 total = sum(getattr(p, f, 0) or 0 for f in (
                     'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
-                    'use_hotmail', 'use_protonmail', 'use_tuta'))
+                    'use_hotmail', 'use_protonmail'))
                 ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
                 return (total, ts)
             proxies.sort(key=_pool_usage_key)
@@ -254,7 +246,6 @@ class ProxyManager:
             'outlook': Proxy.use_outlook,
             'hotmail': Proxy.use_hotmail,
             'protonmail': Proxy.use_protonmail,
-            'tuta': Proxy.use_tuta,
         }
         return mapping.get(provider.lower())
 
@@ -262,7 +253,7 @@ class ProxyManager:
     def _provider_group_filter(provider: str):
         """Get SQLAlchemy filter for provider GROUP limit.
         Groups: Yahoo+AOL (YA, limit 3), Outlook+Hotmail (OH, limit 3), Gmail (G, limit 1),
-        ProtonMail (PT, limit 3), Tuta (TT, limit 3).
+        ProtonMail (PT, limit 3).
         """
         provider = provider.lower()
         if provider in ('yahoo', 'aol'):
@@ -273,22 +264,19 @@ class ProxyManager:
             return Proxy.use_gmail < ProxyManager.GMAIL_LIMIT
         elif provider == 'protonmail':
             return Proxy.use_protonmail < ProxyManager.PT_LIMIT
-        elif provider == 'tuta':
-            return Proxy.use_tuta < ProxyManager.TT_LIMIT
         return None
 
     @staticmethod
     def _is_exhausted(proxy: Proxy) -> bool:
         """Check if ALL provider groups are at their limit.
-        Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3), Tuta (3).
+        Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3).
         Returns True only if ALL groups are exhausted.
         """
         g_exhausted = (proxy.use_gmail or 0) >= ProxyManager.GMAIL_LIMIT
         ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= ProxyManager.YA_LIMIT
         oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= ProxyManager.OH_LIMIT
         pt_exhausted = (proxy.use_protonmail or 0) >= ProxyManager.PT_LIMIT
-        tt_exhausted = (proxy.use_tuta or 0) >= ProxyManager.TT_LIMIT
-        return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted and tt_exhausted
+        return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
         """Increment the per-provider usage counter and total use_count."""
@@ -528,7 +516,6 @@ class ProxyManager:
             p.use_outlook = 0
             p.use_hotmail = 0
             p.use_protonmail = 0
-            p.use_tuta = 0
             p.use_count = 0
             p.last_used_at = None
             if p.status == ProxyStatus.EXHAUSTED:

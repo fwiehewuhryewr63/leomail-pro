@@ -120,7 +120,6 @@ export default function Dashboard() {
         { id: 'protonmail', name: 'ProtonMail', color: '#6D4AFF' },
         { id: 'aol', name: 'AOL', color: '#FF6B00' },
         { id: 'hotmail', name: 'Hotmail', color: '#0078D4' },
-        { id: 'tuta', name: 'Tuta', color: '#840010' },
     ];
     const providerDist = providers.map(p => ({
         ...p,

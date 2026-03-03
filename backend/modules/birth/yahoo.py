@@ -28,6 +28,10 @@ from ._helpers import (
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
     debug_screenshot as _debug_screenshot,
+    scan_for_block_signals as _scan_for_block_signals,
+    clean_session as _clean_session,
+    rate_limiter as _rate_limiter,
+    RateLimitError, BannedIPError, FatalError,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, order_sms_retry, get_next_sms_number, get_sms_chain,
     reset_chain_state, SMS_CODE_TIMEOUT,
@@ -37,12 +41,11 @@ from ._helpers import (
 async def register_single_yahoo(
     browser_manager: BrowserManager,
     proxy: Proxy | None,
-    device_type: str,
     name_pool: list,
+    captcha_provider: CaptchaProvider | None,
     sms_provider,
     db: Session,
     thread_log: ThreadLog | None = None,
-    captcha_provider: CaptchaProvider | None = None,
     ACTIVE_PAGES: dict = None,
     BIRTH_CANCEL_EVENT: threading.Event = None,
 ) -> Account | None:
@@ -66,7 +69,6 @@ async def register_single_yahoo(
 
     context = await browser_manager.create_context(
         proxy=proxy,
-        device_type="desktop",
         geo=None,
     )
 
@@ -220,7 +222,19 @@ async def register_single_yahoo(
         if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
             _err(f"[ERR] Yahoo returned error page - IP blocked or rate limited (URL: {current_url})")
             _set_stop("ip_blocked", f"Yahoo error page: {current_url}")
-            return None
+            raise BannedIPError("E301", f"Yahoo error page: {current_url}")
+
+        # Universal block signal scan
+        block_result = await _scan_for_block_signals(page, "yahoo")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "yahoo_block_detected", _log)
+            if block_result["action"] == "skip_ip":
+                _set_stop("ip_blocked", block_result["reason"])
+                raise BannedIPError("E302", block_result["reason"])
+            elif block_result["action"] == "backoff":
+                _set_stop("rate_limited", block_result["reason"])
+                raise RateLimitError("E201", block_result["reason"])
 
         await random_mouse_move(page, steps=3)
         _log(f"Page: {page.url}")
@@ -246,7 +260,7 @@ async def register_single_yahoo(
         if error:
             _err(f"[ERR] Yahoo error before form: {error}")
             _set_stop("ip_blocked", f"Error before form: {error[:100]}")
-            return None
+            raise BannedIPError("E303", f"Yahoo error before form: {error[:100]}")
 
         # First name
         fn_sel = await _wait_and_find(page, [

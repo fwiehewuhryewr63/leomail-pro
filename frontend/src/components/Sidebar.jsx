@@ -3,7 +3,8 @@ import { NavLink } from 'react-router-dom';
 import {
     LayoutDashboard, Baby, Flame, Rocket,
     Shield, FileText, Users, Boxes, Settings,
-    Link, Database, UserCircle, Terminal, Monitor
+    Link, Database, UserCircle, Terminal, Monitor,
+    ScanSearch
 } from 'lucide-react';
 
 // Menu structure with logical groups (separator = null item)
@@ -11,6 +12,7 @@ const NAV_ITEMS = [
     // Group 1: Overview
     { to: '/', icon: LayoutDashboard, label: 'dashboard', end: true },
     { to: '/birth', icon: Baby, label: 'autoreg' },
+    { to: '/validator', icon: ScanSearch, label: 'validator' },
     null, // separator
     // Group 2: Email Operations
     { to: '/warmup', icon: Flame, label: 'warm-up' },

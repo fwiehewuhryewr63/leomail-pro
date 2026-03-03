@@ -67,30 +67,6 @@ LINUX_VERSIONS = [
     "X11; Ubuntu; Linux x86_64",
 ]
 
-MOBILE_ANDROID = [
-    ("Pixel 7", "14", {"width": 412, "height": 915, "scale": 2.625}),
-    ("Pixel 7 Pro", "14", {"width": 412, "height": 892, "scale": 3.5}),
-    ("Pixel 8", "14", {"width": 412, "height": 915, "scale": 2.625}),
-    ("SM-S918B", "14", {"width": 360, "height": 780, "scale": 3}),        # Galaxy S23 Ultra
-    ("SM-A546B", "14", {"width": 412, "height": 915, "scale": 2.625}),    # Galaxy A54
-    ("SM-G991B", "13", {"width": 360, "height": 800, "scale": 3}),        # Galaxy S21
-    ("22101316G", "13", {"width": 393, "height": 873, "scale": 2.75}),    # Xiaomi 13
-    ("2201117TG", "13", {"width": 412, "height": 915, "scale": 2.625}),   # Xiaomi 12
-    ("CPH2451", "13", {"width": 412, "height": 915, "scale": 2.625}),     # OnePlus Nord CE 3
-    ("V2227A", "13", {"width": 393, "height": 851, "scale": 2.75}),       # Vivo X90
-]
-
-MOBILE_IOS = [
-    ("iPhone 15 Pro", "17.4", {"width": 393, "height": 852, "scale": 3}),
-    ("iPhone 15", "17.4", {"width": 390, "height": 844, "scale": 3}),
-    ("iPhone 14 Pro Max", "17.3", {"width": 430, "height": 932, "scale": 3}),
-    ("iPhone 14", "17.2", {"width": 390, "height": 844, "scale": 3}),
-    ("iPhone 13", "17.1", {"width": 390, "height": 844, "scale": 3}),
-    ("iPhone SE 3", "17.0", {"width": 375, "height": 667, "scale": 2}),
-    ("iPad Pro 12.9", "17.4", {"width": 1024, "height": 1366, "scale": 2}),
-    ("iPad Air", "17.3", {"width": 820, "height": 1180, "scale": 2}),
-]
-
 DESKTOP_VIEWPORTS = [
     {"width": 1366, "height": 768},
     {"width": 1440, "height": 900},
@@ -124,23 +100,6 @@ def _generate_desktop_ua() -> str:
     return f"Mozilla/5.0 ({os_str}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver} Safari/537.36"
 
 
-def _generate_mobile_ua(device_info: tuple, platform: str) -> str:
-    """Generate mobile user-agent string."""
-    if platform == "android":
-        name, android_ver, _ = device_info
-        ver = random.choice(CHROME_VERSIONS[-16:])  # Recent Chrome versions
-        return (
-            f"Mozilla/5.0 (Linux; Android {android_ver}; {name}) "
-            f"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver} Mobile Safari/537.36"
-        )
-    else:  # ios
-        name, ios_ver, _ = device_info
-        webkit_ver = random.choice(["605.1.15", "604.1"])
-        ver = random.choice(CHROME_VERSIONS[-8:])
-        return (
-            f"Mozilla/5.0 (iPhone; CPU iPhone OS {ios_ver.replace('.', '_')} like Mac OS X) "
-            f"AppleWebKit/{webkit_ver} (KHTML, like Gecko) CriOS/{ver} Mobile/15E148 Safari/{webkit_ver}"
-        )
 
 
 # ─── GPU Combos Pool (WebGL vendor + renderer) ────────────────────────────────
@@ -200,175 +159,8 @@ GPU_COMBOS_LINUX = [
     ("Google Inc. (Intel)", "ANGLE (Intel, Mesa Intel(R) HD Graphics 620 (KBL GT2), OpenGL 4.6)"),
 ]
 
-# ─── Mobile GPU Combos (Adreno, Mali, Apple - must match mobile devices!) ─────
-
-MOBILE_GPU_ANDROID = [
-    ("Qualcomm", "Adreno (TM) 730"),       # Snapdragon 8 Gen 1 (Pixel 7, Galaxy S22)
-    ("Qualcomm", "Adreno (TM) 740"),       # Snapdragon 8 Gen 2 (Galaxy S23, Pixel 8)
-    ("Qualcomm", "Adreno (TM) 750"),       # Snapdragon 8 Gen 3 (Galaxy S24)
-    ("Qualcomm", "Adreno (TM) 660"),       # Snapdragon 778G (Nord CE 3)
-    ("Qualcomm", "Adreno (TM) 650"),       # Snapdragon 865
-    ("Qualcomm", "Adreno (TM) 642L"),      # Snapdragon 7 Gen 1
-    ("ARM", "Mali-G715"),                    # Exynos 2300 (Galaxy S23 FE)
-    ("ARM", "Mali-G710"),                    # Mediatek Dimensity 9000
-    ("ARM", "Mali-G78"),                     # Exynos 2100 (Galaxy S21)
-    ("ARM", "Mali-G77"),                     # Exynos 990
-    ("Imagination Technologies", "PowerVR GE8320"),  # Budget devices
-]
-
-MOBILE_GPU_IOS = [
-    ("Apple", "Apple GPU"),                  # All modern iPhones
-    ("Apple", "ANGLE (Apple, ANGLE Metal Renderer: Apple A17 Pro GPU, Unspecified Version)"),
-    ("Apple", "ANGLE (Apple, ANGLE Metal Renderer: Apple A16 GPU, Unspecified Version)"),
-    ("Apple", "ANGLE (Apple, ANGLE Metal Renderer: Apple A15 GPU, Unspecified Version)"),
-
-]
 
 
-def _build_mobile_stealth_extra(platform: str = "android") -> str:
-    """
-    Additional stealth scripts specific to mobile device emulation.
-    Adds sensors, touch events, screen orientation, realistic battery, etc.
-    """
-    battery_level = round(random.uniform(0.35, 0.95), 2)
-    battery_charging = random.choice([True, False])
-    charging_time = 0 if battery_charging else float('inf')
-    discharge_time = float('inf') if battery_charging else random.randint(3600, 14400)
-
-    screen_orientation = random.choice(["portrait-primary", "landscape-primary"])
-    orientation_angle = 0 if screen_orientation == "portrait-primary" else 90
-
-    conn_type = random.choice(["wifi", "cellular"])
-    conn_effective = "4g" if conn_type == "cellular" else "4g"
-    conn_rtt = random.choice([50, 75, 100, 150]) if conn_type == "cellular" else random.choice([25, 50, 75])
-    conn_downlink = random.choice([5, 8, 10, 15]) if conn_type == "cellular" else random.choice([20, 50, 100])
-
-    return f"""
-    // ═══ MOBILE-SPECIFIC STEALTH ═══
-
-    // M1. Realistic Battery API (not always full/charging)
-    navigator.getBattery = () => Promise.resolve({{
-        charging: {'true' if battery_charging else 'false'},
-        chargingTime: {charging_time if charging_time != float('inf') else 'Infinity'},
-        dischargingTime: {discharge_time if discharge_time != float('inf') else 'Infinity'},
-        level: {battery_level},
-        addEventListener: () => {{}}, removeEventListener: () => {{}}, dispatchEvent: () => true,
-    }});
-
-    // M2. No plugins on mobile Chrome
-    Object.defineProperty(navigator, 'plugins', {{
-        get: () => {{
-            const p = [];
-            p.length = 0;
-            p.namedItem = () => null;
-            p.refresh = () => {{}};
-            return p;
-        }}
-    }});
-    Object.defineProperty(navigator, 'mimeTypes', {{
-        get: () => {{
-            const m = [];
-            m.length = 0;
-            m.namedItem = () => null;
-            return m;
-        }}
-    }});
-
-    // M3. Screen Orientation API
-    if (!screen.orientation || !screen.orientation.type) {{
-        Object.defineProperty(screen, 'orientation', {{
-            get: () => ({{
-                type: '{screen_orientation}',
-                angle: {orientation_angle},
-                addEventListener: () => {{}},
-                removeEventListener: () => {{}},
-                dispatchEvent: () => true,
-                lock: () => Promise.resolve(),
-                unlock: () => {{}},
-            }})
-        }});
-    }}
-
-    // M4. DeviceMotionEvent & DeviceOrientationEvent (essential for mobile fingerprinting)
-    if (typeof DeviceMotionEvent === 'undefined') {{
-        window.DeviceMotionEvent = class DeviceMotionEvent extends Event {{
-            constructor(type, init) {{ super(type, init); }}
-        }};
-    }}
-    if (typeof DeviceOrientationEvent === 'undefined') {{
-        window.DeviceOrientationEvent = class DeviceOrientationEvent extends Event {{
-            constructor(type, init) {{ super(type, init); }}
-        }};
-    }}
-    // Simulate periodic sensor data
-    (function() {{
-        let alpha = {random.randint(0, 359)}, beta = {random.randint(-5, 5)}, gamma = {random.randint(-3, 3)};
-        setInterval(() => {{
-            alpha = (alpha + (Math.random() * 0.1 - 0.05)) % 360;
-            beta += Math.random() * 0.05 - 0.025;
-            gamma += Math.random() * 0.05 - 0.025;
-            try {{
-                window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', {{
-                    alpha: alpha, beta: beta, gamma: gamma, absolute: false
-                }}));
-                window.dispatchEvent(new DeviceMotionEvent('devicemotion', {{
-                    acceleration: {{ x: Math.random() * 0.02 - 0.01, y: 9.8 + Math.random() * 0.04 - 0.02, z: Math.random() * 0.02 - 0.01 }},
-                    accelerationIncludingGravity: {{ x: 0, y: 9.8, z: 0 }},
-                    rotationRate: {{ alpha: 0, beta: 0, gamma: 0 }},
-                    interval: 16
-                }}));
-            }} catch(e) {{}}
-        }}, 1000 + Math.random() * 500);
-    }})();
-
-    // M5. TouchEvent constructor (critical - Google checks this!)
-    if (typeof TouchEvent === 'undefined') {{
-        window.TouchEvent = class TouchEvent extends UIEvent {{
-            constructor(type, init) {{ super(type, init); }}
-        }};
-    }}
-    // Ensure maxTouchPoints is set for mobile
-    Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => {random.choice([5, 10])} }});
-
-    // M6. Connection API with realistic mobile values
-    Object.defineProperty(navigator, 'connection', {{
-        configurable: true,
-        get: () => ({{
-            effectiveType: '{conn_effective}',
-            type: '{conn_type}',
-            rtt: {conn_rtt},
-            downlink: {conn_downlink},
-            saveData: false,
-            addEventListener: () => {{}}, removeEventListener: () => {{}},
-        }})
-    }});
-
-    // M7. Vibrate API (mobile-only)
-    if (!navigator.vibrate) {{
-        navigator.vibrate = function(pattern) {{ return true; }};
-    }}
-
-    // M8. MediaDevices - mobile has front+back cameras
-    if (navigator.mediaDevices) {{
-        navigator.mediaDevices.enumerateDevices = async function() {{
-            return [
-                {{ deviceId: 'mic0', kind: 'audioinput', label: '', groupId: 'mic' }},
-                {{ deviceId: 'speaker0', kind: 'audiooutput', label: '', groupId: 'speaker' }},
-                {{ deviceId: 'cam_front', kind: 'videoinput', label: '', groupId: 'cam_front' }},
-                {{ deviceId: 'cam_back', kind: 'videoinput', label: '', groupId: 'cam_back' }},
-            ];
-        }};
-    }}
-
-    // M9. Disable Notification permission (mobile Chrome rarely has it)
-    const _origPQuery = window.navigator.permissions?.query;
-    if (_origPQuery) {{
-        window.navigator.permissions.query = (p) => {{
-            if (p.name === 'notifications') return Promise.resolve({{ state: 'default' }});
-            return _origPQuery.call(navigator.permissions, p);
-        }};
-    }}
-    """  # noqa: E501
 
 
 def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int = 8,
@@ -1041,16 +833,14 @@ class BrowserManager:
     async def create_context(
         self,
         proxy=None,
-        device_type: str = "desktop",
         geo: str = None,
         session_path: str = None,
     ) -> BrowserContext:
         """
-        Create a new anti-detect browser context.
+        Create a new anti-detect browser context (desktop only).
 
         Args:
             proxy: Proxy model instance or None
-            device_type: "desktop" | "phone_android" | "phone_ios"
             geo: ISO country code for timezone/locale matching (auto from proxy if None)
             session_path: path to saved session.json for persistent login
         """
@@ -1109,34 +899,12 @@ class BrowserManager:
             "java_script_enabled": True,
         }
 
-        # Device-specific configuration
-        if device_type.startswith("phone_android"):
-            device_info = random.choice(MOBILE_ANDROID)
-            name, android_ver, screen = device_info
-            context_options["user_agent"] = _generate_mobile_ua(device_info, "android")
-            context_options["viewport"] = {"width": screen["width"], "height": screen["height"]}
-            context_options["device_scale_factor"] = screen["scale"]
-            context_options["is_mobile"] = True
-            context_options["has_touch"] = True
-            logger.debug(f"Emulating Android: {name} (Android {android_ver})")
-
-        elif device_type.startswith("phone_ios"):
-            device_info = random.choice(MOBILE_IOS)
-            name, ios_ver, screen = device_info
-            context_options["user_agent"] = _generate_mobile_ua(device_info, "ios")
-            context_options["viewport"] = {"width": screen["width"], "height": screen["height"]}
-            context_options["device_scale_factor"] = screen["scale"]
-            context_options["is_mobile"] = True
-            context_options["has_touch"] = True
-            logger.debug(f"Emulating iOS: {name} (iOS {ios_ver})")
-
-        else:
-            # Desktop
-            context_options["user_agent"] = _generate_desktop_ua()
-            context_options["viewport"] = random.choice(DESKTOP_VIEWPORTS)
-            context_options["device_scale_factor"] = random.choice([1, 1, 1, 1.25, 1.5, 2])
-            context_options["is_mobile"] = False
-            context_options["has_touch"] = False
+        # Desktop configuration
+        context_options["user_agent"] = _generate_desktop_ua()
+        context_options["viewport"] = random.choice(DESKTOP_VIEWPORTS)
+        context_options["device_scale_factor"] = random.choice([1, 1, 1, 1.25, 1.5, 2])
+        context_options["is_mobile"] = False
+        context_options["has_touch"] = False
 
         # Load persistent session if available
         if session_path and os.path.exists(session_path):
@@ -1166,25 +934,15 @@ class BrowserManager:
         ctx_ua = context_options.get("user_agent", "")
         is_mobile = context_options.get("is_mobile", False)
 
-        # Select GPU, hw, memory based on device type
-        if device_type.startswith("phone_android"):
-            ctx_gpu = random.choice(MOBILE_GPU_ANDROID)
-            ctx_hw = random.choice([4, 6, 8])
-            ctx_mem = random.choice([2, 4, 6, 8])
-        elif device_type.startswith("phone_ios"):
-            ctx_gpu = random.choice(MOBILE_GPU_IOS)
-            ctx_hw = random.choice([4, 6])
-            ctx_mem = random.choice([3, 4, 6])
+        # Select GPU, hw, memory — desktop only, OS-matched
+        if "Macintosh" in ctx_ua or "Mac OS" in ctx_ua:
+            ctx_gpu = random.choice(GPU_COMBOS_MAC)
+        elif "Linux" in ctx_ua:
+            ctx_gpu = random.choice(GPU_COMBOS_LINUX)
         else:
-            # Desktop — pick GPU pool matching OS in user-agent (D3D11 is Windows-only!)
-            if "Macintosh" in ctx_ua or "Mac OS" in ctx_ua:
-                ctx_gpu = random.choice(GPU_COMBOS_MAC)
-            elif "Linux" in ctx_ua:
-                ctx_gpu = random.choice(GPU_COMBOS_LINUX)
-            else:
-                ctx_gpu = random.choice(GPU_COMBOS)
-            ctx_hw = random.choice([4, 8, 12, 16])
-            ctx_mem = random.choice([4, 8, 16])
+            ctx_gpu = random.choice(GPU_COMBOS)
+        ctx_hw = random.choice([4, 8, 12, 16])
+        ctx_mem = random.choice([4, 8, 16])
 
         # Build GEO-matched language list for stealth scripts
         # This ensures navigator.languages matches Accept-Language and locale
@@ -1242,15 +1000,7 @@ class BrowserManager:
         # Solution: monkey-patch page.goto to auto-inject via page.evaluate after navigation.
         # Patchright handles navigator.webdriver natively (no script needed).
         all_stealth_scripts = [_webdriver_evasion_js, stealth_js]
-
-        # Add mobile-specific stealth if emulating phone
-        if is_mobile:
-            mobile_platform = "ios" if device_type.startswith("phone_ios") else "android"
-            mobile_stealth = _build_mobile_stealth_extra(platform=mobile_platform)
-            all_stealth_scripts.append(mobile_stealth)
-            logger.debug(f"Mobile stealth: GPU={ctx_gpu[1][:40]}..., sensors+touch+battery")
-        else:
-            logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
+        logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
 
         combined_stealth = "\n".join(all_stealth_scripts)
 
@@ -1394,7 +1144,7 @@ if(!window.chrome.loadTimes)window.chrome.loadTimes=function(){return{commitLoad
         })
 
         logger.debug(
-            f"Context created: device={device_type}, geo={country_code or 'random'}, "
+            f"Context created: geo={country_code or 'random'}, "
             f"tz={timezone_id}, locale={locale_str}"
         )
         return context
@@ -1416,14 +1166,12 @@ if(!window.chrome.loadTimes)window.chrome.loadTimes=function(){return{commitLoad
         self,
         account_id: int,
         proxy=None,
-        device_type: str = "desktop",
         geo: str = None,
     ) -> tuple[BrowserContext, str]:
         """Load a persistent session for an account. Returns (context, session_path)."""
         session_path = str(PROFILES_DIR / str(account_id) / "session.json")
         context = await self.create_context(
             proxy=proxy,
-            device_type=device_type,
             geo=geo,
             session_path=session_path if os.path.exists(session_path) else None,
         )

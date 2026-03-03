@@ -27,7 +27,12 @@ from ._helpers import (
     step_screenshot as _step_screenshot,
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
+    detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
     debug_screenshot as _debug_screenshot,
+    scan_for_block_signals as _scan_for_block_signals,
+    clean_session as _clean_session,
+    rate_limiter as _rate_limiter,
+    RateLimitError, BannedIPError, FatalError,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, order_sms_retry, get_next_sms_number,
     reset_chain_state, SMS_CODE_TIMEOUT,
@@ -37,7 +42,6 @@ from ._helpers import (
 async def register_single_aol(
     browser_manager: BrowserManager,
     proxy: Proxy | None,
-    device_type: str,
     name_pool: list,
     sms_provider,
     db: Session,
@@ -66,7 +70,6 @@ async def register_single_aol(
 
     context = await browser_manager.create_context(
         proxy=proxy,
-        device_type="desktop",
         geo=None,
     )
 
@@ -174,12 +177,22 @@ async def register_single_aol(
                     db.commit()
                 except Exception:
                     pass
-            return None
+            raise FatalError("E501", f"Proxy dead: {current_url}")
 
         # Check if AOL returned error page (E500, rate limit, etc.)
         if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
             _err(f"[ERR] AOL returned error page - IP blocked or rate limited (URL: {current_url})")
-            return None
+            raise BannedIPError("E301", f"AOL error page: {current_url}")
+
+        # Universal block signal scan
+        block_result = await _scan_for_block_signals(page, "aol")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "aol_block_detected", _log)
+            if block_result["action"] == "skip_ip":
+                raise BannedIPError("E302", block_result["reason"])
+            elif block_result["action"] == "backoff":
+                raise RateLimitError("E201", block_result["reason"])
 
         await random_mouse_move(page, steps=3)
         _log(f"Page: {page.url}")
@@ -191,7 +204,7 @@ async def register_single_aol(
         error = await _check_error_page(page, "before firstname")
         if error:
             _err(f"[ERR] AOL error before form: {error}")
-            return None
+            raise BannedIPError("E303", f"AOL error before form: {error[:100]}")
 
         # First name
         fn_sel = await _wait_and_find(page, [
@@ -529,17 +542,55 @@ async def register_single_aol(
             await random_mouse_move(page, steps=2)
             await _human_delay(2.0, 4.0)
 
-            # Click "Get code by text" button
+            # Click "Get code by text" button (SMS only — NEVER WhatsApp!)
+            # AOL shows different layouts:
+            # 1) "Receive code by text" (purple button) + "Receive code on WhatsApp" (link)
+            # 2) "Get code on WhatsApp" (purple button) + "Receive code by text" (link)
+            # We MUST click SMS, not WhatsApp
             get_code_btn = await _wait_for_any(page, [
+                'button:has-text("Receive code by text")',
                 'button:has-text("Get code by text")',
                 'button:has-text("code by text")',
-                'button:has-text("Получить код")',
+                'button:has-text("Получить код по SMS")',
                 'button:has-text("Text me")',
                 'button:has-text("Send code")',
-                'button[type="submit"]',
-                'button[data-type="sms"]',
-                '#send-code-button',
+                'button:has-text("Enviar código")',
             ], timeout=5000)
+
+            # If no SMS button found, check for SMS as a link (below WhatsApp button)
+            if not get_code_btn:
+                _log("[WARN] No SMS button — checking for SMS link...")
+                sms_link = await _wait_for_any(page, [
+                    'a:has-text("Receive code by text")',
+                    'a:has-text("code by text")',
+                    'a:has-text("Text me")',
+                    'a:has-text("Enviar código por texto")',
+                    'button:has-text("Receive code")',
+                ], timeout=3000)
+                if sms_link:
+                    get_code_btn = sms_link
+                    _log("[OK] Found SMS as link (below WhatsApp button)")
+
+            # Last resort: generic submit ONLY if no WhatsApp is visible
+            if not get_code_btn:
+                has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
+                if has_whatsapp == 0:
+                    get_code_btn = await _wait_for_any(page, [
+                        'button[type="submit"]',
+                        '#send-code-button',
+                        'button[data-type="sms"]',
+                    ], timeout=3000)
+                    _log("Using generic submit button (no WhatsApp detected)")
+                else:
+                    _err("[FATAL] Only WhatsApp available — no SMS option. Thread dead.")
+                    if _active_sms:
+                        try:
+                            await asyncio.to_thread(
+                                _active_sms["provider"].cancel_number, _active_sms["order_id"]
+                            )
+                        except Exception:
+                            pass
+                    return None
 
             if get_code_btn:
                 # ── RETRY LOOP: if AOL rejects the number, try up to 3 new numbers ──
@@ -554,12 +605,17 @@ async def register_single_aol(
                     await _human_click(page, get_code_btn)
                     await _human_delay(4, 7)
 
-                    # ── CRITICAL: AOL often shows reCAPTCHA AFTER clicking 'Get code' ──
+                    # ── CRITICAL: AOL shows FunCaptcha/reCAPTCHA AFTER clicking 'Get code' ──
                     for captcha_attempt in range(2):
-                        captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+                        # Try FunCaptcha first (AOL = Yahoo family, uses Arkose Labs)
+                        captcha_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, _log)
+                        if not captcha_solved:
+                            # Fallback to reCAPTCHA
+                            captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
                         if captcha_solved:
                             _log(f"CAPTCHA solved after 'Get code' (attempt {captcha_attempt + 1})")
                             await _human_delay(3, 6)
+                            # Re-click submit if still on same page
                             try:
                                 resubmit = await _wait_for_any(page, [
                                     'button[type="submit"]',

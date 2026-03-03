@@ -33,7 +33,7 @@ from .config import init_directories, load_config
 from .routers import dashboard, birth, settings, proxies, farms, templates, databases, links, geo, resources
 from .routers import sms, human_engine, errors, names, work, logs, stats, campaigns, export
 from .routers import engine as engine_router
-from .routers import warmup, update
+from .routers import warmup, update, validator
 
 
 @asynccontextmanager
@@ -63,7 +63,7 @@ _all_routers = [
     geo.router, resources.router, sms.router, human_engine.router,
     errors.router, names.router, work.router, logs.router,
     stats.router, campaigns.router, export.router, engine_router.router,
-    warmup.router, update.router,
+    warmup.router, update.router, validator.router,
 ]
 for _r in _all_routers:
     app.router.routes.extend(_r.routes)
@@ -310,8 +310,7 @@ async def _startup():
     if "yahoo_aol" in pl: _PM.YA_LIMIT = max(1, pl["yahoo_aol"])
     if "outlook_hotmail" in pl: _PM.OH_LIMIT = max(1, pl["outlook_hotmail"])
     if "protonmail" in pl: _PM.PT_LIMIT = max(1, pl["protonmail"])
-    if "tuta" in pl: _PM.TT_LIMIT = max(1, pl["tuta"])
-    logger.info(f"Proxy limits: Gmail={_PM.GMAIL_LIMIT}, YA={_PM.YA_LIMIT}, OH={_PM.OH_LIMIT}, PT={_PM.PT_LIMIT}, TT={_PM.TT_LIMIT}")
+    logger.info(f"Proxy limits: Gmail={_PM.GMAIL_LIMIT}, YA={_PM.YA_LIMIT}, OH={_PM.OH_LIMIT}, PT={_PM.PT_LIMIT}")
 
     proxy_cfg = config.get("proxy_monitor", {})
     interval = max(60, proxy_cfg.get("check_interval_sec", 120))

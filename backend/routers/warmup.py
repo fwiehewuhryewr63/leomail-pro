@@ -161,12 +161,10 @@ async def cost_tracking(db: Session = Depends(get_db)):
     # FunCaptcha ~$0.003, hCaptcha ~$0.002, reCAPTCHA ~$0.003, image ~$0.001
     outlook_accounts = db.query(Account).filter(Account.provider.in_(["outlook", "hotmail"])).count()
     proton_accounts = db.query(Account).filter(Account.provider == "protonmail").count()
-    tuta_accounts = db.query(Account).filter(Account.provider == "tuta").count()
 
     captcha_cost = round(
         outlook_accounts * 0.003 +   # FunCaptcha
-        proton_accounts * 0.002 +    # hCaptcha
-        tuta_accounts * 0.001,       # image captcha
+        proton_accounts * 0.002,     # hCaptcha
         3,
     )
 
@@ -180,8 +178,7 @@ async def cost_tracking(db: Session = Depends(get_db)):
             "sms_cost": round(count * 0.10, 2) if prov == "gmail" else 0,
             "captcha_cost": round(
                 count * (0.003 if prov in ("outlook", "hotmail") else
-                         0.002 if prov == "protonmail" else
-                         0.001 if prov == "tuta" else 0), 3
+                         0.002 if prov == "protonmail" else 0), 3
             ),
         }
 

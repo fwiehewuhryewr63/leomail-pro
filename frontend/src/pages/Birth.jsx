@@ -7,13 +7,12 @@ import { ProviderLogo } from '../components/ProviderLogos';
 
 /* ── Provider definitions ── */
 const PROVIDERS = [
-    { id: 'gmail', name: 'Gmail', color: '#EA4335', sms: 'simsms', mobileHint: true },
+    { id: 'gmail', name: 'Gmail', color: '#EA4335', sms: 'simsms' },
     { id: 'yahoo', name: 'Yahoo', color: '#6001D2', sms: 'simsms' },
     { id: 'aol', name: 'AOL', color: '#FF6B00', sms: 'simsms' },
     { id: 'outlook', name: 'Outlook', color: '#0078D4', sms: 'simsms' },
     { id: 'hotmail', name: 'Hotmail', color: '#0078D4', sms: 'simsms' },
     { id: 'protonmail', name: 'ProtonMail', color: '#6D4AFF', noSms: true },
-    { id: 'tuta', name: 'Tuta', color: '#840010', noSms: true },
 ];
 
 
@@ -76,7 +75,6 @@ export default function Birth() {
             body: JSON.stringify({
                 provider,
                 quantity: parseInt(quantity) || 1,
-                device_type: 'desktop',
                 name_pack_ids: selectedNamePacks,
                 sms_provider: 'auto',
                 threads: parseInt(threads) || 1,

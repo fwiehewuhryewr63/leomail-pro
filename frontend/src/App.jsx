@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar';
 import Titlebar from './components/Titlebar';
 import Dashboard from './pages/Dashboard';
 import Birth from './pages/Birth';
+import Validator from './pages/Validator';
 import Warmup from './pages/Warmup';
 import Campaigns from './pages/Campaigns';
 import CampaignDetail from './pages/CampaignDetail';
@@ -71,6 +72,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/birth" element={<Birth />} />
+                <Route path="/validator" element={<Validator />} />
                 <Route path="/warmup" element={<Warmup />} />
                 <Route path="/campaigns" element={<Campaigns />} />
                 <Route path="/campaigns/:id" element={<CampaignDetail />} />

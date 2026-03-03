@@ -48,7 +48,6 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "use_YA": (p.use_yahoo or 0) + (p.use_aol or 0),
             "use_OH": (p.use_outlook or 0) + (p.use_hotmail or 0),
             "use_PT": p.use_protonmail or 0,
-            "use_TT": p.use_tuta or 0,
             "bound_to": bound_to,
             "source": getattr(p, 'source', 'manual') or 'manual',
             "last_check": p.last_check.isoformat() if p.last_check else None,
@@ -480,7 +479,6 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
         Proxy.use_outlook: 0,
         Proxy.use_hotmail: 0,
         Proxy.use_protonmail: 0,
-        Proxy.use_tuta: 0,
         Proxy.use_count: 0,
     }, synchronize_session=False)
     db.commit()

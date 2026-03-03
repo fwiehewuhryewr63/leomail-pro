@@ -9,7 +9,7 @@ import { ProviderLogo } from '../components/ProviderLogos';
 /* ── Provider colors (for status indicators) ── */
 const PROVIDER_COLORS = {
     gmail: '#EA4335', yahoo: '#6001D2', aol: '#FF6B00',
-    outlook: '#0078D4', hotmail: '#0078D4', protonmail: '#6D4AFF', tuta: '#840010',
+    outlook: '#0078D4', hotmail: '#0078D4', protonmail: '#6D4AFF',
 };
 
 const STATUS_BADGES = {

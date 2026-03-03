@@ -27,6 +27,10 @@ from ._helpers import (
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
+    scan_for_block_signals as _scan_for_block_signals,
+    clean_session as _clean_session,
+    rate_limiter as _rate_limiter,
+    RateLimitError, BannedIPError, FatalError,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, get_next_sms_number,
     reset_chain_state, SMS_CODE_TIMEOUT,
@@ -61,10 +65,9 @@ async def register_single_gmail(
     password = generate_password()
     username = generate_username(first_name, last_name)
 
-    # Gmail = always mobile
+    # Gmail = desktop Chrome + mobile proxies (IP-based trust)
     context = await browser_manager.create_context(
         proxy=proxy,
-        device_type="phone_android",
         geo=None,
     )
 
@@ -147,7 +150,17 @@ async def register_single_gmail(
                     db.commit()
                 except Exception:
                     pass
-            return None
+            raise FatalError("E501", f"Proxy dead: {current_url}")
+
+        # Universal block signal scan
+        block_result = await _scan_for_block_signals(page, "gmail")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "gmail_block_detected", _log)
+            if block_result["action"] == "skip_ip":
+                raise BannedIPError("E301", block_result["reason"])
+            elif block_result["action"] == "backoff":
+                raise RateLimitError("E201", block_result["reason"])
 
         await random_mouse_move(page, steps=3)
         _log(f"Page: {page.url}")
@@ -163,10 +176,8 @@ async def register_single_gmail(
         if not fn_sel:
             return None
 
-        await page.locator(fn_sel).first.click()
-        await _human_delay(0.3, 0.6)
-        for char in first_name:
-            await page.locator(fn_sel).first.type(char, delay=random.randint(50, 110))
+        # Use human_fill for first name (NOT raw page.type — behavioral fingerprint risk)
+        await _human_fill(page, fn_sel, first_name)
 
         ln_sel = await _wait_for_any(page, [
             'input[name="lastName"]', '#lastName',
@@ -176,8 +187,8 @@ async def register_single_gmail(
         ], timeout=5000)
         if ln_sel:
             await _human_delay(0.3, 0.6)
-            for char in last_name:
-                await page.locator(ln_sel).first.type(char, delay=random.randint(50, 110))
+            # Use human_fill for last name
+            await _human_fill(page, ln_sel, last_name)
 
         await _human_delay(0.5, 1)
 
@@ -212,11 +223,11 @@ async def register_single_gmail(
 
             day_sel = await _wait_for_any(page, ['input#day', '#day', 'input[name="day"]'], timeout=5000)
             if day_sel:
-                await page.locator(day_sel).first.fill(str(birthday.day))
+                await _human_fill(page, day_sel, str(birthday.day), field_type="password")
 
             year_sel = await _wait_for_any(page, ['input#year', '#year', 'input[name="year"]'], timeout=5000)
             if year_sel:
-                await page.locator(year_sel).first.fill(str(birthday.year))
+                await _human_fill(page, year_sel, str(birthday.year), field_type="password")
 
             await _human_delay(0.3, 0.6)
 

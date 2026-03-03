@@ -151,7 +151,7 @@ class CaptchaProvider:
             return None
 
     def solve_image(self, image_bytes: bytes) -> str | None:
-        """Solve image captcha via CapGuru (base64 OCR). Used for Tuta clock CAPTCHA."""
+        """Solve image captcha via CapGuru (base64 OCR)."""
         import base64
         body = base64.b64encode(image_bytes).decode("ascii")
         try:

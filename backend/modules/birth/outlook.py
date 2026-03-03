@@ -27,7 +27,12 @@ from ._helpers import (
     step_screenshot as _step_screenshot,
     wait_and_find as _wait_and_find,
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
+    detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
     debug_screenshot as _debug_screenshot,
+    scan_for_block_signals as _scan_for_block_signals,
+    clean_session as _clean_session,
+    rate_limiter as _rate_limiter,
+    RateLimitError, BannedIPError, FatalError,
     export_account_to_file,
 )
 
@@ -35,7 +40,6 @@ from ._helpers import (
 async def register_single_outlook(
     browser_manager: BrowserManager,
     proxy: Proxy | None,
-    device_type: str,
     name_pool: list,
     captcha_provider: CaptchaProvider | None,
     db: Session,
@@ -66,7 +70,6 @@ async def register_single_outlook(
 
     context = await browser_manager.create_context(
         proxy=proxy,
-        device_type=device_type,
         geo=None,
     )
 
@@ -143,12 +146,22 @@ async def register_single_outlook(
                     logger.warning(f"Proxy marked DEAD during birth: {proxy.host}:{proxy.port}")
                 except Exception:
                     pass
-            return None
+            raise FatalError("E501", f"Proxy dead: {current_url}")
 
         # Check for error/block pages
         if "error" in current_url.split("?")[0].lower() or "blocked" in current_url.lower():
             _err(f"[ERR] MS returned error page (URL: {current_url})")
-            return None
+            raise BannedIPError("E301", f"MS error page: {current_url}")
+
+        # Universal block signal scan
+        block_result = await _scan_for_block_signals(page, "outlook")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "outlook_block_detected", _log)
+            if block_result["action"] == "skip_ip":
+                raise BannedIPError("E302", block_result["reason"])
+            elif block_result["action"] == "backoff":
+                raise RateLimitError("E201", block_result["reason"])
 
         await random_mouse_move(page, steps=3)
         _log(f"Page: {page.url}")
@@ -522,7 +535,28 @@ async def register_single_outlook(
                 _err("FunCaptcha required but no CAPTCHA providers configured!")
                 return None
         else:
-            _log("No CAPTCHA detected - continuing")
+            # No FunCaptcha iframe — check for reCAPTCHA (MS sometimes serves it instead)
+            _log("No FunCaptcha iframe — checking for reCAPTCHA fallback...")
+            recaptcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
+            if recaptcha_solved:
+                _log("[OK] reCAPTCHA solved (MS fallback)")
+                await _human_delay(3, 6)
+                post_captcha_btn = await _wait_for_any(page, [
+                    '#iSignupAction', 'button[type="submit"]', 'input[type="submit"]',
+                ], timeout=5000)
+                if post_captcha_btn:
+                    await _human_click(page, post_captcha_btn)
+                    await _human_delay(3, 6)
+            else:
+                _log("No CAPTCHA detected - continuing")
+
+        # Check for block signals after CAPTCHA step
+        block_result = await _scan_for_block_signals(page, "outlook")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "outlook_block_detected", _log)
+            if block_result["action"] == "skip_ip":
+                return None
 
         # ── Step 8: Post-captcha - check for additional prompts ──
         # MS may show "Stay signed in?" or other prompts

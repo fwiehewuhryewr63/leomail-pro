@@ -25,7 +25,6 @@ const PROXY_PROVIDERS = [
     { id: 'yahoo_aol', name: 'Yahoo + AOL', color: '#6001D2', backendKey: 'yahoo_aol_proxy_limit', configKey: 'yahoo_aol' },
     { id: 'outlook_hotmail', name: 'Outlook + Hotmail', color: '#0078D4', backendKey: 'outlook_hotmail_proxy_limit', configKey: 'outlook_hotmail' },
     { id: 'protonmail', name: 'ProtonMail', color: '#6D4AFF', backendKey: 'protonmail_proxy_limit', configKey: 'protonmail' },
-    { id: 'tuta', name: 'Tuta', color: '#840010', backendKey: 'tuta_proxy_limit', configKey: 'tuta' },
 ];
 
 const PROXY_API_SERVICES = [
@@ -399,7 +398,7 @@ export default function Settings() {
                     <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Limits</span>
                 </div>
                 <div className="card" style={{ padding: '20px 24px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
                         {PROXY_PROVIDERS.map(p => (
                             <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                                 <ProviderLogo provider={p.id} size={32} />

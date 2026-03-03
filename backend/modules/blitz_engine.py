@@ -267,7 +267,7 @@ class BlitzCampaignRunner:
                 from datetime import datetime, timedelta
                 cooldown_min = {"yahoo": 30, "aol": 30, "gmail": 30,
                                 "outlook": 15, "hotmail": 15,
-                                "proton": 15, "tuta": 15}.get(provider.lower(), 20)
+                                "proton": 15}.get(provider.lower(), 20)
                 cutoff = datetime.utcnow() - timedelta(minutes=cooldown_min)
                 active_proxies = db.query(Proxy).filter(
                     Proxy.status == ProxyStatus.ACTIVE,
@@ -355,11 +355,22 @@ class BlitzCampaignRunner:
         from ..birth import (
             register_single_gmail, register_single_yahoo,
             register_single_aol, register_single_outlook,
-            register_single_protonmail, register_single_tuta,
+            register_single_protonmail,
         )
         from ..browser_manager import BrowserManager
-        from ..birth._helpers import get_sms_provider, get_captcha_provider, get_sms_chain
+        from ..birth._helpers import (
+            get_sms_provider, get_captcha_provider, get_sms_chain,
+            rate_limiter, clean_session,
+            RecoverableError, RateLimitError, BannedIPError, CaptchaFailError, FatalError,
+        )
         import os, json
+
+        # ── Rate limiter check: is this IP already burned/cooling? ──
+        proxy_ip = f"{proxy.host}:{proxy.port}" if proxy else "direct"
+        can_go, wait_time = rate_limiter.can_proceed(provider, proxy_ip)
+        if not can_go:
+            logger.warning(f"Blitz birth: rate limiter blocks {provider}@{proxy_ip} (wait {wait_time:.0f}s)")
+            return None
 
         # ── Load name pack ──
         name_pool = []
@@ -416,7 +427,7 @@ class BlitzCampaignRunner:
                 account = await register_single_yahoo(
                     browser_manager=bm,
                     proxy=proxy,
-                    device_type="desktop",
+        
                     name_pool=name_pool,
                     sms_provider=sms_provider,
                     db=db,
@@ -430,7 +441,7 @@ class BlitzCampaignRunner:
                 account = await register_single_aol(
                     browser_manager=bm,
                     proxy=proxy,
-                    device_type="desktop",
+        
                     name_pool=name_pool,
                     sms_provider=sms_provider,
                     db=db,
@@ -445,7 +456,7 @@ class BlitzCampaignRunner:
                 account = await register_single_outlook(
                     browser_manager=bm,
                     proxy=proxy,
-                    device_type="desktop",
+        
                     name_pool=name_pool,
                     captcha_provider=captcha_provider,
                     db=db,
@@ -472,7 +483,7 @@ class BlitzCampaignRunner:
                 account = await register_single_outlook(
                     browser_manager=bm,
                     proxy=proxy,
-                    device_type="desktop",
+        
                     name_pool=name_pool,
                     captcha_provider=captcha_provider,
                     db=db,
@@ -486,7 +497,7 @@ class BlitzCampaignRunner:
                 account = await register_single_protonmail(
                     browser_manager=bm,
                     proxy=proxy,
-                    device_type="desktop",
+        
                     name_pool=name_pool,
                     captcha_provider=captcha_provider,
                     db=db,
@@ -495,18 +506,6 @@ class BlitzCampaignRunner:
                     BIRTH_CANCEL_EVENT=cancel_event,
                 )
 
-            elif provider == "tuta":
-                account = await register_single_tuta(
-                    browser_manager=bm,
-                    proxy=proxy,
-                    device_type="desktop",
-                    name_pool=name_pool,
-                    captcha_provider=captcha_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
 
             else:
                 logger.error(f"Unknown provider: {provider}")
@@ -514,6 +513,8 @@ class BlitzCampaignRunner:
 
             # ── Process result ──
             if account and isinstance(account, Account):
+                # Record success in rate limiter to reset backoff
+                rate_limiter.record_success(provider, proxy_ip)
                 return {
                     "email": account.email,
                     "password": account.password,
@@ -524,10 +525,42 @@ class BlitzCampaignRunner:
                 }
             return None
 
+        except RateLimitError as e:
+            logger.warning(f"Birth rate limited ({provider}): [{e.code}] {e.message}")
+            rate_limiter.record_block(provider, proxy_ip)
+            return None
+        except BannedIPError as e:
+            logger.warning(f"Birth IP banned ({provider}): [{e.code}] {e.message}")
+            rate_limiter.record_block(provider, proxy_ip)
+            # Mark proxy as having a failure pattern
+            if proxy:
+                proxy.fail_count = (proxy.fail_count or 0) + 3  # penalize harder for IP ban
+                try:
+                    db.commit()
+                except Exception:
+                    pass
+            return None
+        except CaptchaFailError as e:
+            logger.warning(f"Birth captcha failed ({provider}): [{e.code}] {e.message}")
+            return None
+        except FatalError as e:
+            logger.error(f"Birth FATAL ({provider}): [{e.code}] {e.message}")
+            return None
+        except RecoverableError as e:
+            logger.info(f"Birth recoverable ({provider}): [{e.code}] {e.message}")
+            return None
         except Exception as e:
             logger.error(f"Birth execution error ({provider}): {e}")
             return None
         finally:
+            # Clean session state before closing (prevents cookie/cache leaks)
+            for pid, pdata in active_pages.items():
+                try:
+                    ctx = pdata.get("context")
+                    if ctx:
+                        await clean_session(ctx)
+                except Exception:
+                    pass
             # Close all open pages
             for pid, pdata in active_pages.items():
                 try:
@@ -597,7 +630,7 @@ class BlitzCampaignRunner:
                             context, _ = await bm.load_session_context(
                                 account_id=account_id,
                                 proxy=acc_obj.proxy,
-                                device_type="desktop",
+                    
                                 geo=acc_obj.geo,
                             )
                         except Exception as e:
@@ -617,7 +650,6 @@ class BlitzCampaignRunner:
                     "outlook": "https://outlook.live.com/mail",
                     "hotmail": "https://outlook.live.com/mail",
                     "proton": "https://mail.proton.me",
-                    "tuta": "https://app.tuta.com",
                 }
                 mail_url = MAIL_URLS.get(provider, "https://mail.yahoo.com/")
                 try:
@@ -926,8 +958,6 @@ class BlitzCampaignRunner:
             await self._browser_send_gmail(page, to_email, subject, body)
         elif provider == "proton":
             await self._browser_send_proton(page, to_email, subject, body)
-        elif provider == "tuta":
-            await self._browser_send_tuta(page, to_email, subject, body)
         else:
             raise Exception(f"Browser send not implemented for provider: {provider}")
 
@@ -1066,33 +1096,6 @@ class BlitzCampaignRunner:
         await page.click('[data-testid="composer:send-button"], button:has-text("Send")')
         await asyncio.sleep(random.uniform(2, 5))
 
-    async def _browser_send_tuta(self, page, to_email: str, subject: str, body: str):
-        """Compose and send in Tuta Mail via browser."""
-        await page.click('button[title="New email"], button:has-text("New email"), [aria-label="New email"]', timeout=10000)
-        await asyncio.sleep(random.uniform(1, 3))
-
-        to_input = page.locator('input[aria-label="To"], input[placeholder*="To"], .bubbleTextField input').first
-        await to_input.click()
-        await to_input.type(to_email, delay=random.randint(30, 60))
-        await asyncio.sleep(random.uniform(0.5, 1))
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(random.uniform(0.3, 0.6))
-
-        subj_input = page.locator('input[aria-label="Subject"], input[placeholder="Subject"]').first
-        await subj_input.click()
-        await subj_input.type(subject, delay=random.randint(20, 50))
-        await asyncio.sleep(random.uniform(0.3, 1))
-
-        body_el = page.locator('[contenteditable="true"], .editor-squire-wrapper [contenteditable]').first
-        await body_el.click()
-        await page.evaluate(
-            "(el, html) => el.innerHTML = html",
-            [await body_el.element_handle(), body],
-        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
-        await asyncio.sleep(random.uniform(0.5, 2))
-
-        await page.click('button[title="Send"], button:has-text("Send")')
-        await asyncio.sleep(random.uniform(2, 5))
 
     # ─── Resource Monitor ─────────────────────────────────────────────────────
 

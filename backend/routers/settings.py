@@ -38,7 +38,6 @@ class SettingsUpdate(BaseModel):
     yahoo_aol_proxy_limit: Optional[int] = None   # Yahoo+AOL combined
     outlook_hotmail_proxy_limit: Optional[int] = None  # Outlook+Hotmail combined
     protonmail_proxy_limit: Optional[int] = None
-    tuta_proxy_limit: Optional[int] = None
 
 @router.get("/")
 async def get_settings():
@@ -102,7 +101,6 @@ async def get_settings():
             "yahoo_aol": config.get("proxy_limits", {}).get("yahoo_aol", ProxyManager.YA_LIMIT),
             "outlook_hotmail": config.get("proxy_limits", {}).get("outlook_hotmail", ProxyManager.OH_LIMIT),
             "protonmail": config.get("proxy_limits", {}).get("protonmail", ProxyManager.PT_LIMIT),
-            "tuta": config.get("proxy_limits", {}).get("tuta", ProxyManager.TT_LIMIT),
         }
     }
 
@@ -160,10 +158,6 @@ async def update_settings(update: SettingsUpdate):
         v = max(1, update.protonmail_proxy_limit)
         limits["protonmail"] = v
         ProxyManager.PT_LIMIT = v
-    if update.tuta_proxy_limit is not None:
-        v = max(1, update.tuta_proxy_limit)
-        limits["tuta"] = v
-        ProxyManager.TT_LIMIT = v
     
     save_config(config)
     return {"status": "saved"}

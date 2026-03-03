@@ -5,7 +5,7 @@ import React from 'react';
    Uses generated brand-style PNG logos from /providers/
    ═══════════════════════════════════════════════════════════ */
 
-const PROVIDER_IDS = ['gmail', 'yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'tuta', 'yahoo_aol', 'outlook_hotmail'];
+const PROVIDER_IDS = ['gmail', 'yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'yahoo_aol', 'outlook_hotmail'];
 
 // Combined IDs map to a base provider logo
 const LOGO_MAP = { yahoo_aol: 'yahoo', outlook_hotmail: 'outlook' };

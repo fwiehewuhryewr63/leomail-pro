@@ -1150,3 +1150,378 @@ COUNTRY_TO_ISO2 = {
     "am": "AM", "az": "AZ", "by": "BY", "md": "MD", "al": "AL", "rs": "RS",
     "hr": "HR", "si": "SI", "lv": "LV", "lt": "LT", "uy": "UY", "bo": "BO",
 }
+
+# Reverse map: phone prefix → SMS country code (e.g. "353" → "ie")
+PREFIX_TO_SMS_COUNTRY = {v: k for k, v in PHONE_COUNTRY_MAP.items() if k != "us_v"}
+
+
+# ═══════════════════════════════════════════════════════════
+#  Phase 2: Shared Defense Infrastructure
+#  Error Taxonomy, Block Scanner, Rate Limiter, Session Clean
+# ═══════════════════════════════════════════════════════════
+
+import time
+from dataclasses import dataclass, field as dc_field
+from typing import Optional
+
+
+# ── Step 5: Error Taxonomy ──────────────────────────────────
+
+
+class RegistrationError(Exception):
+    """Base class for all registration errors with structured codes."""
+    category = "UNKNOWN"
+    default_action = "abort"
+
+    def __init__(self, code: str, message: str, screenshot_path: str = None):
+        self.code = code
+        self.message = message
+        self.screenshot_path = screenshot_path
+        super().__init__(f"[{code}] {message}")
+
+    @property
+    def action(self):
+        """Convenience alias for default_action."""
+        return self.default_action
+
+
+class RecoverableError(RegistrationError):
+    """E1xx: Retry the same step (selector not found, timeout, etc.)"""
+    category = "RECOVERABLE"
+    default_action = "retry"
+
+
+class RateLimitError(RegistrationError):
+    """E2xx: Backoff and rotate IP (too many attempts, 429, etc.)"""
+    category = "RATE_LIMITED"
+    default_action = "backoff"
+
+    def __init__(self, code: str, message: str, cooldown_sec: int = 60, **kwargs):
+        super().__init__(code, message, **kwargs)
+        self.cooldown_sec = cooldown_sec
+
+
+class BannedIPError(RegistrationError):
+    """E3xx: Mark IP as burned, get new proxy (suspicious activity, block page)"""
+    category = "BANNED_IP"
+    default_action = "skip_ip"
+
+
+class CaptchaFailError(RegistrationError):
+    """E4xx: Retry CAPTCHA solver chain (solver timeout, wrong answer)"""
+    category = "CAPTCHA_FAIL"
+    default_action = "retry_captcha"
+
+
+class FatalError(RegistrationError):
+    """E5xx: Abort thread, log detailed report (provider changed flow, unknown page)"""
+    category = "FATAL"
+    default_action = "abort"
+
+
+@dataclass
+class RegContext:
+    """Registration context passed through all steps of a provider flow."""
+    provider: str           # "yahoo", "aol", "outlook", "protonmail", "gmail"
+    username: str = ""
+    password: str = ""
+    email: str = ""
+    first_name: str = ""
+    last_name: str = ""
+    proxy_ip: str = ""      # IP:port of proxy (for rate_limiter)
+    proxy_geo: str = ""     # ISO2 country code from proxy (e.g. "US")
+    proxy_type: str = ""    # "residential", "mobile", "datacenter", "isp"
+    language: str = "en"    # Expected page language based on GEO
+    thread_id: int = 0
+    attempt: int = 0        # Current attempt number (0-based)
+    max_retries: int = 3
+    _log: object = None     # Logging function
+    _err: object = None     # Error logging function
+
+
+# ── Step 6: Block Signal Scanner + GEO Mapper ──────────────
+
+
+# Error phrases per provider + language
+_BLOCK_SIGNALS = {
+    "universal": {
+        "en": [
+            "something went wrong", "try again later", "suspicious activity",
+            "temporarily unavailable", "too many attempts", "access denied",
+            "unable to process", "service unavailable", "blocked",
+            "unusual activity", "verify your identity", "account locked",
+            "we couldn't complete", "request couldn't be processed",
+        ],
+        "es": [
+            "algo salió mal", "inténtalo más tarde", "actividad sospechosa",
+            "temporalmente no disponible", "demasiados intentos", "acceso denegado",
+            "no se pudo procesar", "bloqueado", "actividad inusual",
+        ],
+        "pt": [
+            "algo deu errado", "tente novamente mais tarde", "atividade suspeita",
+            "temporariamente indisponível", "muitas tentativas", "acesso negado",
+            "bloqueado", "atividade incomum",
+        ],
+        "de": [
+            "etwas schief gelaufen", "versuchen sie es später", "verdächtige aktivität",
+            "zu viele versuche", "zugriff verweigert", "blockiert",
+        ],
+        "ru": [
+            "что-то пошло не так", "попробуйте позже", "подозрительная активность",
+            "слишком много попыток", "доступ запрещён", "заблокировано",
+        ],
+    },
+    "yahoo": {
+        "en": [
+            "not available in your region", "we are unable",
+            "error 500", "challenge/fail",
+        ],
+    },
+    "outlook": {
+        "en": [
+            "we need to verify", "prove you're not a robot",
+            "your account has been locked", "help us protect your account",
+        ],
+    },
+    "gmail": {
+        "en": [
+            "this phone number cannot be used for verification",
+            "couldn't create your account", "this account is not eligible",
+            "phone number has been used too many times",
+        ],
+    },
+    "protonmail": {
+        "en": [
+            "human verification required", "too many account creation attempts",
+            "please try again later",
+        ],
+    },
+}
+
+# URL patterns that indicate a block/error
+_BLOCK_URL_PATTERNS = {
+    "universal": ["/error", "/blocked", "/sorry", "/challenge/fail"],
+    "yahoo": ["guce.yahoo", "consent.yahoo"],
+    "outlook": ["account.live.com/recover", "account.live.com/identity"],
+    "gmail": ["accounts.google.com/speedbump", "accounts.google.com/challenge"],
+    "protonmail": [],
+}
+
+
+async def scan_for_block_signals(page, provider: str, language: str = "en"):
+    """
+    Universal block/error detector. Checks page text + URL for block signals.
+
+    Returns dict: {detected: bool, reason: str, action: str, severity: str}
+    Actions: "retry", "backoff", "skip_ip", "abort"
+    """
+    result = {"detected": False, "reason": "", "action": "continue", "severity": "none"}
+
+    url = (page.url or "").lower()
+
+    # 1. Check URL patterns
+    url_patterns = _BLOCK_URL_PATTERNS.get("universal", []) + _BLOCK_URL_PATTERNS.get(provider, [])
+    for pattern in url_patterns:
+        if pattern in url:
+            result["detected"] = True
+            result["reason"] = f"Block URL: {pattern}"
+            result["action"] = "skip_ip"
+            result["severity"] = "high"
+            return result
+
+    # 2. Check page text
+    try:
+        body_text = await page.evaluate("""() => {
+            return (document.body?.innerText?.substring(0, 3000) || '').toLowerCase();
+        }""")
+    except Exception:
+        return result
+
+    # Check universal + provider-specific + language-specific phrases
+    all_phrases = []
+    for lang in [language, "en"]:  # Check requested language + English fallback
+        all_phrases.extend(_BLOCK_SIGNALS.get("universal", {}).get(lang, []))
+        all_phrases.extend(_BLOCK_SIGNALS.get(provider, {}).get(lang, []))
+    # Deduplicate
+    all_phrases = list(set(all_phrases))
+
+    for phrase in all_phrases:
+        if phrase in body_text:
+            result["detected"] = True
+            result["reason"] = f"Block text: '{phrase}'"
+            # Determine severity by phrase
+            if any(w in phrase for w in ["too many", "rate", "demasiados", "muitas", "слишком"]):
+                result["action"] = "backoff"
+                result["severity"] = "medium"
+            elif any(w in phrase for w in ["suspicious", "blocked", "banned", "locked",
+                                            "sospechosa", "bloqueado", "заблокировано"]):
+                result["action"] = "skip_ip"
+                result["severity"] = "high"
+            else:
+                result["action"] = "retry"
+                result["severity"] = "low"
+            return result
+
+    return result
+
+
+# ── Step 6b: GEO-Language Mapper ──
+
+
+_GEO_TO_LANGUAGE = {
+    "US": "en", "GB": "en", "CA": "en", "AU": "en", "NZ": "en", "IE": "en",
+    "ES": "es", "MX": "es", "AR": "es", "CO": "es", "CL": "es", "PE": "es",
+    "BR": "pt", "PT": "pt",
+    "DE": "de", "AT": "de", "CH": "de",
+    "FR": "fr", "BE": "fr",
+    "RU": "ru", "UA": "ru", "KZ": "ru", "BY": "ru",
+    "IT": "it", "NL": "nl", "PL": "pl", "TR": "tr", "JP": "ja",
+    "CN": "zh", "KR": "ko", "TH": "th", "VN": "vi", "ID": "id",
+}
+
+
+def get_expected_language(proxy_geo: str) -> str:
+    """Map proxy country (ISO2) to expected page language."""
+    if not proxy_geo:
+        return "en"
+    return _GEO_TO_LANGUAGE.get(proxy_geo.upper(), "en")
+
+
+def get_error_keywords(provider: str, language: str = "en") -> list:
+    """Get all error keywords for a provider + language combo."""
+    keywords = []
+    keywords.extend(_BLOCK_SIGNALS.get("universal", {}).get(language, []))
+    keywords.extend(_BLOCK_SIGNALS.get("universal", {}).get("en", []))  # Always include EN
+    keywords.extend(_BLOCK_SIGNALS.get(provider, {}).get(language, []))
+    keywords.extend(_BLOCK_SIGNALS.get(provider, {}).get("en", []))
+    return list(set(keywords))
+
+
+# ── Step 7: Rate Limiter ──────────────────────────────────
+
+
+class RateLimitTracker:
+    """
+    Per-provider, per-IP rate limit tracking with exponential backoff.
+    Thread-safe via simple dict operations (GIL protects).
+
+    Usage:
+        tracker = RateLimitTracker()
+        if not tracker.can_proceed("yahoo", "1.2.3.4"):
+            wait_time = tracker.get_wait_time("yahoo", "1.2.3.4")
+            # skip this IP or wait
+        tracker.record_attempt("yahoo", "1.2.3.4", success=True)
+        tracker.record_block("yahoo", "1.2.3.4", cooldown_sec=120)
+    """
+
+    # Backoff stages: 30s → 2min → 10min → burned
+    BACKOFF_STAGES = [30, 120, 600]
+    MAX_FAILS_BEFORE_BURN = 3
+
+    def __init__(self):
+        # {(provider, ip): {"fails": int, "last_block": float, "burned": bool, "stage": int}}
+        self._state = {}
+
+    def _key(self, provider: str, ip: str) -> tuple:
+        return (provider, ip or "unknown")
+
+    def can_proceed(self, provider: str, ip: str) -> tuple:
+        """Check if we can make a registration attempt. Returns (can_go: bool, wait_seconds: float)."""
+        key = self._key(provider, ip)
+        state = self._state.get(key)
+        if not state:
+            return (True, 0)
+        if state.get("burned"):
+            return (False, -1)
+        last_block = state.get("last_block", 0)
+        stage = state.get("stage", 0)
+        if stage >= len(self.BACKOFF_STAGES):
+            return (False, -1)  # Exhausted all stages
+        cooldown = self.BACKOFF_STAGES[min(stage, len(self.BACKOFF_STAGES) - 1)]
+        elapsed = time.time() - last_block
+        if elapsed >= cooldown:
+            return (True, 0)
+        return (False, cooldown - elapsed)
+
+    def get_wait_time(self, provider: str, ip: str) -> int:
+        """Get seconds to wait before next attempt. Returns 0 if can proceed."""
+        key = self._key(provider, ip)
+        state = self._state.get(key)
+        if not state:
+            return 0
+        if state.get("burned"):
+            return -1  # -1 = permanently burned
+        last_block = state.get("last_block", 0)
+        stage = state.get("stage", 0)
+        if stage >= len(self.BACKOFF_STAGES):
+            return -1
+        cooldown = self.BACKOFF_STAGES[min(stage, len(self.BACKOFF_STAGES) - 1)]
+        remaining = cooldown - (time.time() - last_block)
+        return max(0, int(remaining))
+
+    def record_attempt(self, provider: str, ip: str, success: bool):
+        """Record a registration attempt result."""
+        key = self._key(provider, ip)
+        if success:
+            # Reset on success
+            self._state.pop(key, None)
+
+    def record_success(self, provider: str, ip: str):
+        """Alias: record successful attempt, resets backoff state."""
+        self.record_attempt(provider, ip, success=True)
+
+    def record_block(self, provider: str, ip: str, cooldown_sec: int = 0):
+        """Record that this IP was blocked/rate-limited by provider."""
+        key = self._key(provider, ip)
+        state = self._state.get(key, {"fails": 0, "last_block": 0, "burned": False, "stage": 0})
+        state["fails"] = state.get("fails", 0) + 1
+        state["last_block"] = time.time()
+        state["stage"] = state.get("stage", 0) + 1
+        if state["fails"] >= self.MAX_FAILS_BEFORE_BURN:
+            state["burned"] = True
+            logger.warning(f"[RateLimit] IP burned: {provider}/{ip} after {state['fails']} blocks")
+        self._state[key] = state
+
+    def is_burned(self, provider: str, ip: str) -> bool:
+        """Check if IP is permanently burned for this provider."""
+        key = self._key(provider, ip)
+        return self._state.get(key, {}).get("burned", False)
+
+    def reset(self, provider: str = None, ip: str = None):
+        """Reset rate limit state. If both None, resets everything."""
+        if provider and ip:
+            self._state.pop(self._key(provider, ip), None)
+        elif provider:
+            self._state = {k: v for k, v in self._state.items() if k[0] != provider}
+        else:
+            self._state.clear()
+
+
+# Global singleton — shared across all threads
+rate_limiter = RateLimitTracker()
+
+
+# ── Step 7b: Session Sanitizer ──
+
+
+async def clean_session(context):
+    """
+    Clear cookies, localStorage, sessionStorage between registration attempts.
+    Prevents cross-attempt fingerprint leakage.
+    """
+    try:
+        await context.clear_cookies()
+    except Exception:
+        pass
+    try:
+        # Clear localStorage and sessionStorage via JS on all pages
+        for page in context.pages:
+            try:
+                await page.evaluate("""() => {
+                    try { localStorage.clear(); } catch(e) {}
+                    try { sessionStorage.clear(); } catch(e) {}
+                }""")
+            except Exception:
+                pass
+    except Exception:
+        pass

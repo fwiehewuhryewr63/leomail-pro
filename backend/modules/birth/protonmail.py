@@ -1,7 +1,8 @@
 """
 Leomail v3 - ProtonMail Registration Engine
 Registers proton.me / protonmail.com accounts.
-Flow: account.proton.me/signup -> username -> password -> hCaptcha -> (optional recovery email)
+Flow: account.proton.me/signup -> free plan -> username -> password + repeat -> Proton CAPTCHA -> (optional recovery) -> done
+Note: Proton replaced hCaptcha with their own "Proton CAPTCHA" (proof-of-work + visual) in Sep 2023.
 No phone verification required for basic registration.
 """
 import asyncio
@@ -28,6 +29,10 @@ from ._helpers import (
     step_screenshot as _step_screenshot,
     wait_and_find as _wait_and_find,
     debug_screenshot as _debug_screenshot,
+    scan_for_block_signals as _scan_for_block_signals,
+    clean_session as _clean_session,
+    rate_limiter as _rate_limiter,
+    RateLimitError, BannedIPError, FatalError,
     export_account_to_file,
 )
 
@@ -35,7 +40,6 @@ from ._helpers import (
 async def register_single_protonmail(
     browser_manager: BrowserManager,
     proxy: Proxy | None,
-    device_type: str,
     name_pool: list,
     captcha_provider: CaptchaProvider | None,
     db: Session,
@@ -67,7 +71,6 @@ async def register_single_protonmail(
 
     context = await browser_manager.create_context(
         proxy=proxy,
-        device_type=device_type,
         geo=None,
     )
 
@@ -95,12 +98,51 @@ async def register_single_protonmail(
 
     try:
         page = await context.new_page()
-        ACTIVE_PAGES[thread_id] = page
+        ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
+
+        # ── Step 0: Session warmup (build trust before going to signup) ──
+        _log("Session warmup...")
+        warmup_sites = [
+            ("https://www.google.com", 1, 3),
+            ("https://proton.me", 2, 4),
+        ]
+        for site_url, min_t, max_t in random.sample(warmup_sites, len(warmup_sites)):
+            try:
+                await page.goto(site_url, wait_until="domcontentloaded", timeout=15000)
+                await _human_delay(min_t, max_t)
+                await random_mouse_move(page, steps=random.randint(2, 3))
+            except Exception:
+                pass
+        _log("Warmup done")
 
         # ── Step 1: Navigate to signup ──
         _log("Navigating to registration page...")
         await page.goto("https://account.proton.me/signup", wait_until="domcontentloaded", timeout=60000)
         await _human_delay(2.0, 4.0)
+
+        # CRITICAL: Check if proxy is dead
+        current_url = page.url or ""
+        if "chrome-error" in current_url or "about:blank" == current_url:
+            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
+            if proxy:
+                try:
+                    proxy.status = ProxyStatus.DEAD
+                    proxy.fail_count = (proxy.fail_count or 0) + 1
+                    db.commit()
+                except Exception:
+                    pass
+            raise FatalError("E501", f"Proxy dead: {current_url}")
+
+        # Universal block signal scan
+        block_result = await _scan_for_block_signals(page, "protonmail")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "proton_block_detected", _log)
+            if block_result["action"] == "skip_ip":
+                raise BannedIPError("E302", block_result["reason"])
+            elif block_result["action"] == "backoff":
+                raise RateLimitError("E201", block_result["reason"])
+
         await _debug_screenshot(page, "proton_signup_page", _log)
 
         if BIRTH_CANCEL_EVENT.is_set():
@@ -129,29 +171,30 @@ async def register_single_protonmail(
         if BIRTH_CANCEL_EVENT.is_set():
             return None
 
-        # ── Step 3: Enter username ──
-        _log(f"Entering username: {username}")
-        username_selectors = [
-            '#email',
-            'input[name="email"]',
-            'input[id="email"]',
-            'input[placeholder*="username"]',
-            'input[data-testid="signup:email"]',
-        ]
-        username_filled = False
-        for sel in username_selectors:
-            try:
-                inp = page.locator(sel).first
-                if await inp.is_visible(timeout=3000):
-                    await _human_fill(page, sel, username)
-                    username_filled = True
-                    _log(f"Username entered: {username}")
-                    break
-            except Exception:
-                continue
+        # Scroll down to reveal the account creation form
+        _log("Scrolling to account form...")
+        await page.mouse.wheel(0, 800)
+        await _human_delay(1.0, 2.0)
 
-        if not username_filled:
-            _err("Field not found username")
+        # ── Step 3: Enter username ──
+        # NOTE: Proton wraps #username in a custom component that Playwright
+        # considers "not visible". Use JS to focus + set value, then dispatch
+        # input events so React picks up the change.
+        _log(f"Entering username: {username}")
+        try:
+            await page.wait_for_selector('#username', state='attached', timeout=10000)
+            await _human_delay(0.5, 1.0)
+            await page.evaluate("""(username) => {
+                const el = document.querySelector('#username');
+                el.focus();
+                el.value = '';
+            }""", username)
+            await _human_delay(0.3, 0.5)
+            # Type character by character for human-like behavior
+            await page.locator('#username').press_sequentially(username, delay=random.randint(30, 90))
+            _log(f"Username entered: {username}")
+        except Exception as e:
+            _err(f"Field not found username: {e}")
             await _debug_screenshot(page, "proton_no_username_field", _log)
             return None
 
@@ -162,147 +205,187 @@ async def register_single_protonmail(
 
         # ── Step 4: Enter password ──
         _log("Entering password...")
-        password_selectors = [
-            '#password',
-            'input[name="password"]',
-            'input[type="password"]',
-            'input[data-testid="signup:password"]',
-        ]
-        for sel in password_selectors:
-            try:
-                inp = page.locator(sel).first
-                if await inp.is_visible(timeout=3000):
-                    await _human_fill(page, sel, password)
-                    _log("Password entered")
-                    break
-            except Exception:
-                continue
+        try:
+            await page.wait_for_selector('#password', state='attached', timeout=5000)
+            await _human_delay(0.3, 0.6)
+            await page.evaluate("""() => {
+                const el = document.querySelector('#password');
+                el.focus();
+                el.value = '';
+            }""")
+            await _human_delay(0.3, 0.5)
+            await page.locator('#password').press_sequentially(password, delay=random.randint(30, 90))
+            _log("Password entered")
+        except Exception as e:
+            _err(f"Password field error: {e}")
+            return None
 
-        await _human_delay(0.5, 1.5)
-
-        # Confirm password
-        confirm_selectors = [
-            '#repeat-password',
-            'input[name="confirmPassword"]',
-            'input[data-testid="signup:confirm-password"]',
-        ]
-        for sel in confirm_selectors:
-            try:
-                inp = page.locator(sel).first
-                if await inp.is_visible(timeout=3000):
-                    await _human_fill(page, sel, password)
-                    _log("Password confirmed")
-                    break
-            except Exception:
-                continue
+        # ── Step 4b: Enter repeat password ──
+        _log("Confirming password...")
+        try:
+            await page.wait_for_selector('#repeat-password', state='attached', timeout=5000)
+            await _human_delay(0.3, 0.6)
+            await page.evaluate("""() => {
+                const el = document.querySelector('#repeat-password');
+                if (el) { el.focus(); el.value = ''; }
+            }""")
+            await _human_delay(0.3, 0.5)
+            await page.locator('#repeat-password').press_sequentially(password, delay=random.randint(30, 90))
+            _log("Password confirmed")
+        except Exception as e:
+            _log(f"[WARN] repeat-password field not found: {e} (may not be required)")
 
         await _human_delay(1.0, 2.0)
 
         if BIRTH_CANCEL_EVENT.is_set():
             return None
 
-        # ── Step 5: Submit form / Create account button ──
-        _log("Clicking create account button...")
-        submit_selectors = [
-            'button[type="submit"]',
-            'button:has-text("Create account")',
-            'button:has-text("Создать аккаунт")',
-            'button:has-text("Next")',
-            'button:has-text("Next")',
-        ]
-        for sel in submit_selectors:
-            try:
-                btn = page.locator(sel).first
-                if await btn.is_visible(timeout=3000):
-                    await btn.click()
-                    _log("Form submitted")
-                    break
-            except Exception:
-                continue
+        # ── Step 5: Submit form ──
+        _log("Clicking submit button...")
+        try:
+            submit_btn = page.locator('button[type="submit"]').first
+            await submit_btn.scroll_into_view_if_needed(timeout=5000)
+            await _human_delay(0.5, 1.0)
+            await submit_btn.click(force=True, timeout=5000)
+            _log("Form submitted")
+        except Exception as e:
+            _err(f"Submit button error: {e}")
+            return None
 
         await _human_delay(3.0, 5.0)
         await _debug_screenshot(page, "proton_after_submit", _log)
 
+        # Check for block signals after submit
+        block_result = await _scan_for_block_signals(page, "protonmail")
+        if block_result["detected"]:
+            _err(f"[BLOCK] {block_result['reason']}")
+            await _debug_screenshot(page, "proton_block_detected", _log)
+            return None
+
         if BIRTH_CANCEL_EVENT.is_set():
             return None
 
-        # ── Step 6: Handle hCaptcha via CaptchaChain ──
-        _log("Checking hCaptcha...")
+        # ── Step 6: Handle Proton CAPTCHA / hCaptcha ──
+        # Proton switched to their own "Proton CAPTCHA" in Sep 2023:
+        # - Proof-of-work challenge (runs in WebWorker)
+        # - Visual captcha as fallback
+        # We also keep hCaptcha detection as a fallback for edge cases.
+        _log("Checking for CAPTCHA...")
+        captcha_handled = False
+
+        # Method 1: Proton CAPTCHA (current system)
+        # Proton CAPTCHA appears as an iframe or inline challenge
         try:
-            hcaptcha_frame = page.frame_locator('iframe[src*="hcaptcha"]')
-            checkbox = hcaptcha_frame.locator('#checkbox')
-            if await checkbox.is_visible(timeout=5000):
-                _log("hCaptcha detected - solving via CaptchaChain...")
-                captcha_chain = get_captcha_chain()
-                if captcha_chain.providers:
-                    try:
-                        # Extract sitekey from iframe
-                        site_key = await page.evaluate("""
-                            () => {
-                                const iframe = document.querySelector('iframe[src*="hcaptcha"]');
-                                if (iframe) {
-                                    const url = new URL(iframe.src);
-                                    return url.searchParams.get('sitekey') || '';
+            proton_captcha = page.locator('[data-testid="captcha"], iframe[src*="captcha"], .captcha-container, [class*="Captcha"]')
+            if await proton_captcha.count() > 0:
+                _log("[CAPTCHA] Proton CAPTCHA detected")
+                # Proton CAPTCHA uses proof-of-work — wait for it to auto-solve
+                # The browser computes the PoW challenge automatically
+                _log("Waiting for Proton CAPTCHA proof-of-work to complete...")
+                for wait_attempt in range(30):  # Up to 60 seconds
+                    await _human_delay(1.5, 2.5)
+                    # Check if captcha disappeared (solved)
+                    still_visible = await proton_captcha.count() > 0
+                    if not still_visible:
+                        _log("[OK] Proton CAPTCHA completed (auto-solved)")
+                        captcha_handled = True
+                        break
+                    # Check if we moved to a new page
+                    if "signup" not in page.url.lower():
+                        _log("[OK] Left signup page — CAPTCHA likely passed")
+                        captcha_handled = True
+                        break
+                    # Check for visual challenge that needs human interaction
+                    visual_challenge = page.locator('[data-testid="captcha-visual"], .captcha-image, canvas[class*="captcha"]')
+                    if await visual_challenge.count() > 0:
+                        _log("[WARN] Proton visual CAPTCHA — cannot auto-solve")
+                        await _debug_screenshot(page, "proton_visual_captcha", _log)
+                        # Try clicking if there's a verify/submit button
+                        verify_btn = await _wait_for_any(page, [
+                            'button:has-text("Verify")', 'button:has-text("Submit")',
+                            'button[type="submit"]',
+                        ], timeout=3000)
+                        if verify_btn:
+                            await _human_click(page, verify_btn)
+                            await _human_delay(3, 5)
+                        break
+                if not captcha_handled:
+                    _log("[WARN] Proton CAPTCHA still visible after 60s")
+                    await _debug_screenshot(page, "proton_captcha_timeout", _log)
+        except Exception as e:
+            _log(f"Proton CAPTCHA check error: {e}")
+
+        # Method 2: hCaptcha fallback (for older Proton instances or A/B tests)
+        if not captcha_handled:
+            try:
+                hcaptcha_frame = page.frame_locator('iframe[src*="hcaptcha"]')
+                checkbox = hcaptcha_frame.locator('#checkbox')
+                if await checkbox.is_visible(timeout=3000):
+                    _log("hCaptcha detected (legacy/A-B test) — solving via CaptchaChain...")
+                    captcha_chain = get_captcha_chain()
+                    if captcha_chain.providers:
+                        try:
+                            site_key = await page.evaluate("""
+                                () => {
+                                    const iframe = document.querySelector('iframe[src*="hcaptcha"]');
+                                    if (iframe) {
+                                        const url = new URL(iframe.src);
+                                        return url.searchParams.get('sitekey') || '';
+                                    }
+                                    const el = document.querySelector('[data-sitekey]');
+                                    if (el) return el.getAttribute('data-sitekey');
+                                    return '';
                                 }
-                                const el = document.querySelector('[data-sitekey]');
-                                if (el) return el.getAttribute('data-sitekey');
-                                return '';
-                            }
-                        """)
-                        if site_key:
-                            _log(f"hCaptcha sitekey: {site_key[:20]}...")
-                            solution = await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    captcha_chain.solve,
-                                    "hcaptcha",
-                                    sitekey=site_key,
-                                    url=page.url,
-                                ),
-                                timeout=120,
-                            )
-                            if solution:
-                                # Enhanced token injection - 3 strategies
-                                await page.evaluate(f"""
-                                    (() => {{
-                                        const token = "{solution}";
-                                        // Strategy 1: Hidden response fields
-                                        document.querySelectorAll('[name="h-captcha-response"], [name="g-recaptcha-response"]')
-                                            .forEach(el => {{ el.value = token; }});
-                                        // Strategy 2: textarea (Proton uses this)
-                                        document.querySelectorAll('textarea[name="h-captcha-response"]')
-                                            .forEach(el => {{ el.value = token; el.dispatchEvent(new Event('input', {{bubbles: true}})); }});
-                                        // Strategy 3: hcaptcha callback
-                                        try {{ if (window.hcaptcha) window.hcaptcha.execute(); }} catch(e) {{}}
-                                    }})()
-                                """)
-                                _log("hCaptcha solved via CaptchaChain [OK]")
-                                await _human_delay(2.0, 4.0)
-                                
-                                # Re-submit form after captcha
-                                for sel in ['button[type="submit"]', 'button:has-text("Create account")']:
-                                    try:
-                                        btn = page.locator(sel).first
-                                        if await btn.is_visible(timeout=2000):
-                                            await btn.click()
-                                            break
-                                    except Exception:
-                                        continue
-                                await _human_delay(3.0, 5.0)
+                            """)
+                            if site_key:
+                                _log(f"hCaptcha sitekey: {site_key[:20]}...")
+                                solution = await asyncio.wait_for(
+                                    asyncio.to_thread(
+                                        captcha_chain.solve,
+                                        "hcaptcha",
+                                        sitekey=site_key,
+                                        url=page.url,
+                                    ),
+                                    timeout=120,
+                                )
+                                if solution:
+                                    await page.evaluate(f"""
+                                        (() => {{
+                                            const token = "{solution}";
+                                            document.querySelectorAll('[name="h-captcha-response"], [name="g-recaptcha-response"]')
+                                                .forEach(el => {{ el.value = token; }});
+                                            document.querySelectorAll('textarea[name="h-captcha-response"]')
+                                                .forEach(el => {{ el.value = token; el.dispatchEvent(new Event('input', {{bubbles: true}})); }});
+                                            try {{ if (window.hcaptcha) window.hcaptcha.execute(); }} catch(e) {{}}
+                                        }})()
+                                    """)
+                                    _log("hCaptcha solved via CaptchaChain [OK]")
+                                    captcha_handled = True
+                                    await _human_delay(2.0, 4.0)
+                                    # Re-submit form after captcha
+                                    for sel in ['button[type="submit"]', 'button:has-text("Create account")']:
+                                        try:
+                                            btn = page.locator(sel).first
+                                            if await btn.is_visible(timeout=2000):
+                                                await btn.click()
+                                                break
+                                        except Exception:
+                                            continue
+                                    await _human_delay(3.0, 5.0)
+                                else:
+                                    _err("hCaptcha: CaptchaChain failed to solve")
                             else:
-                                _err("hCaptcha: CaptchaChain failed to solve")
-                        else:
-                            _err("hCaptcha: not found sitekey")
-                    except asyncio.TimeoutError:
-                        _err("hCaptcha: timeout 120s")
-                    except Exception as ce:
-                        _err(f"hCaptcha error: {ce}")
-                else:
-                    # No providers - try clicking checkbox manually
-                    await checkbox.click()
-                    await _human_delay(3.0, 5.0)
-                    _log("hCaptcha: clicking checkbox (no providers)")
-        except Exception:
-            _log("hCaptcha not detected, skipping")
+                                _err("hCaptcha: not found sitekey")
+                        except asyncio.TimeoutError:
+                            _err("hCaptcha: timeout 120s")
+                        except Exception as ce:
+                            _err(f"hCaptcha error: {ce}")
+                    else:
+                        await checkbox.click()
+                        await _human_delay(3.0, 5.0)
+                        _log("hCaptcha: clicking checkbox (no providers)")
+            except Exception:
+                _log("No hCaptcha detected either")
 
         await _human_delay(2.0, 4.0)
 

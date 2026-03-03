@@ -47,13 +47,7 @@ PROVIDER_CONFIGS = {
         "imap": ("127.0.0.1", 1143),  # ProtonMail Bridge required
         "smtp": ("127.0.0.1", 1025),
         "smtp_ssl": False,
-    },
-    "tuta": {
-        # Tuta doesn't support standard IMAP/SMTP - skip for warmup
-        "imap": None,
-        "smtp": None,
-        "smtp_ssl": False,
-    },
+    }
 }
 
 # ── Warm-up email subjects and bodies ──────────────────────────────────────────

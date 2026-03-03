@@ -33,7 +33,6 @@ from ..modules.birth.gmail import register_single_gmail
 from ..modules.birth.yahoo import register_single_yahoo
 from ..modules.birth.aol import register_single_aol
 from ..modules.birth.protonmail import register_single_protonmail
-from ..modules.birth.tuta import register_single_tuta
 from ..modules.birth._helpers import get_sms_provider as _get_sms_provider
 from ..services.proxy_providers import tiered_auto_buy
 from ..modules.birth._helpers import get_captcha_provider as _get_captcha_provider
@@ -55,7 +54,6 @@ BIRTH_CANCEL_EVENT = threading.Event()
 class BirthRequest(BaseModel):
     provider: str = "outlook"  # gmail, outlook
     quantity: int = 1
-    device_type: str = "desktop"  # desktop, phone_android, phone_ios
     name_pack_ids: list[int] = []
     sms_provider: str = "simsms"  # simsms, grizzly
     sms_countries: list[str] = []  # allowed countries, empty = auto
@@ -92,19 +90,17 @@ async def run_birth_task(request: BirthRequest):
         db.add(task)
         db.commit()
 
-        # Get proxy pool - filter by device type + provider usage limit (NO FALLBACK)
+        # Get proxy pool - filter by provider usage limit (NO FALLBACK)
         proxy_manager = ProxyManager(db)
         proxy_pool = proxy_manager.get_proxy_pool(
             request.quantity,
-            device_type=request.device_type,
             provider=request.provider,
         )
-        logger.info(f"[Birth] Proxy pool: {len(proxy_pool)} proxies for device={request.device_type}, provider={request.provider}")
+        logger.info(f"[Birth] Proxy pool: {len(proxy_pool)} proxies for provider={request.provider}")
 
         if not proxy_pool:
-            device_label = "MOBILE" if request.device_type.startswith("phone") else "SOCKS5/HTTP"
             task = Task(type="birth", status=TaskStatus.STOPPED, total_items=request.quantity,
-                        stop_reason=f"Process stopped - no suitable proxies ({device_label}) for {request.provider}. Load the required proxy type or reset counters.")
+                        stop_reason=f"Process stopped - no suitable proxies for {request.provider}. Load proxies or reset counters.")
             db.add(task); db.commit()
             return {"status": "error", "message": task.stop_reason}
 
@@ -365,14 +361,14 @@ async def run_birth_task(request: BirthRequest):
                         account = None
                         if request.provider == "outlook":
                             account = await register_single_outlook(
-                                browser_manager, proxy, request.device_type,
+                                browser_manager, proxy,
                                 worker_name_pool, captcha, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "hotmail":
                             account = await register_single_outlook(
-                                browser_manager, proxy, request.device_type,
+                                browser_manager, proxy,
                                 worker_name_pool, captcha, db, thread_log,
                                 domain="hotmail.com",
                                 ACTIVE_PAGES=ACTIVE_PAGES,
@@ -397,9 +393,8 @@ async def run_birth_task(request: BirthRequest):
                                 db.commit()
                                 return
                             account = await register_single_yahoo(
-                                browser_manager, proxy, request.device_type,
-                                worker_name_pool, worker_sms, db, thread_log,
-                                captcha_provider=captcha,
+                                browser_manager, proxy,
+                                worker_name_pool, captcha, worker_sms, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
@@ -410,22 +405,14 @@ async def run_birth_task(request: BirthRequest):
                                 db.commit()
                                 return
                             account = await register_single_aol(
-                                browser_manager, proxy, request.device_type,
+                                browser_manager, proxy,
                                 worker_name_pool, worker_sms, db, thread_log,
-                                captcha_provider=captcha,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "protonmail":
                             account = await register_single_protonmail(
-                                browser_manager, proxy, request.device_type,
-                                worker_name_pool, captcha, db, thread_log,
-                                ACTIVE_PAGES=ACTIVE_PAGES,
-                                BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
-                            )
-                        elif request.provider == "tuta":
-                            account = await register_single_tuta(
-                                browser_manager, proxy, request.device_type,
+                                browser_manager, proxy,
                                 worker_name_pool, captcha, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
@@ -665,7 +652,7 @@ async def birth_status(db: Session = Depends(get_db)):
         if running_task.details:
             # details format: "Registering N provider accounts"
             parts = (running_task.details or "").split()
-            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail', 'tuta']:
+            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail']:
                 if p in running_task.details.lower():
                     task_provider = p
                     break
@@ -688,7 +675,7 @@ async def birth_status(db: Session = Depends(get_db)):
     if last_task:
         task_provider = None
         if last_task.details:
-            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail', 'tuta']:
+            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail']:
                 if p in last_task.details.lower():
                     task_provider = p
                     break

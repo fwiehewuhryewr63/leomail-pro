@@ -569,7 +569,7 @@ PROVIDERS = {
 #
 # Gmail = mobile ONLY → ASocks mobile, then uploaded mobile
 # Yahoo/AOL = residential ONLY → skip datacenter tiers
-# Outlook/Proton/Tuta = any → use cheapest first
+# Outlook/Proton = any → use cheapest first
 
 AUTO_BUY_TIERS = {
     "gmail": [
@@ -596,12 +596,6 @@ AUTO_BUY_TIERS = {
         ("proxycheap", "residential"),
     ],
     "protonmail": [
-        ("belurk", "residential"),
-        ("proxy6", "residential"),
-        ("asocks", "residential"),
-        ("proxycheap", "residential"),
-    ],
-    "tuta": [
         ("belurk", "residential"),
         ("proxy6", "residential"),
         ("asocks", "residential"),
