@@ -81,9 +81,15 @@ async def _startup():
     Base.metadata.create_all(bind=db_engine)
     logger.info("Database tables created/verified")
 
-    # Auto-install Playwright Chromium if missing (critical for EXE distribution)
+    # Auto-install Chromium if missing (critical for EXE distribution)
     try:
-        from playwright._impl._driver import compute_driver_executable
+        # Try patchright first, fall back to playwright
+        try:
+            from patchright._impl._driver import compute_driver_executable
+            _engine_name = "Patchright"
+        except ImportError:
+            from playwright._impl._driver import compute_driver_executable
+            _engine_name = "Playwright"
         driver_exec = compute_driver_executable()
         driver_dir = Path(driver_exec).parent
         browsers_dir = driver_dir / "package" / ".local-browsers"
@@ -97,7 +103,7 @@ async def _startup():
                         chromium_ok = True
                         break
         if not chromium_ok:
-            logger.info("Playwright Chromium not found — downloading automatically...")
+            logger.info(f"{_engine_name} Chromium not found — downloading automatically...")
             import subprocess
             node_exe = driver_dir / "node.exe"
             cli_js = driver_dir / "package" / "cli.js"
@@ -108,11 +114,11 @@ async def _startup():
                 env=env, capture_output=True, text=True, timeout=300
             )
             if result.returncode == 0:
-                logger.info("Playwright Chromium installed successfully")
+                logger.info(f"{_engine_name} Chromium installed successfully")
             else:
-                logger.warning(f"Playwright install returned code {result.returncode}: {result.stderr[:300]}")
+                logger.warning(f"{_engine_name} install returned code {result.returncode}: {result.stderr[:300]}")
         else:
-            logger.info("Playwright Chromium: OK")
+            logger.info(f"{_engine_name} Chromium: OK")
     except Exception as e:
         logger.warning(f"Playwright auto-install check skipped: {e}")
 

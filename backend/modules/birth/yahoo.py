@@ -90,6 +90,18 @@ async def register_single_yahoo(
             except Exception:
                 pass
 
+    def _set_stop(reason: str, msg: str = ""):
+        """Set stop_reason on thread_log for UI reporting (Phase 4 error map)."""
+        if thread_log:
+            thread_log.stop_reason = reason
+            thread_log.status = "error"
+            if msg:
+                thread_log.error_message = msg[:500]
+            try:
+                db.commit()
+            except Exception:
+                pass
+
     # ── Initialize Vision Engine (OCR + stage detection) ──
     vision = None
     try:
@@ -194,6 +206,7 @@ async def register_single_yahoo(
         current_url = page.url or ""
         if "chrome-error" in current_url or "about:blank" == current_url:
             _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
+            _set_stop("proxy_dead", f"Proxy offline: {current_url}")
             if proxy:
                 try:
                     proxy.status = ProxyStatus.DEAD
@@ -206,6 +219,7 @@ async def register_single_yahoo(
         # Check if Yahoo returned error page (E500, rate limit, etc.)
         if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
             _err(f"[ERR] Yahoo returned error page - IP blocked or rate limited (URL: {current_url})")
+            _set_stop("ip_blocked", f"Yahoo error page: {current_url}")
             return None
 
         await random_mouse_move(page, steps=3)
@@ -219,6 +233,7 @@ async def register_single_yahoo(
                 err = await vision.is_error(page)
                 if err:
                     _err(f"[Vision] Error detected: {err['type']} - {err['text']}")
+                    _set_stop("fingerprint_detected", f"Vision: {err['type']}")
                     return None
             except Exception as ve:
                 logger.debug(f"[Yahoo] Vision stage detect: {ve}")
@@ -230,6 +245,7 @@ async def register_single_yahoo(
         error = await _check_error_page(page, "before firstname")
         if error:
             _err(f"[ERR] Yahoo error before form: {error}")
+            _set_stop("ip_blocked", f"Error before form: {error[:100]}")
             return None
 
         # First name
@@ -474,6 +490,7 @@ async def register_single_yahoo(
                 break  # No error - proceed
         else:
             _err(f"Yahoo rejected 3 usernames in a row - try different names")
+            _set_stop("email_taken", "3 usernames rejected")
             return None
 
         # ── Post-submit: Handle Yahoo's "Add your phone number" page ──
@@ -484,6 +501,15 @@ async def register_single_yahoo(
         error = await _check_error_page(page, "after submit")
         if error:
             _err(f"[ERR] Yahoo error after submit: {error}")
+            _set_stop("ip_blocked", f"Error after submit: {error[:100]}")
+            # Check ipqsd cookie (IP Quality Score) — datacenter IP detection
+            try:
+                cookies = await page.context.cookies()
+                ipqsd = [c for c in cookies if c.get('name') == 'ipqsd']
+                if ipqsd:
+                    _log(f"[ipqsd] IP Quality Score cookie: {ipqsd[0].get('value', '?')}")
+            except Exception:
+                pass
             return None
 
         # Check for reCAPTCHA after submit
@@ -505,6 +531,7 @@ async def register_single_yahoo(
 
             if not sms_provider:
                 _err("Yahoo requires SMS but no SMS provider configured")
+                _set_stop("no_sms_provider", "No SMS provider configured")
                 return None
 
             # ── STEP 1: Detect what country Yahoo shows on phone page ──
@@ -589,6 +616,7 @@ async def register_single_yahoo(
                 )
 
             if not order:
+                _set_stop("sms_no_numbers", "No SMS numbers available")
                 return None
 
             # Update sms_provider to whichever worked
@@ -842,6 +870,7 @@ async def register_single_yahoo(
                     _log("Using generic submit button (no WhatsApp detected)")
                 else:
                     _err("[FATAL] Only WhatsApp available — no SMS option. Thread dead.")
+                    _set_stop("whatsapp_only", "Only WhatsApp, no SMS option")
                     # Cancel the SMS order — we can't use it
                     if _active_sms:
                         try:
@@ -933,6 +962,7 @@ async def register_single_yahoo(
                                     phone_accepted = True
                                     break
                             _err("Yahoo blocked: challenge/fail")
+                            _set_stop("fingerprint_detected", "challenge/fail after phone")
                             await _debug_screenshot(page, "yahoo_blocked", _log)
                             try:
                                 await asyncio.to_thread(sms_provider.cancel_number, order_id)
@@ -980,15 +1010,39 @@ async def register_single_yahoo(
 
                     phone_number = new_order["number"]
                     order_id = new_order["id"]
-                    sms_country = new_order.get("country", sms_country)
+                    new_sms_country = new_order.get("country", sms_country)
                     display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
-                    _log(f"New number: {display_phone} (country: {sms_country})")
+                    _log(f"New number: {display_phone} (country: {new_sms_country})")
 
                     # Recalculate local number
-                    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country, phone_prefix)
+                    new_phone_prefix = PHONE_COUNTRY_MAP.get(new_sms_country, phone_prefix)
                     local_number = phone_number.lstrip("+")
-                    if phone_prefix and local_number.startswith(phone_prefix):
-                        local_number = local_number[len(phone_prefix):]
+                    if new_phone_prefix and local_number.startswith(new_phone_prefix):
+                        local_number = local_number[len(new_phone_prefix):]
+
+                    # ── CRITICAL: Update Yahoo's country dropdown if new number is different country ──
+                    if new_sms_country != sms_country:
+                        _log(f"Country changed: {sms_country} → {new_sms_country} — updating Yahoo dropdown")
+                        try:
+                            select_el = page.locator('select[name="shortCountryCode"], select[id^="countryCode"]').first
+                            if await select_el.is_visible(timeout=2000):
+                                target_iso = COUNTRY_TO_ISO2.get(new_sms_country, new_sms_country).upper()
+                                await select_el.select_option(value=target_iso)
+                                await _human_delay(0.5, 1.0)
+                                new_val = await select_el.input_value()
+                                if new_val == target_iso:
+                                    _log(f"[OK] Dropdown updated to {target_iso} (+{new_phone_prefix})")
+                                else:
+                                    # Fallback: try label match
+                                    try:
+                                        await select_el.select_option(label=f"(+{new_phone_prefix})")
+                                        _log(f"[OK] Dropdown updated via label: +{new_phone_prefix}")
+                                    except Exception:
+                                        _log(f"[WARN] Dropdown update failed — number may be rejected")
+                        except Exception as e:
+                            _log(f"[WARN] Dropdown update error: {e}")
+                    sms_country = new_sms_country
+                    phone_prefix = new_phone_prefix
 
                     # Clear phone field and fill with new number
                     try:
@@ -1018,6 +1072,7 @@ async def register_single_yahoo(
 
                 if not phone_accepted:
                     _err(f"Yahoo rejected {max_phone_retries} numbers in a row - proxy or SMS service issue")
+                    _set_stop("phone_rejected", f"{max_phone_retries} numbers rejected")
                     return None
             else:
                 _log("[WARN] Get code by text button not found - trying Enter")
@@ -1176,6 +1231,7 @@ async def register_single_yahoo(
 
             if not sms_code:
                 _err("SMS code not received")
+                _set_stop("sms_timeout", "No SMS code received")
                 try:
                     await asyncio.to_thread(sms_provider.cancel_number, order_id)
                 except Exception:
@@ -1263,6 +1319,7 @@ async def register_single_yahoo(
 
         if not registration_success:
             _err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
+            _set_stop("reg_not_confirmed", f"URL: {final_url}")
             await _debug_screenshot(page, "yahoo_registration_not_confirmed", _log)
             return None
 

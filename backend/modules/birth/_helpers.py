@@ -156,6 +156,43 @@ COUNTRY_FALLBACK_PRIORITY = [
     "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il",
 ]
 
+# Yahoo-specific SMS country priority (Phase 3 data: sorted by number pool size)
+# High pool = less recycled numbers = higher success rate
+YAHOO_COUNTRY_PRIORITY = [
+    "ca",   # Canada       +1   — 45K numbers
+    "uk",   # UK           +44  — 28K numbers
+    "se",   # Sweden       +46  — 14K numbers
+    "br",   # Brazil       +55  — 13K numbers
+    "us",   # USA          +1   — 9K numbers
+    "nl",   # Netherlands  +31  — 5K numbers
+    "dk",   # Denmark      +45  — 5K numbers
+    "ee",   # Estonia      +372 — 5K numbers
+    "at",   # Austria      +43  — 5K numbers
+    "pl",   # Poland       +48  — 5K numbers
+    "ro",   # Romania      +40  — 4K numbers
+    "cz",   # Czech Rep    +420 — 4K numbers
+    "fi",   # Finland      +358 — 4K numbers
+    "ch",   # Switzerland  +41  — 3.5K numbers
+    "de",   # Germany      +49  — 3K numbers
+    "no",   # Norway       +47  — 3K numbers
+    "th",   # Thailand     +66  — 3K numbers
+    "fr",   # France       +33  — 3K numbers
+    "il",   # Israel       +972 — 2.5K numbers
+    "it",   # Italy        +39  — 2K numbers
+    "es",   # Spain        +34  — 2K numbers
+    "hu",   # Hungary      +36  — 2K numbers
+    "mx",   # Mexico       +52  — 2K numbers
+    "ie",   # Ireland      +353 — 1.5K numbers
+    "jp",   # Japan        +81  — 0.7K (PREMIUM real SIM)
+]
+
+
+def service_country_priority(service: str) -> list:
+    """Return service-specific country priority list."""
+    if service in ("yahoo", "aol"):
+        return YAHOO_COUNTRY_PRIORITY
+    return COUNTRY_FALLBACK_PRIORITY
+
 
 # ── Per-task SMS chain state tracker ──
 # Tracks which provider we're on and how many attempts used
@@ -291,9 +328,9 @@ async def order_sms_with_chain(
         if c not in expanded_countries:
             expanded_countries.append(c)
 
-    # Priority 3: fallback countries
+    # Priority 3: service-specific fallback countries (Yahoo uses Phase 3 tier data)
     if len(expanded_countries) < 3:
-        for c in COUNTRY_FALLBACK_PRIORITY:
+        for c in service_country_priority(service):
             if c not in expanded_countries:
                 expanded_countries.append(c)
 

@@ -9,13 +9,22 @@ from pathlib import Path
 from loguru import logger
 
 try:
-    from playwright.async_api import async_playwright, BrowserContext, Playwright
+    # Prefer patchright — patches Runtime.enable + Console.enable CDP leaks
+    # that cause isAutomatedWithCDP:true detection on anti-bot sites
+    from patchright.async_api import async_playwright, BrowserContext, Playwright
     HAS_PLAYWRIGHT = True
+    _USING_PATCHRIGHT = True
 except ImportError:
-    HAS_PLAYWRIGHT = False
-    async_playwright = None
-    BrowserContext = None
-    Playwright = None
+    try:
+        from playwright.async_api import async_playwright, BrowserContext, Playwright
+        HAS_PLAYWRIGHT = True
+        _USING_PATCHRIGHT = False
+    except ImportError:
+        HAS_PLAYWRIGHT = False
+        _USING_PATCHRIGHT = False
+        async_playwright = None
+        BrowserContext = None
+        Playwright = None
 
 from ..data.geo_data import get_country
 
@@ -94,24 +103,25 @@ DESKTOP_VIEWPORTS = [
 
 
 def _generate_desktop_ua() -> str:
-    """Generate a random desktop user-agent string."""
-    browser_type = random.choices(["chrome", "edge"], weights=[80, 20])[0]
-    os_type = random.choices(["windows", "mac", "linux"], weights=[70, 22, 8])[0]
+    """Generate a random desktop user-agent string (Chrome only, OS-matched).
 
-    if os_type == "windows":
-        os_str = random.choice(WINDOWS_VERSIONS)
-    elif os_type == "mac":
+    System Chrome exposes the real navigator.platform via a C++ binding that can't
+    be overridden by JS defineProperty. So the UA **must** match the actual OS to
+    avoid platform-mismatch detection on pixelscan and similar.
+    """
+    import platform as _plat
+    sys_os = _plat.system()  # 'Windows', 'Darwin', 'Linux'
+
+    if sys_os == "Darwin":
         os_str = random.choice(MAC_VERSIONS)
-    else:
+    elif sys_os == "Linux":
         os_str = random.choice(LINUX_VERSIONS)
-
-    if browser_type == "chrome":
-        ver = random.choice(CHROME_VERSIONS)
-        return f"Mozilla/5.0 ({os_str}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver} Safari/537.36"
     else:
-        c_ver = random.choice(CHROME_VERSIONS)
-        e_ver = random.choice(EDGE_VERSIONS)
-        return f"Mozilla/5.0 ({os_str}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{c_ver} Safari/537.36 Edg/{e_ver}"
+        # Windows or anything else → Windows UA
+        os_str = random.choice(WINDOWS_VERSIONS)
+
+    ver = random.choice(CHROME_VERSIONS)
+    return f"Mozilla/5.0 ({os_str}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver} Safari/537.36"
 
 
 def _generate_mobile_ua(device_info: tuple, platform: str) -> str:
@@ -160,6 +170,34 @@ GPU_COMBOS = [
     ("Google Inc. (Intel)", "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
     ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce RTX 2070 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)"),
     ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
+]
+
+# ─── macOS GPU Combos (Metal / OpenGL — pixelscan flags D3D11 on Mac UA!) ──────
+
+GPU_COMBOS_MAC = [
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M1, OpenGL 4.1)"),
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)"),
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M1 Max, OpenGL 4.1)"),
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M2, OpenGL 4.1)"),
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M2 Pro, OpenGL 4.1)"),
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M3, OpenGL 4.1)"),
+    ("Google Inc. (Apple)", "ANGLE (Apple, Apple M3 Pro, OpenGL 4.1)"),
+    ("Google Inc. (Intel)", "ANGLE (Intel Inc., Intel(R) UHD Graphics 630, OpenGL 4.1)"),
+    ("Google Inc. (Intel)", "ANGLE (Intel Inc., Intel(R) Iris(TM) Plus Graphics 655, OpenGL 4.1)"),
+    ("Google Inc. (AMD)", "ANGLE (AMD, AMD Radeon Pro 5500M, OpenGL 4.1)"),
+    ("Google Inc. (AMD)", "ANGLE (AMD, AMD Radeon Pro 560X, OpenGL 4.1)"),
+]
+
+# ─── Linux GPU Combos (OpenGL / Mesa / Vulkan — pixelscan flags D3D11 on Linux!) ─
+
+GPU_COMBOS_LINUX = [
+    ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER/PCIe/SSE2, OpenGL 4.5)"),
+    ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5)"),
+    ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce RTX 2070 SUPER/PCIe/SSE2, OpenGL 4.5)"),
+    ("Google Inc. (AMD)", "ANGLE (AMD, AMD Radeon RX 580 (polaris10, LLVM 15.0.7, DRM 3.49, 6.1.0-18-amd64), OpenGL 4.6)"),
+    ("Google Inc. (AMD)", "ANGLE (AMD, AMD Radeon RX 6700 XT (navi22, LLVM 15.0.7, DRM 3.49, 6.1.0-18-amd64), OpenGL 4.6)"),
+    ("Google Inc. (Intel)", "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6)"),
+    ("Google Inc. (Intel)", "ANGLE (Intel, Mesa Intel(R) HD Graphics 620 (KBL GT2), OpenGL 4.6)"),
 ]
 
 # ─── Mobile GPU Combos (Adreno, Mali, Apple - must match mobile devices!) ─────
@@ -335,7 +373,9 @@ def _build_mobile_stealth_extra(platform: str = "android") -> str:
 
 def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int = 8,
                            device_memory: int = 8, langs: list = None,
-                           timezone_id: str = "") -> str:
+                           timezone_id: str = "", viewport: dict = None,
+                           device_scale: float = 1, is_mobile: bool = False,
+                           chrome_version: str = "") -> str:
     """
     Build comprehensive antidetect stealth JS to inject into each browser context.
     Dynamically adapts to UA (platform matching) and rotates GPU per context.
@@ -363,27 +403,116 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     langs_js = json.dumps(langs)
     canvas_seed = random.randint(1, 999999)
 
+    # Screen dimensions from viewport (pixelscan checks consistency!)
+    vp = viewport or {"width": 1920, "height": 1080}
+    vp_w = vp["width"]
+    vp_h = vp["height"]
+    # Physical screen is always >= viewport; add taskbar height for availHeight
+    screen_w = vp_w if device_scale == 1 else vp_w
+    screen_h = vp_h + random.choice([0, 0, 40, 48])  # taskbar
+    avail_h = vp_h  # available = screen minus taskbar
+    color_depth = 24
+    pixel_depth = 24
+
+    # Parse Chrome major version for userAgentData
+    import re as _re
+    ch_ver = chrome_version or "140"
+    ch_match = _re.search(r'Chrome/(\d+)', ua)
+    if ch_match:
+        ch_ver = ch_match.group(1)
+    full_ch_ver = _re.search(r'Chrome/([\d.]+)', ua)
+    full_ch_version = full_ch_ver.group(1) if full_ch_ver else f"{ch_ver}.0.0.0"
+    is_edge = 'Edg/' in ua
+    edge_match = _re.search(r'Edg/([\d.]+)', ua)
+    edge_version = edge_match.group(1) if edge_match else None
+
+    # Determine platform label for userAgentData
+    if "Windows" in ua:
+        uad_platform = "Windows"
+        uad_platform_version = random.choice(["10.0.0", "15.0.0", "16.0.0"])
+    elif "Macintosh" in ua or "Mac OS" in ua:
+        uad_platform = "macOS"
+        uad_platform_version = random.choice(["14.4.1", "13.6.4", "12.7.4"])
+    elif "Android" in ua:
+        uad_platform = "Android"
+        uad_platform_version = random.choice(["13", "14"])
+    else:
+        uad_platform = "Linux"
+        uad_platform_version = "6.1.0"
+
+    # Timezone offset calculation from timezone_id
+    # Common timezone -> UTC offset in minutes (JS getTimezoneOffset = UTC - local)
+    tz_offsets = {
+        "America/New_York": 300, "America/Chicago": 360, "America/Denver": 420,
+        "America/Los_Angeles": 480, "America/Sao_Paulo": 180, "America/Mexico_City": 360,
+        "America/Buenos_Aires": 180, "America/Bogota": 300, "America/Lima": 300,
+        "Europe/London": 0, "Europe/Berlin": -60, "Europe/Paris": -60,
+        "Europe/Madrid": -60, "Europe/Rome": -60, "Europe/Amsterdam": -60,
+        "Europe/Moscow": -180, "Europe/Istanbul": -180, "Europe/Warsaw": -60,
+        "Asia/Tokyo": -540, "Asia/Shanghai": -480, "Asia/Seoul": -540,
+        "Asia/Kolkata": -330, "Asia/Jakarta": -420, "Asia/Manila": -480,
+        "Asia/Bangkok": -420, "Asia/Dubai": -240, "Asia/Singapore": -480,
+        "Australia/Sydney": -660, "Pacific/Auckland": -780,
+        "Africa/Lagos": -60, "Africa/Johannesburg": -120, "Africa/Cairo": -120,
+    }
+    tz_offset = tz_offsets.get(timezone_id, 0) if timezone_id else 0
+
     return f"""
     // ═══ LEOMAIL ANTIDETECT ENGINE v2 ═══
 
-    // 1. Hide webdriver flag (critical)
-    Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
-    delete navigator.__proto__.webdriver;
+    // 1. Hide webdriver flag (primary evasion is in CDP-level script, this is backup)
+    (function() {{
+        try {{
+            // Delete from prototype and instance
+            delete navigator.webdriver;
+            const proto = Object.getPrototypeOf(navigator);
+            if (proto) {{
+                const desc = Object.getOwnPropertyDescriptor(proto, 'webdriver');
+                if (desc && desc.configurable) delete proto.webdriver;
+            }}
+        }} catch(e) {{}}
+    }})();
 
-    // 2. Chrome runtime object (full emulation)
+    // 2. Chrome runtime object (full emulation — locked with defineProperty!)
     if (!window.chrome) {{
         window.chrome = {{}};
     }}
-    if (!window.chrome.runtime) {{
-        window.chrome.runtime = {{ OnInstalledReason: {{ CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }}, PlatformArch: {{ ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }}, PlatformNaclArch: {{ ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }}, PlatformOs: {{ ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', WIN: 'win' }}, RequestUpdateCheckStatus: {{ NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }}, connect: function() {{ return {{}} }}, id: undefined, sendMessage: function() {{}} }};
-    }}
+    // Use Object.defineProperty to LOCK chrome.runtime so system Chrome can't overwrite it
+    (function() {{
+        const _fakeRuntime = {{ OnInstalledReason: {{ CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }}, PlatformArch: {{ ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }}, PlatformNaclArch: {{ ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }}, PlatformOs: {{ ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', WIN: 'win' }}, RequestUpdateCheckStatus: {{ NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }}, connect: function() {{ return {{}} }}, id: undefined, sendMessage: function() {{}} }};
+        try {{
+            Object.defineProperty(window.chrome, 'runtime', {{
+                get: () => _fakeRuntime,
+                configurable: false,
+                enumerable: true,
+            }});
+        }} catch(e) {{
+            // Fallback if defineProperty fails
+            window.chrome.runtime = _fakeRuntime;
+        }}
+    }})();
     // chrome.app (real Chrome always has this)
     if (!window.chrome.app) {{
         window.chrome.app = {{ isInstalled: false, InstallState: {{ DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }}, RunningState: {{ CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }}, getDetails: function() {{ return null; }}, getIsInstalled: function() {{ return false; }} }};
     }}
 
     // 3. Navigator.platform - MUST match User-Agent
-    Object.defineProperty(navigator, 'platform', {{ get: () => '{platform}' }});
+    // Override on both prototype AND instance to guarantee it sticks on system Chrome
+    (function() {{
+        const _targetPlatform = '{platform}';
+        try {{
+            Object.defineProperty(Navigator.prototype, 'platform', {{
+                get: () => _targetPlatform,
+                configurable: true,
+            }});
+        }} catch(e) {{}}
+        try {{
+            Object.defineProperty(navigator, 'platform', {{
+                get: () => _targetPlatform,
+                configurable: true,
+            }});
+        }} catch(e) {{}}
+    }})();
 
     // 4. Permissions API
     const _origQuery = window.navigator.permissions.query;
@@ -393,19 +522,52 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
             : _origQuery.call(navigator.permissions, p)
     );
 
-    // 5. Plugins (real Chrome has these)
-    Object.defineProperty(navigator, 'plugins', {{
-        get: () => {{
-            const p = [
-                {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 }},
-                {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 }},
-                {{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 }},
-            ];
-            p.namedItem = (n) => p.find(x => x.name === n) || null;
-            p.refresh = () => {{}};
-            return p;
+    // 5. Plugins (real Chrome has these - must pass instanceof PluginArray!)
+    (function() {{
+        // Cache the real PluginArray and Plugin prototypes before overriding
+        const _realPlugins = navigator.plugins;
+        const _PluginArrayProto = _realPlugins ? Object.getPrototypeOf(_realPlugins) : null;
+        const _PluginProto = (_realPlugins && _realPlugins[0]) ? Object.getPrototypeOf(_realPlugins[0]) : null;
+        const _MimeTypeProto = (navigator.mimeTypes && navigator.mimeTypes[0]) ? Object.getPrototypeOf(navigator.mimeTypes[0]) : null;
+
+        function makePlugin(name, filename, desc, mimeTypes) {{
+            const plugin = {{}};
+            if (_PluginProto) Object.setPrototypeOf(plugin, _PluginProto);
+            Object.defineProperties(plugin, {{
+                name: {{ value: name, enumerable: true }},
+                filename: {{ value: filename, enumerable: true }},
+                description: {{ value: desc, enumerable: true }},
+                length: {{ value: mimeTypes.length, enumerable: true }},
+            }});
+            mimeTypes.forEach((mt, i) => {{
+                const mimeObj = {{ type: mt.type, suffixes: mt.suffixes || '', description: mt.desc || '', enabledPlugin: plugin }};
+                if (_MimeTypeProto) Object.setPrototypeOf(mimeObj, _MimeTypeProto);
+                Object.defineProperty(plugin, i, {{ value: mimeObj, enumerable: false }});
+            }});
+            return plugin;
         }}
-    }});
+
+        const pdf1 = makePlugin('Chrome PDF Plugin', 'internal-pdf-viewer', 'Portable Document Format', [{{type:'application/pdf', suffixes:'pdf', desc:'Portable Document Format'}}]);
+        const pdf2 = makePlugin('Chrome PDF Viewer', 'mhjfbmdgcfjbbpaeojofohoefgiehjai', '', [{{type:'application/pdf', suffixes:'pdf', desc:''}}]);
+        const nacl = makePlugin('Native Client', 'internal-nacl-plugin', '', [{{type:'application/x-nacl', suffixes:'', desc:''}}, {{type:'application/x-pnacl', suffixes:'', desc:''}}]);
+
+        const plugins = [pdf1, pdf2, nacl];
+        // Apply real PluginArray prototype so instanceof check passes
+        if (_PluginArrayProto) {{
+            Object.setPrototypeOf(plugins, _PluginArrayProto);
+        }}
+        // Add PluginArray methods
+        Object.defineProperties(plugins, {{
+            item: {{ value: function(i) {{ return this[i] || null; }}, enumerable: false }},
+            namedItem: {{ value: function(n) {{ return Array.prototype.find.call(this, x => x.name === n) || null; }}, enumerable: false }},
+            refresh: {{ value: function() {{}}, enumerable: false }},
+        }});
+
+        Object.defineProperty(navigator, 'plugins', {{
+            get: () => plugins,
+            configurable: true,
+        }});
+    }})();
 
     // 6. Languages + Hardware
     Object.defineProperty(navigator, 'languages', {{ get: () => {langs_js} }});
@@ -504,10 +666,22 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     }})();
 
     // 10. Battery API spoofing (prevents headless detection)
-    navigator.getBattery = () => Promise.resolve({{
-        charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1.0,
-        addEventListener: () => {{}}, removeEventListener: () => {{}}, dispatchEvent: () => true,
-    }});
+    (function() {{
+        const batteryObj = {{
+            charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1.0,
+            addEventListener: () => {{}}, removeEventListener: () => {{}}, dispatchEvent: () => true,
+        }};
+        // Must define on Navigator.prototype so system Chrome respects it
+        try {{
+            Object.defineProperty(Navigator.prototype, 'getBattery', {{
+                value: function() {{ return Promise.resolve(batteryObj); }},
+                writable: true, configurable: true,
+            }});
+        }} catch(e) {{
+            // Fallback for environments where prototype is locked
+            navigator.getBattery = () => Promise.resolve(batteryObj);
+        }}
+    }})();
 
     // 11. ClientRects sub-pixel noise
     (function() {{
@@ -654,8 +828,137 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     // 19. History length randomization (bot detection: fresh profiles always have length=1)
     Object.defineProperty(window.history, 'length', {{ get: () => {random.randint(2, 8)} }});
 
-    // 20. PDF viewer and speech synthesis consistency
+    // 20. PDF viewer consistency
     Object.defineProperty(navigator, 'pdfViewerEnabled', {{ get: () => true }});
+
+    // ═══ NEW STEALTH BLOCKS v3 (pixelscan + browserscan fixes) ═══
+
+    // 21. Screen properties consistency (CRITICAL for pixelscan!)
+    // screen.width/height must match viewport, not be 0 or default 1920x1080
+    (function() {{
+        Object.defineProperty(screen, 'width', {{ get: () => {screen_w} }});
+        Object.defineProperty(screen, 'height', {{ get: () => {screen_h} }});
+        Object.defineProperty(screen, 'availWidth', {{ get: () => {screen_w} }});
+        Object.defineProperty(screen, 'availHeight', {{ get: () => {avail_h} }});
+        Object.defineProperty(screen, 'colorDepth', {{ get: () => {color_depth} }});
+        Object.defineProperty(screen, 'pixelDepth', {{ get: () => {pixel_depth} }});
+        Object.defineProperty(screen, 'availLeft', {{ get: () => 0 }});
+        Object.defineProperty(screen, 'availTop', {{ get: () => 0 }});
+    }})();
+
+    // 22. navigator.userAgentData (Client Hints JS API — pixelscan/browserscan check this!)
+    (function() {{
+        if (!navigator.userAgentData) {{
+            const brands = [
+                {'{{ brand: "' + ('Microsoft Edge' if is_edge else 'Google Chrome') + '", version: "' + ch_ver + '" }}'} ,
+                {{ brand: 'Chromium', version: '{ch_ver}' }},
+                {{ brand: 'Not_A Brand', version: '24' }},
+            ];
+            Object.defineProperty(navigator, 'userAgentData', {{
+                get: () => ({{
+                    brands: brands,
+                    mobile: {'true' if is_mobile else 'false'},
+                    platform: '{uad_platform}',
+                    getHighEntropyValues: function(hints) {{
+                        return Promise.resolve({{
+                            brands: brands,
+                            mobile: {'true' if is_mobile else 'false'},
+                            platform: '{uad_platform}',
+                            platformVersion: '{uad_platform_version}',
+                            architecture: '{'arm' if is_mobile and 'Android' in ua else 'x86'}',
+                            bitness: '{'32' if is_mobile and 'Android' in ua else '64'}',
+                            model: '',
+                            uaFullVersion: '{full_ch_version}',
+                            fullVersionList: brands.map(b => ({{ brand: b.brand, version: b.brand === 'Chromium' || b.brand.includes('Chrome') || b.brand.includes('Edge') ? '{full_ch_version}' : b.version }})),
+                            wow64: false,
+                        }});
+                    }},
+                    toJSON: function() {{
+                        return {{ brands: brands, mobile: {'true' if is_mobile else 'false'}, platform: '{uad_platform}' }};
+                    }},
+                }}),
+                configurable: true,
+            }});
+        }}
+    }})();
+
+    // 23. Remove Playwright global leak (__pwInitScripts)
+    (function() {{
+        try {{ delete window.__pwInitScripts; }} catch(e) {{}}
+        try {{ delete window.__pw_manual; }} catch(e) {{}}
+        // Clean any Playwright-injected utility globals
+        const pwGlobals = ['__pwInitScripts', '__pw_manual', '__playwright', '__pwPage'];
+        pwGlobals.forEach(g => {{ try {{ delete window[g]; }} catch(e) {{}} }});
+    }})();
+
+    // 24. Desktop: maxTouchPoints = 0 (mobile sets it separately)
+    {'// mobile - skip desktop maxTouchPoints override' if is_mobile else "Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => 0 }});"}
+
+    // 25. chrome.runtime.connect — return port-like object (real Chrome behavior)
+    if (window.chrome && window.chrome.runtime) {{
+        window.chrome.runtime.connect = function(extensionId, connectInfo) {{
+            return {{
+                name: (connectInfo && connectInfo.name) || '',
+                disconnect: function() {{}},
+                postMessage: function(msg) {{}},
+                onMessage: {{ addListener: function() {{}}, removeListener: function() {{}}, hasListener: function() {{ return false; }} }},
+                onDisconnect: {{ addListener: function() {{}}, removeListener: function() {{}}, hasListener: function() {{ return false; }} }},
+                sender: undefined,
+            }};
+        }};
+        // sendMessage should also work
+        window.chrome.runtime.sendMessage = function(extensionId, message, options, callback) {{
+            if (typeof callback === 'function') callback(undefined);
+            else if (typeof options === 'function') options(undefined);
+        }};
+    }}
+
+    // 26. speechSynthesis.getVoices — return realistic voice list
+    (function() {{
+        if (window.speechSynthesis) {{
+            const fakeVoices = [
+                {{ voiceURI: 'Microsoft David - English (United States)', name: 'Microsoft David - English (United States)', lang: 'en-US', localService: true, default: true }},
+                {{ voiceURI: 'Microsoft Zira - English (United States)', name: 'Microsoft Zira - English (United States)', lang: 'en-US', localService: true, default: false }},
+                {{ voiceURI: 'Microsoft Mark - English (United States)', name: 'Microsoft Mark - English (United States)', lang: 'en-US', localService: true, default: false }},
+                {{ voiceURI: 'Google US English', name: 'Google US English', lang: 'en-US', localService: false, default: false }},
+                {{ voiceURI: 'Google UK English Female', name: 'Google UK English Female', lang: 'en-GB', localService: false, default: false }},
+                {{ voiceURI: 'Google UK English Male', name: 'Google UK English Male', lang: 'en-GB', localService: false, default: false }},
+            ];
+            // Apply SpeechSynthesisVoice prototype if available
+            const origGetVoices = speechSynthesis.getVoices;
+            const realVoices = origGetVoices.call(speechSynthesis);
+            const proto = (realVoices && realVoices[0]) ? Object.getPrototypeOf(realVoices[0]) : null;
+            if (proto) fakeVoices.forEach(v => Object.setPrototypeOf(v, proto));
+
+            speechSynthesis.getVoices = function() {{ return fakeVoices; }};
+            // Also fire voiceschanged event on first access
+            try {{
+                setTimeout(() => {{
+                    speechSynthesis.dispatchEvent(new Event('voiceschanged'));
+                }}, 100);
+            }} catch(e) {{}}
+        }}
+    }})();
+
+    // 27. Notification.permission — 'default' not 'denied' (pixelscan consistency)
+    try {{
+        Object.defineProperty(Notification, 'permission', {{
+            get: () => 'default',
+            configurable: true,
+        }});
+    }} catch(e) {{}}
+
+    // 28. Date.getTimezoneOffset — MUST match timezone_id
+    {'// timezone offset override for ' + timezone_id if timezone_id else '// no timezone - skip offset override'}
+    """ + (f"""
+    (function() {{
+        const _origGetTZO = Date.prototype.getTimezoneOffset;
+        const _targetOffset = {tz_offset};
+        Date.prototype.getTimezoneOffset = function() {{
+            return _targetOffset;
+        }};
+    }})();
+    """ if timezone_id else "") + """
     """
 
 
@@ -677,32 +980,49 @@ class BrowserManager:
     async def start(self):
         """Launch browser engine."""
         if not HAS_PLAYWRIGHT:
-            raise RuntimeError("Playwright not installed. Run: pip install playwright && playwright install chromium")
+            raise RuntimeError("Browser engine not installed. Run: pip install patchright && patchright install chromium")
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                # Anti-automation
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                # Performance
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                # Combine ALL --disable-features in ONE arg (Chrome ignores duplicates!)
-                "--disable-features=WebRtcHideLocalIpsWithMdns,AudioServiceOutOfProcess,IsolateOrigins,site-per-process",
-                # WebRTC IP leak prevention
-                "--enforce-webrtc-ip-permission-check",
-                "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-                # NOTE: --disable-reading-from-canvas REMOVED!
-                # It blocked Yahoo's fingerprint scripts → "Enable JavaScript" error.
-                # Canvas protection is already in stealth JS (seeded noise).
-                # Window
-                "--window-size=1920,1080",
-            ]
-        )
-        logger.info(f"Browser engine started (headless={self.headless})")
+        if _USING_PATCHRIGHT:
+            logger.info("Using Patchright engine (CDP leak-free)")
+        else:
+            logger.warning("Using standard Playwright (CDP leaks possible, install patchright for stealth)")
+
+        launch_args = [
+            # Anti-automation
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            # Performance
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            # Combine ALL --disable-features in ONE arg (Chrome ignores duplicates!)
+            "--disable-features=WebRtcHideLocalIpsWithMdns,AudioServiceOutOfProcess,IsolateOrigins,site-per-process",
+            # WebRTC IP leak prevention
+            "--enforce-webrtc-ip-permission-check",
+            "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+            # Window
+            "--window-size=1920,1080",
+        ]
+        launch_kwargs = {
+            "headless": self.headless,
+            "ignore_default_args": ["--enable-automation"],
+            "args": launch_args,
+        }
+
+        # Prefer system Chrome: allows full webdriver deletion (configurable:true on prototype)
+        # Playwright Chromium sets webdriver via C++ level CDP — cannot be fully removed
+        self._using_system_chrome = False
+        try:
+            self.browser = await self.playwright.chromium.launch(
+                channel="chrome", **launch_kwargs
+            )
+            self._using_system_chrome = True
+            logger.info(f"Browser engine started: system Chrome (headless={self.headless})")
+        except Exception:
+            # Chrome not installed — fall back to bundled Chromium
+            self.browser = await self.playwright.chromium.launch(**launch_kwargs)
+            logger.info(f"Browser engine started: Playwright Chromium (headless={self.headless})")
 
     async def stop(self):
         """Shutdown browser engine."""
@@ -856,7 +1176,13 @@ class BrowserManager:
             ctx_hw = random.choice([4, 6])
             ctx_mem = random.choice([3, 4, 6])
         else:
-            ctx_gpu = random.choice(GPU_COMBOS)
+            # Desktop — pick GPU pool matching OS in user-agent (D3D11 is Windows-only!)
+            if "Macintosh" in ctx_ua or "Mac OS" in ctx_ua:
+                ctx_gpu = random.choice(GPU_COMBOS_MAC)
+            elif "Linux" in ctx_ua:
+                ctx_gpu = random.choice(GPU_COMBOS_LINUX)
+            else:
+                ctx_gpu = random.choice(GPU_COMBOS)
             ctx_hw = random.choice([4, 8, 12, 16])
             ctx_mem = random.choice([4, 8, 16])
 
@@ -872,21 +1198,177 @@ class BrowserManager:
         if "en" not in ctx_langs:
             ctx_langs.append("en")
 
+        ctx_viewport = context_options.get("viewport", {"width": 1920, "height": 1080})
+        ctx_scale = context_options.get("device_scale_factor", 1)
         stealth_js = _build_stealth_scripts(
             ua=ctx_ua, gpu=ctx_gpu, hw_concurrency=ctx_hw,
             device_memory=ctx_mem, langs=ctx_langs,
-            timezone_id=timezone_id,
+            timezone_id=timezone_id, viewport=ctx_viewport,
+            device_scale=ctx_scale, is_mobile=is_mobile,
         )
-        await context.add_init_script(script=stealth_js)
+
+        # CDP-level webdriver evasion: Proxy on Navigator.prototype
+        # This intercepts 'webdriver' in navigator → false, AND navigator.webdriver → undefined
+        # Must run via CDP before any page content or detection scripts
+        _webdriver_evasion_js = """
+            // Complete webdriver evasion: DELETE the property entirely
+            // System Chrome has configurable:true on prototype → deletable!
+            // Playwright Chromium has non-configurable C++ level → fallback to value override
+            try { delete navigator.webdriver; } catch(e) {}
+            try {
+                const proto = Object.getPrototypeOf(navigator);
+                if (proto) {
+                    const desc = Object.getOwnPropertyDescriptor(proto, 'webdriver');
+                    if (desc && desc.configurable) delete proto.webdriver;
+                }
+            } catch(e) {}
+            try {
+                const pDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
+                if (pDesc && pDesc.configurable) delete Navigator.prototype.webdriver;
+            } catch(e) {}
+            // If property still exists (Playwright Chromium fallback) - override value
+            if ('webdriver' in navigator) {
+                try {
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => false,
+                        configurable: false,
+                    });
+                } catch(e) {}
+            }
+        """
+        # ─── Inject stealth scripts ─────────────────────────────────────
+        # Patchright's add_init_script is broken (causes navigation timeouts)
+        # and CDP Page.addScriptToEvaluateOnNewDocument triggers isAutomatedWithCDP.
+        # Solution: monkey-patch page.goto to auto-inject via page.evaluate after navigation.
+        # Patchright handles navigator.webdriver natively (no script needed).
+        all_stealth_scripts = [_webdriver_evasion_js, stealth_js]
 
         # Add mobile-specific stealth if emulating phone
         if is_mobile:
             mobile_platform = "ios" if device_type.startswith("phone_ios") else "android"
             mobile_stealth = _build_mobile_stealth_extra(platform=mobile_platform)
-            await context.add_init_script(script=mobile_stealth)
+            all_stealth_scripts.append(mobile_stealth)
             logger.debug(f"Mobile stealth: GPU={ctx_gpu[1][:40]}..., sensors+touch+battery")
         else:
             logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
+
+        combined_stealth = "\n".join(all_stealth_scripts)
+
+        if _USING_PATCHRIGHT:
+            # Patchright: inject via page.evaluate after each navigation.
+            # Store script on context, monkey-patch new_page to auto-hook page.goto.
+            context._leomail_stealth_js = combined_stealth
+
+            _orig_new_page = context.new_page
+
+            async def _patched_new_page(*args, **kwargs):
+                page = await _orig_new_page(*args, **kwargs)
+                _orig_goto = page.goto
+
+                async def _patched_goto(url, **kw):
+                    response = await _orig_goto(url, **kw)
+                    try:
+                        await page.evaluate(context._leomail_stealth_js)
+                    except Exception:
+                        pass  # page may have navigated away
+                    return response
+
+                page.goto = _patched_goto
+                return page
+
+            context.new_page = _patched_new_page
+
+            # ─── Anti-CDP detection via HTML route injection ─────────
+            # Bypasses Error.prepareStackTrace-based CDP detection
+            # (used by deviceandbrowserinfo.com and similar).
+            # Injects a <script> into HTML responses that:
+            # 1) Overrides console.log to stringify Error objects
+            # 2) Intercepts Blob constructor to fix WebWorker detection
+            _anti_cdp_script = '''<script>(function(){
+/* === 1. CDP detection bypass (Error.prepareStackTrace trap) === */
+var _oL=console.log;
+console.log=function(){var a=[];for(var i=0;i<arguments.length;i++){
+if(arguments[i] instanceof Error){a.push(arguments[i].message||'')}
+else{a.push(arguments[i])}}return _oL.apply(console,a)};
+console.log.toString=function(){return'function log() { [native code] }'};
+var OB=window.Blob;
+var wp='var _oL=console.log;console.log=function(){var a=[];for(var i=0;i<arguments.length;i++){if(arguments[i] instanceof Error){a.push(arguments[i].message||"")}else{a.push(arguments[i])}}return _oL.apply(console,a)};';
+window.Blob=function(p,o){if(o&&o.type&&o.type.indexOf("javascript")!==-1){
+var np=[wp];for(var i=0;i<p.length;i++){np.push(p[i])}return new OB(np,o)}
+return new OB(p,o)};window.Blob.prototype=OB.prototype;
+window.Blob.toString=function(){return'function Blob() { [native code] }'};
+
+/* === 2. Webdriver: Proxy trap on Navigator.prototype to hide 'webdriver' completely === */
+(function(){
+try{delete Navigator.prototype.webdriver}catch(e){}
+try{var p=Object.getPrototypeOf(navigator);if(p&&p.hasOwnProperty('webdriver'))delete p.webdriver}catch(e){}
+try{delete navigator.webdriver}catch(e){}
+/* Proxy trap: 'webdriver' in navigator → false, navigator.webdriver → undefined */
+if('webdriver' in navigator){
+try{
+var origProto=Object.getPrototypeOf(navigator);
+var proxyProto=new Proxy(origProto,{
+has:function(t,k){if(k==='webdriver')return false;return k in t},
+get:function(t,k,r){if(k==='webdriver')return undefined;var v=Reflect.get(t,k,r);return typeof v==='function'?v.bind(navigator):v},
+getOwnPropertyDescriptor:function(t,k){if(k==='webdriver')return undefined;return Object.getOwnPropertyDescriptor(t,k)}
+});
+Object.setPrototypeOf(navigator,proxyProto);
+}catch(e){
+try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined},configurable:true})}catch(e2){}
+}
+}
+})();
+
+/* === 3. Notification.permission → 'default' === */
+try{Object.defineProperty(Notification,'permission',{
+get:function(){return'default'},configurable:true})}catch(e){}
+
+/* === 4. speechSynthesis.getVoices() → return voices (async-safe) === */
+try{if(window.speechSynthesis){var _origGV=speechSynthesis.getVoices.bind(speechSynthesis);
+var _cachedVoices=null;
+speechSynthesis.getVoices=function(){var v=_origGV();if(v&&v.length>0){_cachedVoices=v;return v}
+if(_cachedVoices&&_cachedVoices.length>0)return _cachedVoices;
+return[{default:true,lang:'en-US',localService:true,name:'Microsoft David - English (United States)',
+voiceURI:'Microsoft David - English (United States)'},
+{default:false,lang:'en-US',localService:true,name:'Microsoft Zira - English (United States)',
+voiceURI:'Microsoft Zira - English (United States)'},
+{default:false,lang:'en-GB',localService:true,name:'Microsoft Hazel - English (United Kingdom)',
+voiceURI:'Microsoft Hazel - English (United Kingdom)'}];
+};
+speechSynthesis.getVoices.toString=function(){return'function getVoices() { [native code] }'};
+setTimeout(function(){_cachedVoices=_origGV()},200)}}catch(e){}
+
+/* === 5. chrome.runtime basic emulation (runs before page JS) === */
+try{if(!window.chrome)window.chrome={};
+if(!window.chrome.app)window.chrome.app={isInstalled:false,InstallState:{DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed'},RunningState:{CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running'},getDetails:function(){return null},getIsInstalled:function(){return false}};
+if(!window.chrome.csi)window.chrome.csi=function(){return{onloadT:Date.now(),startE:Date.now(),pageT:200,tran:15}};
+if(!window.chrome.loadTimes)window.chrome.loadTimes=function(){return{commitLoadTime:Date.now()/1000,connectionInfo:'h2',finishDocumentLoadTime:Date.now()/1000,finishLoadTime:Date.now()/1000,firstPaintAfterLoadTime:0,firstPaintTime:Date.now()/1000,navigationType:'Other',npnNegotiatedProtocol:'h2',requestTime:Date.now()/1000,startLoadTime:Date.now()/1000,wasAlternateProtocolAvailable:false,wasFetchedViaSpdy:true,wasNpnNegotiated:true}};
+}catch(e){}
+})();</script>'''
+
+            async def _anti_cdp_route(route):
+                try:
+                    response = await route.fetch()
+                    ct = response.headers.get("content-type", "")
+                    if "text/html" in ct:
+                        body = await response.text()
+                        if "<head>" in body:
+                            body = body.replace("<head>", "<head>" + _anti_cdp_script, 1)
+                        elif "<HEAD>" in body:
+                            body = body.replace("<HEAD>", "<HEAD>" + _anti_cdp_script, 1)
+                        await route.fulfill(response=response, body=body)
+                    else:
+                        await route.fulfill(response=response)
+                except Exception:
+                    try:
+                        await route.continue_()
+                    except Exception:
+                        pass
+
+            await context.route("**/*", _anti_cdp_route)
+        else:
+            # Standard Playwright: use add_init_script (works normally)
+            await context.add_init_script(script=combined_stealth)
 
         # Override language + Client Hints headers to match locale/UA
         # Extract Chrome version from UA for sec-ch-ua

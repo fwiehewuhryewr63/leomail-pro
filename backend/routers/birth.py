@@ -505,7 +505,25 @@ async def run_birth_task(request: BirthRequest):
                                     sms_round_fails[0] = 0
                                     captcha_round_fails[0] = 0
                                     if proxy_round_fails[0] >= PROXY_MAX_ROUNDS:
-                                        task.stop_reason = f"Process stopped — Proxy exhausted ({PROXY_MAX_ROUNDS} consecutive proxy failures, all proxy tiers failed)"
+                                        # Try auto-buying residential proxies before giving up
+                                        logger.warning(f"[Birth] {PROXY_MAX_ROUNDS} proxy failures — attempting auto-buy residential...")
+                                        try:
+                                            new_proxies = await asyncio.to_thread(
+                                                tiered_auto_buy,
+                                                provider=request.provider,
+                                                count=3,
+                                                country="us",
+                                            )
+                                            if new_proxies:
+                                                for np in new_proxies:
+                                                    proxy_pool.append(np)
+                                                proxy_blacklist.clear()
+                                                proxy_round_fails[0] = 0
+                                                logger.info(f"[Birth] Auto-bought {len(new_proxies)} residential proxies, continuing...")
+                                                continue  # Don't stop — retry with new proxies
+                                        except Exception as buy_err:
+                                            logger.warning(f"[Birth] Auto-buy failed: {buy_err}")
+                                        task.stop_reason = f"Process stopped — Proxy exhausted ({PROXY_MAX_ROUNDS} consecutive proxy failures, auto-buy failed)"
                                         return
                                 else:
                                     # Unknown error — don't reset resource counters
