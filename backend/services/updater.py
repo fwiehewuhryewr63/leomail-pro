@@ -14,7 +14,7 @@ from datetime import datetime
 from loguru import logger
 
 # Current version
-VERSION = "4.5.0"
+VERSION = "4.5.1"
 VERSION_FILE = "version.json"
 
 # GitHub repo for releases
@@ -330,3 +330,4 @@ def cleanup_old_backups(keep_count: int = 3):
             logger.info(f"Cleaned up old backup: {old_backup.name}")
         except Exception:
             pass
+

@@ -295,9 +295,21 @@ async def run_birth_task(request: BirthRequest):
                                     )
                                     if new_proxies:
                                         for np in new_proxies:
-                                            proxy_pool.append(np)
+                                            p = Proxy(
+                                                host=np["host"], port=np["port"],
+                                                username=np.get("username", ""),
+                                                password=np.get("password", ""),
+                                                protocol=np.get("protocol", "http"),
+                                                geo=np.get("geo", "US"),
+                                                status=ProxyStatus.ALIVE,
+                                                external_id=np.get("external_id", ""),
+                                                source=np.get("source", "auto-buy"),
+                                            )
+                                            db.add(p)
+                                            db.commit()
+                                            proxy_pool.append(p)
                                         proxy_blacklist.clear()
-                                        logger.info(f"[Birth] Auto-bought {len(new_proxies)} proxies, retrying...")
+                                        logger.info(f"[Birth] Auto-bought {len(new_proxies)} proxies (saved to DB), retrying...")
                                         continue
                                 except Exception as e:
                                     logger.warning(f"[Birth] Auto-buy failed: {e}")
@@ -516,10 +528,22 @@ async def run_birth_task(request: BirthRequest):
                                             )
                                             if new_proxies:
                                                 for np in new_proxies:
-                                                    proxy_pool.append(np)
+                                                    p = Proxy(
+                                                        host=np["host"], port=np["port"],
+                                                        username=np.get("username", ""),
+                                                        password=np.get("password", ""),
+                                                        protocol=np.get("protocol", "http"),
+                                                        geo=np.get("geo", "US"),
+                                                        status=ProxyStatus.ALIVE,
+                                                        external_id=np.get("external_id", ""),
+                                                        source=np.get("source", "auto-buy"),
+                                                    )
+                                                    db.add(p)
+                                                    db.commit()
+                                                    proxy_pool.append(p)
                                                 proxy_blacklist.clear()
                                                 proxy_round_fails[0] = 0
-                                                logger.info(f"[Birth] Auto-bought {len(new_proxies)} residential proxies, continuing...")
+                                                logger.info(f"[Birth] Auto-bought {len(new_proxies)} residential proxies (saved to DB), continuing...")
                                                 continue  # Don't stop — retry with new proxies
                                         except Exception as buy_err:
                                             logger.warning(f"[Birth] Auto-buy failed: {buy_err}")

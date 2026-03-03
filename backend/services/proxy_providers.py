@@ -99,6 +99,11 @@ class ASocksProvider(ProxyProviderBase):
     def buy_proxies(self, count: int, country: str = "us", period_days: int = 7,
                     proxy_type: str = "residential") -> list[dict]:
         """ASocks is pay-per-GB, no explicit buy. Create ports instead."""
+        # ASocks API v2 field mapping:
+        #   proxy_type_id: 1=residential, 3=mobile
+        #   type_id: 1=http, 2=socks5
+        proxy_type_id = 3 if proxy_type == "mobile" else 1  # residential
+        type_id = 2 if proxy_type == "mobile" else 1  # socks5 for mobile, http for residential
         try:
             results = []
             for _ in range(count):
@@ -106,28 +111,29 @@ class ASocksProvider(ProxyProviderBase):
                     f"{self.BASE_URL}/proxy/create-port",
                     params={"apiKey": self.api_key},
                     json={
-                        "country": country.upper(),
-                        "type": "socks5" if proxy_type == "mobile" else "http",
-                        "networkType": "mobile" if proxy_type == "mobile" else "residential",
+                        "country_code": country.upper(),
+                        "proxy_type_id": proxy_type_id,
+                        "type_id": type_id,
                     },
                     timeout=15,
                 )
                 r.raise_for_status()
                 data = r.json()
-                if data:
+                if data and data.get("success"):
                     port_data = data.get("data", data) if isinstance(data, dict) else data
                     if isinstance(port_data, dict):
                         results.append({
-                            "host": port_data.get("host", port_data.get("ip", "")),
+                            "host": port_data.get("server", port_data.get("host", port_data.get("ip", ""))),
                             "port": int(port_data.get("port", 0)),
                             "username": port_data.get("login", port_data.get("username", "")),
                             "password": port_data.get("password", ""),
-                            "protocol": port_data.get("type", "http"),
+                            "protocol": "socks5" if type_id == 2 else "http",
                             "geo": country.upper(),
                             "expires_at": None,
                             "proxy_type": proxy_type,
                             "external_id": str(port_data.get("id", "")),
                         })
+                        logger.info(f"[ASocks] Created port: {port_data.get('server')}:{port_data.get('port')}")
             return results
         except Exception as e:
             logger.error(f"[ASocks] Buy proxies error: {e}")
