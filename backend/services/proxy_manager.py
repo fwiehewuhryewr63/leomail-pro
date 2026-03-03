@@ -1,6 +1,5 @@
 """
-Leomail v3 - Proxy Manager
-Import, rotate, and manage proxies with round-robin and GEO filtering.
+Leomail v4 - Proxy Manager
 1 proxy = 1 account (hard binding). Auto-reassign on proxy death.
 """
 import random
@@ -107,24 +106,17 @@ class ProxyManager:
 
         return result
 
-    def get_working_proxy(self, geo: str = None, exclude_ids: list[int] = None) -> Proxy | None:
+    def get_working_proxy(self, exclude_ids: list[int] = None) -> Proxy | None:
         """
         Get next working proxy with round-robin rotation.
-        Filters by GEO and status, excludes specified IDs.
+        Excludes specified IDs.
         """
         query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
-
-        if geo and geo.upper() != "ANY":
-            query = query.filter(Proxy.geo == geo.upper())
 
         if exclude_ids:
             query = query.filter(~Proxy.id.in_(exclude_ids))
 
         proxies = query.order_by(Proxy.id).all()
-
-        if not proxies:
-            # Fallback: any active proxy
-            proxies = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE).all()
 
         if not proxies:
             return None
@@ -141,7 +133,7 @@ class ProxyManager:
     OH_LIMIT = 3      # Outlook+Hotmail combined limit
     PT_LIMIT = 3      # ProtonMail limit
 
-    def get_unbound_proxy(self, geo: str = None, provider: str = None) -> Proxy | None:
+    def get_unbound_proxy(self, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
         Filters by per-provider-GROUP usage limit.
         Groups: Gmail=G (limit 1, mobile proxy), Yahoo+AOL=YA (limit 3), Outlook+Hotmail=OH (limit 3).
@@ -161,8 +153,6 @@ class ProxyManager:
             group_filter = self._provider_group_filter(provider)
             if group_filter is not None:
                 query = query.filter(group_filter)
-        if geo and geo.upper() != "ANY":
-            query = query.filter(Proxy.geo == geo.upper())
         proxies = query.all()
 
         # Auto-mark exhausted proxies (all groups at limit)
@@ -177,7 +167,7 @@ class ProxyManager:
             return random.choice(proxies)
         return None  # NO FALLBACK
 
-    def get_proxy_pool(self, count: int, geo: str = None, provider: str = None) -> list[Proxy]:
+    def get_proxy_pool(self, count: int, provider: str = None) -> list[Proxy]:
         """Get N unique proxies for batch operation.
         Filters by per-provider usage limit.
         Gmail: mobile proxy type forced.
@@ -193,9 +183,6 @@ class ProxyManager:
             group_filter = self._provider_group_filter(provider)
             if group_filter is not None:
                 query = query.filter(group_filter)
-
-        if geo and geo.upper() != "ANY":
-            query = query.filter(Proxy.geo == geo.upper())
 
         proxies = query.all()
 
@@ -225,8 +212,7 @@ class ProxyManager:
                 total = sum(getattr(p, f, 0) or 0 for f in (
                     'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
                     'use_hotmail', 'use_protonmail'))
-                ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
-                return (total, ts)
+                return (total, random.random())
             proxies.sort(key=_pool_usage_key)
             if provider:
                 logger.info(f"[ProxyPool] {provider}: {len(proxies)} proxies (sorted least-used first)")
@@ -287,12 +273,13 @@ class ProxyManager:
         self.db.commit()
 
     def bind_proxy_to_account(self, proxy: Proxy, account: Account):
-        """Hard-bind a proxy to an account (1:1)."""
+        """Hard-bind a proxy to an account (1:1). Sets proxy status to BOUND."""
         proxy.bound_account_id = account.id
+        proxy.status = ProxyStatus.BOUND
         account.proxy_id = proxy.id
         account.birth_ip = f"{proxy.host}:{proxy.port}"
         self.db.commit()
-        logger.info(f"Proxy {proxy.host}:{proxy.port} bound to {account.email}")
+        logger.info(f"Proxy {proxy.host}:{proxy.port} BOUND to {account.email}")
 
     def get_verified_unbound_proxy(self, proxy_type: str = None, protocol: str = None) -> Proxy | None:
         """
@@ -325,8 +312,7 @@ class ProxyManager:
             total = sum(getattr(p, f, 0) or 0 for f in (
                 'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
                 'use_hotmail', 'use_protonmail', 'use_tuta'))
-            ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
-            return (total, ts, random.random())
+            return (total, random.random())
         candidates.sort(key=_usage_key)
 
         # Quick-check: try each until one works
@@ -374,15 +360,6 @@ class ProxyManager:
             group_filter = self._provider_group_filter(provider)
             if group_filter is not None:
                 query = query.filter(group_filter)
-            # Cooldown: minimum interval between uses on same proxy
-            # Short cooldowns to avoid starving the pool
-            cooldown_minutes = {"yahoo": 10, "aol": 10, "gmail": 20,
-                                "outlook": 5, "hotmail": 5}.get(provider.lower(), 10)
-            from datetime import datetime, timedelta
-            cutoff = datetime.utcnow() - timedelta(minutes=cooldown_minutes)
-            query = query.filter(
-                (Proxy.last_used_at == None) | (Proxy.last_used_at < cutoff)  # noqa: E711
-            )
 
         candidates = query.all()
 
@@ -416,8 +393,7 @@ class ProxyManager:
             total = sum(getattr(p, f, 0) or 0 for f in (
                 'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
                 'use_hotmail', 'use_protonmail', 'use_tuta'))
-            ts = (p.last_used_at or datetime(2000, 1, 1)).timestamp()
-            return (total, ts, random.random())
+            return (total, random.random())
         candidates.sort(key=_usage_key)
 
         from .proxy_monitor import check_single_proxy
@@ -449,7 +425,7 @@ class ProxyManager:
         Replace dead proxy with same type (mobile->mobile, socks->socks).
         Unbinds old, binds new, returns new proxy or None.
         """
-        # Mark old as dead
+        # Mark old as dead, unbind
         dead_proxy.status = ProxyStatus.DEAD
         dead_proxy.bound_account_id = None
 
@@ -604,10 +580,8 @@ class ProxyManager:
                 dead_proxy.bound_account_id = None
                 continue
 
-            # Find a replacement (unbound, active, same geo if possible)
-            replacement = self.get_unbound_proxy(geo=account.geo)
-            if not replacement:
-                replacement = self.get_unbound_proxy()  # any geo
+            # Find a replacement (unbound, active)
+            replacement = self.get_unbound_proxy()
 
             if replacement:
                 # Unbind old

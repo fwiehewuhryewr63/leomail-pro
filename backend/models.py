@@ -23,6 +23,7 @@ class AccountStatus(str, enum.Enum):
 
 class ProxyStatus(str, enum.Enum):
     ACTIVE = "active"
+    BOUND = "bound"          # hard-bound to an account (1:1), not available for new births
     EXPIRED = "expired"
     BANNED = "banned"
     DEAD = "dead"

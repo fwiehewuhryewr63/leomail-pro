@@ -432,6 +432,7 @@ async def unbind_proxy(proxy_id: int, db: Session = Depends(get_db)):
         if acc:
             acc.proxy_id = None
     proxy.bound_account_id = None
+    proxy.status = ProxyStatus.ACTIVE  # BOUND -> ACTIVE when unbound
     db.commit()
     return {"status": "unbound"}
 
@@ -464,13 +465,17 @@ async def auto_reassign(db: Session = Depends(get_db)):
 
 @router.post("/reset-all")
 async def reset_all_proxies(db: Session = Depends(get_db)):
-    """Reset ALL proxies back to active status (including exhausted) AND clear counters."""
+    """Reset ALL non-bound proxies back to active status AND clear counters.
+    BOUND proxies are skipped (still in use by accounts)."""
     count = db.query(Proxy).filter(
         Proxy.status.in_([ProxyStatus.DEAD, "dead", ProxyStatus.EXPIRED, "expired",
                           ProxyStatus.BANNED, "banned", ProxyStatus.EXHAUSTED, "exhausted"])
     ).count()
 
-    db.query(Proxy).update({
+    # Only reset non-bound proxies
+    db.query(Proxy).filter(
+        Proxy.status != ProxyStatus.BOUND
+    ).update({
         Proxy.status: ProxyStatus.ACTIVE,
         Proxy.fail_count: 0,
         Proxy.use_gmail: 0,
@@ -483,7 +488,7 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
     }, synchronize_session=False)
     db.commit()
 
-    logger.info(f"Reset {count} proxies to ACTIVE + cleared all counters")
+    logger.info(f"Reset {count} proxies to ACTIVE + cleared all counters (BOUND proxies skipped)")
     return {"reset": count, "total": db.query(Proxy).count()}
 
 
