@@ -1239,6 +1239,130 @@ class RegContext:
     _err: object = None     # Error logging function
 
 
+# ── Defensive Coding Template Helpers ──────────────────────────────────────────
+
+
+async def verify_page_state(page, url_pattern: str = None, selector: str = None,
+                            timeout: int = 3000) -> bool:
+    """
+    Pre-check: verify we're on the expected page before acting.
+
+    Args:
+        page: Playwright page object
+        url_pattern: substring that must be in page.url (e.g. "signup")
+        selector: CSS selector that must be visible on page
+        timeout: max ms to wait for selector
+
+    Returns: True if page state is valid, False otherwise.
+    """
+    if url_pattern:
+        current = (page.url or "").lower()
+        if url_pattern.lower() not in current:
+            return False
+    if selector:
+        try:
+            el = page.locator(selector).first
+            await el.wait_for(state="visible", timeout=timeout)
+            return True
+        except Exception:
+            return False
+    return True
+
+
+async def block_check(page, provider: str, ctx: RegContext = None,
+                      step_name: str = ""):
+    """
+    Scan for block signals and raise appropriate error if detected.
+    Call this BEFORE each registration step.
+
+    Raises: BannedIPError or RateLimitError if block detected.
+    """
+    lang = ctx.language if ctx else "en"
+    result = await scan_for_block_signals(page, provider, lang)
+    if result["detected"]:
+        log_fn = ctx._err if ctx and ctx._err else logger.warning
+        log_fn(f"[BLOCK@{step_name}] {result['reason']}")
+        await debug_screenshot(page, f"{provider}_{step_name}_blocked")
+        if result["action"] == "skip_ip":
+            raise BannedIPError("E302", f"{step_name}: {result['reason']}")
+        elif result["action"] == "backoff":
+            raise RateLimitError("E201", f"{step_name}: {result['reason']}")
+        else:
+            # Low severity — log but don't crash
+            if ctx and ctx._log:
+                ctx._log(f"[WARN@{step_name}] {result['reason']}")
+
+
+async def run_step(page, ctx: RegContext, step_name: str,
+                   action_fn, *,
+                   url_pattern: str = None,
+                   expected_selector: str = None,
+                   error_selector: str = None,
+                   screenshot: bool = False):
+    """
+    Universal step wrapper implementing the Defensive Coding Template.
+
+    Pattern:
+        1. Pre-check: verify page state
+        2. Block scan: detect rate limits / IP bans
+        3. Action: execute the step (human_fill, human_click, etc.)
+        4. Post-check: look for error messages
+        5. Screenshot: capture success state
+
+    Args:
+        page: Playwright page
+        ctx: Registration context
+        step_name: e.g. "fill_email", "enter_password"
+        action_fn: async callable that performs the step action
+        url_pattern: expected URL substring (for pre-check)
+        expected_selector: expected selector on page (for pre-check)
+        error_selector: CSS selector for error message element (for post-check)
+        screenshot: whether to take success screenshot
+
+    Raises:
+        FatalError: if page state is wrong
+        BannedIPError/RateLimitError: if block detected
+        RecoverableError: if error message shown after action
+    """
+    log = ctx._log or logger.info
+    err = ctx._err or logger.error
+
+    # 1. Pre-check
+    if url_pattern or expected_selector:
+        valid = await verify_page_state(page, url_pattern, expected_selector)
+        if not valid:
+            await debug_screenshot(page, f"{ctx.provider}_{step_name}_wrong_page")
+            raise FatalError("E501", f"Wrong page state at {step_name} (url={page.url})")
+
+    # 2. Block scan
+    await block_check(page, ctx.provider, ctx, step_name)
+
+    # 3. Action
+    ctx.attempt += 1
+    log(f"[Step:{step_name}] attempt={ctx.attempt}")
+    result = await action_fn()
+
+    # 4. Post-check
+    if error_selector:
+        try:
+            err_el = page.locator(error_selector).first
+            if await err_el.is_visible(timeout=2000):
+                err_text = (await err_el.text_content() or "").strip()
+                if err_text:
+                    await debug_screenshot(page, f"{ctx.provider}_{step_name}_error")
+                    raise RecoverableError("E102", f"{step_name}: {err_text}")
+        except RecoverableError:
+            raise
+        except Exception:
+            pass  # No error element = good
+
+    # 5. Screenshot success
+    if screenshot:
+        await debug_screenshot(page, f"{ctx.provider}_{step_name}_ok")
+
+    return result
+
+
 # ── Step 6: Block Signal Scanner + GEO Mapper ──────────────
 
 

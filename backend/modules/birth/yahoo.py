@@ -1,5 +1,8 @@
 """
-Leomail v3 - Yahoo Registration Engine (with Vision CV)
+Leomail v4 - Yahoo Registration Engine (Defensive Coding Template)
+Registers yahoo.com accounts via login.yahoo.com/account/create.
+Flow: signup -> fill form (name+email+password+birthday) -> submit -> SMS phone page -> verify code -> done
+Yahoo = Verizon family. Requires SMS. Has FunCaptcha/reCAPTCHA. Vision Engine support.
 """
 import asyncio
 import random
@@ -31,12 +34,984 @@ from ._helpers import (
     scan_for_block_signals as _scan_for_block_signals,
     clean_session as _clean_session,
     rate_limiter as _rate_limiter,
-    RateLimitError, BannedIPError, FatalError,
+    RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
+    RegContext, verify_page_state, block_check, run_step,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, order_sms_retry, get_next_sms_number, get_sms_chain,
     reset_chain_state, SMS_CODE_TIMEOUT,
     export_account_to_file,
 )
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────────
+
+
+async def _check_error_page(page, context_msg=""):
+    """Quick check for Yahoo error/block pages. Returns error string or None."""
+    url = page.url or ""
+    error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
+                  "guce.yahoo", "consent.yahoo", "/sorry"]
+    for pattern in error_urls:
+        if pattern in url.lower():
+            return f"Error URL detected: {url}"
+    try:
+        error_text = await page.evaluate("""() => {
+            const body = document.body?.innerText?.substring(0, 2000) || '';
+            const lc = body.toLowerCase();
+            const errors = [
+                'something went wrong', 'try again later', 'suspicious activity',
+                'temporarily unavailable', 'too many attempts', 'access denied',
+                'unable to process', 'service unavailable', 'error 500',
+                'we are unable', 'blocked', 'not available in your region'
+            ];
+            for (const e of errors) {
+                if (lc.includes(e)) return body.substring(0, 300);
+            }
+            return null;
+        }""")
+        if error_text:
+            return f"Error page text: {error_text[:200]}"
+    except Exception:
+        pass
+    return None
+
+
+# ── Step Functions ───────────────────────────────────────────────────────────────
+
+
+async def step_0_warmup(page, ctx: RegContext):
+    """Step 0: Yahoo-specific warmup — visit yahoo.com to build cookies/consent."""
+    ctx._log("Session warmup (building Yahoo cookies)...")
+    try:
+        await page.goto("https://www.yahoo.com", wait_until="domcontentloaded", timeout=20000)
+        await _human_delay(2, 4)
+        try:
+            consent_btn = page.locator(
+                "button:has-text('Accept'), button:has-text('Agree'), "
+                "button:has-text('OK'), button[name='agree']"
+            ).first
+            if await consent_btn.is_visible(timeout=3000):
+                await consent_btn.click()
+                await _human_delay(1, 2)
+        except Exception:
+            pass
+        await random_mouse_move(page, steps=3)
+        await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 400 + 200))")
+        await _human_delay(1, 3)
+        await random_mouse_move(page, steps=2)
+        await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 300 + 100))")
+        await _human_delay(1, 2)
+    except Exception as warmup_err:
+        ctx._log(f"Warmup partial: {warmup_err}")
+        try:
+            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(1, 2)
+        except Exception:
+            pass
+
+
+async def step_1_navigate(page, ctx: RegContext, proxy, db, vision=None):
+    """Step 1: Navigate to Yahoo signup. Checks: dead proxy, error page, block signals, Vision."""
+    ctx._log("Opening Yahoo registration page...")
+    try:
+        await page.goto(
+            "https://login.yahoo.com/account/create",
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+    except Exception as nav_e:
+        logger.warning(f"[Yahoo] Navigation error: {nav_e}")
+
+    await _human_delay(2, 4)
+
+    current_url = page.url or ""
+    if "chrome-error" in current_url or "about:blank" == current_url:
+        ctx._err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
+        if proxy:
+            try:
+                proxy.status = ProxyStatus.DEAD
+                proxy.fail_count = (proxy.fail_count or 0) + 1
+                db.commit()
+            except Exception:
+                pass
+        raise FatalError("E501", f"Proxy dead: {current_url}")
+
+    if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
+        ctx._err(f"[ERR] Yahoo returned error page (URL: {current_url})")
+        raise BannedIPError("E301", f"Yahoo error page: {current_url}")
+
+    await block_check(page, ctx.provider, ctx, "navigate")
+
+    await random_mouse_move(page, steps=3)
+    ctx._log(f"Page: {page.url}")
+
+    if vision:
+        try:
+            stage = await vision.analyze(page)
+            ctx._log(f"[Vision] Stage: {stage['stage']} ({stage['confidence']:.0%}) - {stage['description']}")
+            err = await vision.is_error(page)
+            if err:
+                ctx._err(f"[Vision] Error detected: {err['type']} - {err['text']}")
+                raise BannedIPError("E304", f"Vision: {err['type']}: {err['text']}")
+        except (BannedIPError, RateLimitError, FatalError):
+            raise
+        except Exception as ve:
+            logger.debug(f"[Yahoo] Vision stage detect: {ve}")
+
+
+async def step_2_fill_form(page, ctx: RegContext, birthday):
+    """Step 2: Fill all form fields (name, email, password, birthday). Yahoo has everything on one page."""
+    error = await _check_error_page(page, "before firstname")
+    if error:
+        ctx._err(f"[ERR] Yahoo error before form: {error}")
+        raise BannedIPError("E303", f"Yahoo error before form: {error[:100]}")
+
+    await block_check(page, ctx.provider, ctx, "fill_form")
+
+    ctx._log(f"Entering data: {ctx.first_name} {ctx.last_name} / {ctx.username}")
+
+    # First name
+    fn_sel = await _wait_and_find(page, [
+        '#reg-firstName', 'input[name="firstName"]', '#usernamereg-firstName',
+        'input[aria-label*="irst"]', 'input[aria-label*="имя"]',
+        'input[placeholder*="First"]', 'input[placeholder*="имя"]',
+        'input[autocomplete="given-name"]',
+    ], "yahoo_firstname", ctx.username, ctx._log, ctx._err, timeout=20000)
+    if not fn_sel:
+        raise RecoverableError("E101", "First name field not found")
+
+    await _human_fill(page, fn_sel, ctx.first_name)
+    await _human_delay(1.0, 2.5)
+
+    # Last name
+    ln_sel = await _wait_for_any(page, [
+        '#reg-lastName', 'input[name="lastName"]', '#usernamereg-lastName',
+        'input[aria-label*="ast"]', 'input[aria-label*="фам"]',
+        'input[placeholder*="Last"]', 'input[placeholder*="фам"]',
+        'input[autocomplete="family-name"]',
+    ], timeout=5000)
+    if ln_sel:
+        await _human_fill(page, ln_sel, ctx.last_name)
+        await _human_delay(1.2, 2.8)
+
+    await page.mouse.wheel(0, random.randint(50, 150))
+    await _human_delay(0.5, 1.0)
+
+    # Email / Username
+    email_sel = await _wait_for_any(page, [
+        '#reg-userId', 'input[name="userId"]',
+        'input[name="yid"]', '#usernamereg-yid',
+        'input[aria-label*="user"]', 'input[aria-label*="email"]',
+        'input[placeholder*="email"]', 'input[placeholder*="user"]',
+    ], timeout=5000)
+    if email_sel:
+        await _human_fill(page, email_sel, ctx.username)
+        await _human_delay(1.5, 3.0)
+
+    # Password
+    pwd_sel = await _wait_for_any(page, [
+        '#reg-password', 'input[name="password"]', '#usernamereg-password',
+        'input[type="password"]',
+        'input[aria-label*="assword"]', 'input[aria-label*="арол"]',
+        'input[placeholder*="assword"]',
+    ], timeout=5000)
+    if pwd_sel:
+        await _human_fill(page, pwd_sel, ctx.password)
+        await _human_delay(1.0, 2.0)
+
+    # Birthday
+    await page.mouse.wheel(0, random.randint(30, 80))
+    await _human_delay(0.5, 1.0)
+
+    month_sel = await _wait_for_any(page, [
+        'input[name="mm"]', 'input[placeholder="MM"]',
+        'input[placeholder*="Month"]', 'input[aria-label*="onth"]',
+        'input[id$="-mm"]', 'input[id*="month"]',
+        'input[autocomplete="bday-month"]', '#usernamereg-month',
+    ], timeout=5000)
+    if month_sel:
+        await _human_fill(page, month_sel, str(birthday.month).zfill(2))
+        await _human_delay(0.5, 1.2)
+
+    day_sel = await _wait_for_any(page, [
+        'input[name="dd"]', 'input[placeholder="DD"]',
+        'input[placeholder*="Day"]', 'input[aria-label*="day"]',
+        'input[id$="-dd"]', '#usernamereg-day',
+    ], timeout=3000)
+    if day_sel:
+        await _human_fill(page, day_sel, str(birthday.day))
+        await _human_delay(0.5, 1.0)
+
+    year_sel = await _wait_for_any(page, [
+        'input[name="yyyy"]', 'input[placeholder="YYYY"]',
+        'input[placeholder*="Year"]', 'input[aria-label*="ear"]',
+        'input[id$="-yyyy"]', '#usernamereg-year',
+    ], timeout=3000)
+    if year_sel:
+        await _human_fill(page, year_sel, str(birthday.year))
+
+    # JS fallback for birthday fields
+    if not month_sel or not day_sel or not year_sel:
+        ctx._log("Using JS fallback for birthday fields...")
+        bday_result = await page.evaluate(f"""() => {{
+            const filled = [];
+            const allText = document.querySelectorAll('label, span, div, p');
+            const fields = [
+                {{ label: /month/i, value: '{str(birthday.month).zfill(2)}' }},
+                {{ label: /day/i, value: '{str(birthday.day)}' }},
+                {{ label: /year/i, value: '{str(birthday.year)}' }},
+            ];
+            for (const field of fields) {{
+                for (const el of allText) {{
+                    if (field.label.test(el.textContent) && el.textContent.length < 30) {{
+                        const parent = el.closest('fieldset, div, section, form');
+                        if (parent) {{
+                            const input = parent.querySelector('input:not([type="hidden"]):not([type="checkbox"])');
+                            if (input && !input.value) {{
+                                input.value = field.value;
+                                input.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                input.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                filled.push(el.textContent.trim().substring(0, 20));
+                                break;
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            return filled;
+        }}""")
+        if bday_result:
+            ctx._log(f"JS fallback filled: {bday_result}")
+
+    await _human_delay(1.5, 3.0)
+
+
+async def step_3_submit_form(page, ctx: RegContext, captcha_provider, vision=None):
+    """Step 3: Submit form with terms checkbox and email-taken retry."""
+    await page.mouse.wheel(0, random.randint(100, 200))
+    await _human_delay(0.8, 1.5)
+
+    # Terms checkbox
+    terms_checkbox = await _wait_for_any(page, [
+        'input[type="checkbox"]',
+        'label:has-text("I agree") input',
+        '#reg-terms', '#terms',
+    ], timeout=3000)
+    if terms_checkbox:
+        try:
+            is_checked = await page.locator(terms_checkbox).first.is_checked()
+            if not is_checked:
+                ctx._log("Checking 'I agree to terms' checkbox...")
+                await _human_click(page, terms_checkbox)
+                await _human_delay(0.8, 1.5)
+        except Exception:
+            try:
+                label = await _wait_for_any(page, [
+                    'label:has-text("I agree")',
+                    'label:has-text("agree to these terms")',
+                ], timeout=2000)
+                if label:
+                    await _human_click(page, label)
+                    await _human_delay(0.5, 1.0)
+            except Exception:
+                pass
+
+    # Submit
+    ctx._log("Submitting form (Next)...")
+    submit_btn = await _wait_for_any(page, [
+        'button[name="signup"]', 'button:has-text("Next")',
+        'button[type="submit"]', '#reg-submit-button',
+        'button:has-text("Continue")', 'button:has-text("Продолжить")',
+        '#usernamereg-submitBtn',
+    ], timeout=5000)
+    if submit_btn:
+        try:
+            await page.locator(submit_btn).first.wait_for(state="attached", timeout=3000)
+            await _human_click(page, submit_btn)
+        except Exception:
+            ctx._log("Button disabled - trying Enter...")
+            await page.keyboard.press("Enter")
+    else:
+        await page.keyboard.press("Enter")
+    await _human_delay(4, 8)
+
+    # Vision post-submit check
+    if vision:
+        try:
+            stage = await vision.analyze(page)
+            ctx._log(f"[Vision] After submit: {stage['stage']} ({stage['confidence']:.0%})")
+            err = await vision.is_error(page)
+            if err and err['type'] == 'blocked':
+                raise BannedIPError("E305", f"Vision: IP blocked: {err['text']}")
+        except (BannedIPError, RateLimitError, FatalError):
+            raise
+        except Exception:
+            pass
+
+    # Email-taken retry
+    for email_retry in range(3):
+        try:
+            page_text = await page.locator('body').inner_text()
+            email_taken_phrases = ["email not available", "not available", "already taken", "unavailable"]
+            email_taken = any(p.lower() in page_text.lower() for p in email_taken_phrases)
+        except Exception:
+            email_taken = False
+
+        if email_taken:
+            old_username = ctx.username
+            ctx.username = generate_username(ctx.first_name, ctx.last_name)
+            ctx._log(f"[WARN] Email '{old_username}@yahoo.com' taken! Trying: {ctx.username}")
+            email_sel_retry = await _wait_for_any(page, [
+                'input[name="yid"]', '#usernamereg-yid', 'input[name="userId"]',
+            ], timeout=3000)
+            if email_sel_retry:
+                await page.locator(email_sel_retry).first.fill("")
+                await _human_fill(page, email_sel_retry, ctx.username)
+                await _human_delay(1, 2)
+                submit_retry = await _wait_for_any(page, [
+                    'button:has-text("Next")', 'button[type="submit"]',
+                    'button:has-text("Continue")',
+                ], timeout=3000)
+                if submit_retry:
+                    await _human_click(page, submit_retry)
+                else:
+                    await page.keyboard.press("Enter")
+                await _human_delay(4, 8)
+            else:
+                raise RecoverableError("E102", "Email field not found for re-entry")
+        else:
+            break
+    else:
+        raise RecoverableError("E103", "Yahoo rejected 3 usernames in a row")
+
+    # Post-submit error check
+    error = await _check_error_page(page, "after submit")
+    if error:
+        ctx._err(f"[ERR] Yahoo error after submit: {error}")
+        try:
+            cookies = await page.context.cookies()
+            ipqsd = [c for c in cookies if c.get('name') == 'ipqsd']
+            if ipqsd:
+                ctx._log(f"[ipqsd] IP Quality Score cookie: {ipqsd[0].get('value', '?')}")
+        except Exception:
+            pass
+        raise BannedIPError("E306", f"Yahoo error after submit: {error[:100]}")
+
+    # CAPTCHA after submit
+    await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+    await _detect_and_solve_funcaptcha(page, captcha_provider, ctx._log)
+    await _human_delay(1, 2)
+
+
+async def step_4_sms_verification(page, ctx: RegContext, sms_provider, proxy,
+                                   captcha_provider, BIRTH_CANCEL_EVENT):
+    """Step 4: Full SMS verification — detects Yahoo's country, orders SMS, phone retry loop."""
+    phone_page_input = await _wait_for_any(page, [
+        'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
+        'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
+        'input[data-type="phone"]', 'input[autocomplete="tel"]',
+    ], timeout=15000)
+
+    if not phone_page_input:
+        # Fallback: password/terms issues
+        ctx._log("[WARN] Phone page not found — checking for terms/checkbox page...")
+        await _debug_screenshot(page, "4_yahoo_no_phone_page")
+        current_url = page.url or ""
+        ctx._log(f"Current URL: {current_url}")
+
+        if "/account/create" in current_url and "/error" not in current_url:
+            try:
+                page_text = await page.locator('body').inner_text()
+                if 'must contain at least 8' in page_text.lower() or 'weak' in page_text.lower():
+                    ctx._log("[FIX] Password rejected — re-entering stronger password...")
+                    pwd_retry = await _wait_for_any(page, [
+                        'input[type="password"]', 'input[name="password"]',
+                    ], timeout=3000)
+                    if pwd_retry:
+                        await page.locator(pwd_retry).first.fill("")
+                        await _human_delay(0.3, 0.5)
+                        ctx.password = generate_password(16)
+                        await _human_fill(page, pwd_retry, ctx.password)
+                        await _human_delay(1.5, 2.5)
+            except Exception:
+                pass
+
+            terms_cb = await _wait_for_any(page, [
+                'input[type="checkbox"]', 'label:has-text("I agree") input',
+            ], timeout=3000)
+            if terms_cb:
+                try:
+                    is_checked = await page.locator(terms_cb).first.is_checked()
+                    if not is_checked:
+                        ctx._log("[FIX] Checking terms checkbox...")
+                        await _human_click(page, terms_cb)
+                        await _human_delay(0.8, 1.5)
+                except Exception:
+                    try:
+                        label = await _wait_for_any(page, ['label:has-text("I agree")'], timeout=2000)
+                        if label:
+                            await _human_click(page, label)
+                            await _human_delay(0.5, 1.0)
+                    except Exception:
+                        pass
+
+            ctx._log("Re-submitting form after fixes...")
+            resubmit = await _wait_for_any(page, [
+                'button[name="signup"]', 'button:has-text("Next")',
+                'button[type="submit"]', 'button:has-text("Continue")',
+            ], timeout=5000)
+            if resubmit:
+                await _human_click(page, resubmit)
+            else:
+                await page.keyboard.press("Enter")
+            await _human_delay(5, 10)
+
+            phone_page_input = await _wait_for_any(page, [
+                'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
+                'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
+                'input[data-type="phone"]', 'input[autocomplete="tel"]',
+            ], timeout=15000)
+
+            if phone_page_input:
+                ctx._log("Phone page appeared after re-submit!")
+            else:
+                raise RecoverableError("E104", "Phone page not found after form re-submit")
+        else:
+            raise RecoverableError("E105", "Registration not completed - no phone page")
+
+    ctx._log("Detected 'Add your phone number' page")
+    if not sms_provider:
+        raise FatalError("E502", "Yahoo requires SMS but no SMS provider configured")
+
+    # Detect Yahoo's displayed country code
+    yahoo_detected_prefix = None
+    yahoo_country_for_sms = None
+    try:
+        yahoo_detected_prefix = await page.evaluate("""() => {
+            const inputs = document.querySelectorAll('input');
+            for (const inp of inputs) {
+                const val = inp.value.trim();
+                if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                    return val.replace('+', '');
+                }
+            }
+            const selects = document.querySelectorAll('select');
+            for (const sel of selects) {
+                const opt = sel.options[sel.selectedIndex];
+                if (opt) {
+                    const m = opt.text.match(/\\+(\\d{1,4})/);
+                    if (m) return m[1];
+                }
+            }
+            return null;
+        }""")
+        if yahoo_detected_prefix:
+            yahoo_detected_prefix = str(yahoo_detected_prefix).strip()
+            yahoo_country_for_sms = PREFIX_TO_SMS_COUNTRY.get(yahoo_detected_prefix)
+            ctx._log(f"Yahoo shows: +{yahoo_detected_prefix} → SMS country: {yahoo_country_for_sms or 'unknown'}")
+    except Exception:
+        pass
+
+    # Order SMS for Yahoo's displayed country
+    proxy_geo = getattr(proxy, 'geo', None) if proxy else None
+    preferred_geo = yahoo_country_for_sms or proxy_geo
+    order = None
+    active_sms_provider = None
+    expanded_countries = []
+
+    if yahoo_country_for_sms:
+        ctx._log(f"[SMS] Must get number for Yahoo's country: {yahoo_country_for_sms} (+{yahoo_detected_prefix})")
+        sms_chain = get_sms_chain()
+        for provider_name, provider in sms_chain:
+            ctx._log(f"[SMS] Trying {provider_name} for {yahoo_country_for_sms}...")
+            try:
+                result = await asyncio.to_thread(provider.order_number, "yahoo", yahoo_country_for_sms)
+                if result and "error" not in result:
+                    order = result
+                    active_sms_provider = provider
+                    expanded_countries = [yahoo_country_for_sms]
+                    ctx._log(f"[OK] {provider_name}: got {yahoo_country_for_sms} number: {result.get('number', '?')}")
+                    break
+                else:
+                    err = result.get("error", "?") if result else "no response"
+                    ctx._log(f"[SMS] {provider_name}: no {yahoo_country_for_sms} numbers ({err})")
+            except Exception as e:
+                ctx._log(f"[SMS] {provider_name} error: {e}")
+
+    if not order:
+        if yahoo_country_for_sms:
+            ctx._log(f"[WARN] No numbers for {yahoo_country_for_sms} on any provider. Trying other countries...")
+        ctx._log(f"Ordering number for Yahoo SMS (preferred country: {preferred_geo})...")
+        order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+            service="yahoo", sms_provider=sms_provider, proxy_geo=preferred_geo,
+            page=page, scrape_dropdown=True, _log=ctx._log, _err=ctx._err,
+        )
+
+    if not order:
+        raise RecoverableError("E106", "No SMS numbers available")
+
+    sms_provider = active_sms_provider
+    _cls = type(active_sms_provider).__name__.lower()
+    if 'grizzly' in _cls:
+        _current_sms_provider_name = 'grizzly'
+    elif 'fivesim' in _cls or '5sim' in _cls:
+        _current_sms_provider_name = '5sim'
+    else:
+        _current_sms_provider_name = 'simsms'
+
+    phone_number = order["number"]
+    order_id = order["id"]
+    sms_country = order.get("country", "")
+    ctx._active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
+    display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+    ctx._log(f"Number: {display_phone} (country: {sms_country})")
+
+    # Strip prefix
+    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+    local_number = phone_number.lstrip("+")
+    if phone_prefix and local_number.startswith(phone_prefix):
+        local_number = local_number[len(phone_prefix):]
+        ctx._log(f"Stripped prefix +{phone_prefix}, entering: {local_number}")
+    else:
+        ctx._log(f"Entering as-is: {local_number}")
+
+    # Validate local number length
+    if len(local_number) > 12 or len(local_number) < 6:
+        ctx._log(f"[WARN] Number {local_number} has {len(local_number)} digits - invalid!")
+        try:
+            await asyncio.to_thread(sms_provider.cancel_number, order_id)
+        except Exception:
+            pass
+        order, sms_provider_new, expanded_countries = await order_sms_with_chain(
+            service="yahoo", sms_provider=sms_provider, proxy_geo=preferred_geo,
+            page=page, scrape_dropdown=False, _log=ctx._log, _err=ctx._err,
+        )
+        if not order:
+            raise RecoverableError("E107", "All SMS providers returned invalid-length numbers")
+        sms_provider = sms_provider_new
+        phone_number = order["number"]
+        order_id = order["id"]
+        sms_country = order.get("country", "")
+        phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+        local_number = phone_number.lstrip("+")
+        if phone_prefix and local_number.startswith(phone_prefix):
+            local_number = local_number[len(phone_prefix):]
+        ctx._log(f"Re-ordered number: {local_number}")
+        ctx._active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
+
+    # Country code change logic
+    yahoo_page_prefix = None
+    try:
+        yahoo_page_prefix = await page.evaluate("""() => {
+            const selects = document.querySelectorAll('select[id^="countryCode"], select');
+            for (const sel of selects) {
+                const opt = sel.options[sel.selectedIndex];
+                if (opt) {
+                    const m = opt.text.match(/\\+(\\d{1,4})/);
+                    if (m) return m[1];
+                }
+            }
+            const inputs = document.querySelectorAll('input');
+            for (const inp of inputs) {
+                const val = inp.value.trim();
+                if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                    return val.replace('+', '');
+                }
+            }
+            return null;
+        }""")
+        if yahoo_page_prefix:
+            yahoo_page_prefix = str(yahoo_page_prefix).strip()
+    except Exception:
+        pass
+
+    sms_prefix = phone_prefix or ""
+    country_needs_change = yahoo_page_prefix and sms_prefix and yahoo_page_prefix != sms_prefix
+    country_changed = not country_needs_change
+
+    if country_needs_change:
+        ctx._log(f"Yahoo shows +{yahoo_page_prefix}, SMS number +{sms_prefix} - need to change")
+        try:
+            select_el = page.locator('select[name="shortCountryCode"], select[id^="countryCode"]').first
+            if await select_el.is_visible(timeout=3000):
+                target_iso = COUNTRY_TO_ISO2.get(sms_country, sms_country).upper()
+                ctx._log(f"Selecting country in dropdown: {target_iso} (+{sms_prefix})")
+                await select_el.select_option(value=target_iso)
+                await _human_delay(0.5, 1.0)
+                new_val = await select_el.input_value()
+                if new_val == target_iso:
+                    country_changed = True
+                    ctx._log(f"[OK] Country code changed via select: {target_iso}")
+                else:
+                    try:
+                        await select_el.select_option(label=f"(+{sms_prefix})")
+                        await _human_delay(0.3, 0.5)
+                        country_changed = True
+                        ctx._log(f"[OK] Country code changed via label match: +{sms_prefix}")
+                    except Exception:
+                        ctx._log("[WARN] Label match also failed")
+        except Exception as e:
+            ctx._log(f"[WARN] select_option failed: {e}")
+
+        if not country_changed:
+            try:
+                all_inputs = await page.locator('input').all()
+                for inp in all_inputs:
+                    val = (await inp.input_value()).strip()
+                    if val.startswith('+') and 2 <= len(val) <= 5:
+                        await inp.fill(f"+{sms_prefix}")
+                        await _human_delay(0.3, 0.5)
+                        new_val = (await inp.input_value()).strip()
+                        if new_val == f"+{sms_prefix}":
+                            country_changed = True
+                            ctx._log(f"[OK] Country code changed via .fill(): +{sms_prefix}")
+                        break
+            except Exception:
+                pass
+
+        if not country_changed:
+            page_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
+            if page_country:
+                ctx._log(f"[WARN] Can't change +{yahoo_page_prefix}→+{sms_prefix}. Re-ordering for {page_country}...")
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                except Exception:
+                    pass
+                try:
+                    new_order = await asyncio.to_thread(sms_provider.order_number, "yahoo", page_country)
+                    if new_order and "error" not in new_order:
+                        phone_number = new_order["number"]
+                        order_id = new_order["id"]
+                        sms_country = new_order.get("country", page_country)
+                        phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+                        local_number = phone_number.lstrip("+")
+                        if phone_prefix and local_number.startswith(phone_prefix):
+                            local_number = local_number[len(phone_prefix):]
+                        ctx._log(f"[OK] New number for +{yahoo_page_prefix}: {local_number}")
+                        ctx._active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
+                    else:
+                        ctx._log(f"[WARN] No {page_country} numbers - entering full number as-is")
+                        local_number = f"{sms_prefix}{local_number}"
+                except Exception:
+                    local_number = f"{sms_prefix}{local_number}"
+            else:
+                ctx._log(f"[WARN] Unknown prefix +{yahoo_page_prefix} - entering full number")
+                local_number = f"{sms_prefix}{local_number}"
+
+    # Fill phone field
+    await random_mouse_move(page, steps=3)
+    await _human_delay(3.0, 5.0)
+    await page.mouse.wheel(0, random.randint(30, 80))
+    await _human_delay(0.8, 1.5)
+    try:
+        await page.locator(phone_page_input).first.fill("")
+        await _human_delay(0.3, 0.5)
+    except Exception:
+        pass
+    await _human_fill(page, phone_page_input, local_number)
+    ctx._log(f"Entered number: {local_number}")
+    await _human_delay(1.5, 3.0)
+
+    # Click "Get code by text" — NEVER WhatsApp
+    await random_mouse_move(page, steps=2)
+    await _human_delay(2.0, 4.0)
+
+    get_code_btn = await _wait_for_any(page, [
+        'button:has-text("Receive code by text")', 'button:has-text("Get code by text")',
+        'button:has-text("code by text")', 'button:has-text("Получить код по SMS")',
+        'button:has-text("Text me")', 'button:has-text("Send code")',
+        'button:has-text("Enviar código")',
+    ], timeout=5000)
+    if not get_code_btn:
+        sms_link = await _wait_for_any(page, [
+            'a:has-text("Receive code by text")', 'a:has-text("code by text")',
+            'a:has-text("Text me")', 'button:has-text("Receive code")',
+        ], timeout=3000)
+        if sms_link:
+            get_code_btn = sms_link
+            ctx._log("[OK] Found SMS as link")
+    if not get_code_btn:
+        has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
+        if has_whatsapp == 0:
+            get_code_btn = await _wait_for_any(page, [
+                'button[type="submit"]', '#send-code-button', 'button[data-type="sms"]',
+            ], timeout=3000)
+        else:
+            raise FatalError("E503", "Only WhatsApp available — no SMS option")
+
+    if not get_code_btn:
+        await page.keyboard.press("Enter")
+        await _human_delay(4, 7)
+    else:
+        # Phone retry loop
+        max_phone_retries = 3
+        phone_accepted = False
+        for phone_attempt in range(max_phone_retries):
+            if phone_attempt > 0:
+                ctx._log(f"Attempt #{phone_attempt + 1} with new number...")
+            ctx._log("Pressing 'Get code by text'...")
+            await _human_click(page, get_code_btn)
+            await _human_delay(4, 7)
+
+            for captcha_attempt in range(2):
+                captcha_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, ctx._log)
+                if not captcha_solved:
+                    captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+                if captcha_solved:
+                    ctx._log(f"CAPTCHA solved after 'Get code' (attempt {captcha_attempt + 1})")
+                    await _human_delay(3, 6)
+                    try:
+                        resubmit = await _wait_for_any(page, [
+                            'button[type="submit"]', 'button:has-text("Get code")',
+                            'button:has-text("Send code")', 'button:has-text("Continue")',
+                        ], timeout=3000)
+                        if resubmit:
+                            await _human_click(page, resubmit)
+                            await _human_delay(4, 7)
+                    except Exception:
+                        pass
+                else:
+                    break
+
+            # Check phone rejection
+            try:
+                page_text = await page.locator('body').inner_text()
+                rejection_phrases = [
+                    "don't support this number", "doesn't look right",
+                    "not a valid phone", "invalid phone", "try another number",
+                    "provide another one", "unable to verify this number",
+                    "not supported", "invalid number",
+                ]
+                is_rejected = any(p.lower() in page_text.lower() for p in rejection_phrases)
+            except Exception:
+                is_rejected = False
+
+            if not is_rejected:
+                curr = page.url
+                if 'challenge/fail' in curr or '/error' in curr:
+                    captcha_on_fail = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+                    if captcha_on_fail:
+                        await _human_delay(3, 5)
+                        curr2 = page.url
+                        if 'challenge/fail' not in curr2 and '/error' not in curr2:
+                            phone_accepted = True
+                            break
+                    try:
+                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                    except Exception:
+                        pass
+                    raise BannedIPError("E307", f"Yahoo blocked: challenge/fail ({curr})")
+
+                try:
+                    phone_still_visible = await page.locator(phone_page_input).first.is_visible()
+                except Exception:
+                    phone_still_visible = False
+                if phone_still_visible:
+                    is_rejected = True
+                else:
+                    phone_accepted = True
+                    break
+
+            # Phone rejected — get new number
+            ctx._log(f"Yahoo rejected number {display_phone} - getting new one")
+            await _debug_screenshot(page, f"yahoo_phone_rejected_{phone_attempt}")
+            try:
+                await asyncio.to_thread(sms_provider.cancel_number, order_id)
+            except Exception:
+                pass
+
+            new_order, new_provider, new_provider_name = await get_next_sms_number(
+                service="yahoo", current_provider=sms_provider,
+                current_provider_name=_current_sms_provider_name or 'simsms',
+                expanded_countries=expanded_countries, _log=ctx._log, _err=ctx._err,
+            )
+            if new_provider:
+                sms_provider = new_provider
+                _current_sms_provider_name = new_provider_name
+            if not new_order:
+                raise RecoverableError("E108", "SMS error getting new number")
+
+            phone_number = new_order["number"]
+            order_id = new_order["id"]
+            new_sms_country = new_order.get("country", sms_country)
+            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+
+            new_phone_prefix = PHONE_COUNTRY_MAP.get(new_sms_country, phone_prefix)
+            local_number = phone_number.lstrip("+")
+            if new_phone_prefix and local_number.startswith(new_phone_prefix):
+                local_number = local_number[len(new_phone_prefix):]
+
+            if new_sms_country != sms_country:
+                try:
+                    select_el = page.locator('select[name="shortCountryCode"], select[id^="countryCode"]').first
+                    if await select_el.is_visible(timeout=2000):
+                        target_iso = COUNTRY_TO_ISO2.get(new_sms_country, new_sms_country).upper()
+                        await select_el.select_option(value=target_iso)
+                        await _human_delay(0.5, 1.0)
+                except Exception:
+                    pass
+            sms_country = new_sms_country
+            phone_prefix = new_phone_prefix
+
+            try:
+                await page.locator(phone_page_input).first.fill("")
+            except Exception:
+                pass
+            await _human_fill(page, phone_page_input, local_number)
+            ctx._log(f"Entered new number: {local_number}")
+            await _human_delay(1.5, 3.0)
+
+            get_code_btn = await _wait_for_any(page, [
+                'button:has-text("Get code by text")', 'button:has-text("code by text")',
+                'button:has-text("Text me")', 'button:has-text("Send code")',
+                'button[type="submit"]', '#send-code-button',
+            ], timeout=5000)
+            if not get_code_btn:
+                await page.keyboard.press("Enter")
+                await _human_delay(2, 4)
+
+        if not phone_accepted:
+            raise RecoverableError("E109", f"Yahoo rejected {max_phone_retries} numbers in a row")
+
+    # reCAPTCHA after phone submit
+    await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+    await _human_delay(1, 2)
+
+    # Wait for SMS code
+    if order_id:
+        try:
+            if hasattr(sms_provider, 'set_status'):
+                await asyncio.to_thread(sms_provider.set_status, order_id, 1)
+        except Exception:
+            pass
+
+        ctx._log("Waiting for Yahoo SMS code...")
+
+        sms_url = page.url
+        if 'challenge/fail' in sms_url or '/error' in sms_url:
+            captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+            if not captcha_solved:
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                except Exception:
+                    pass
+                raise BannedIPError("E308", f"Yahoo challenge/fail after phone: {sms_url}")
+            await _human_delay(3, 5)
+
+        first_digit = await _wait_for_any(page, [
+            'input#verify-code-0', 'input[aria-label="Code 1"]',
+            'input[name="code"]', 'input[name="verificationCode"]',
+            'input[name="verify_code"]', 'input[type="tel"][maxlength="1"]',
+            'input[data-type="code"]', 'input.phone-code',
+            'input[autocomplete="one-time-code"]',
+        ], timeout=30000)
+
+        if first_digit:
+            ctx._log(f"[OK] SMS code field found: {first_digit}")
+        else:
+            ctx._log("[WARN] SMS code field NOT FOUND")
+            await _debug_screenshot(page, "yahoo_no_sms_field")
+
+        sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
+        sms_code = None
+        if isinstance(sms_result, dict):
+            sms_code = sms_result.get("code")
+            if sms_result.get("error"):
+                ctx._err(f"SMS error: {sms_result['error']}")
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                except Exception:
+                    pass
+                raise RecoverableError("E110", f"SMS error: {sms_result['error']}")
+        elif isinstance(sms_result, str):
+            sms_code = sms_result
+
+        if not sms_code:
+            ctx._err("SMS code not received")
+            try:
+                await asyncio.to_thread(sms_provider.cancel_number, order_id)
+            except Exception:
+                pass
+            raise RecoverableError("E111", "SMS code not received")
+
+        ctx._log(f"SMS code: {sms_code}")
+        code_digits = str(sms_code).strip()
+        for i, digit in enumerate(code_digits[:6]):
+            try:
+                await page.locator(f'input#verify-code-{i}').first.fill(digit)
+                await _human_delay(0.1, 0.3)
+            except Exception:
+                if first_digit:
+                    await page.locator(first_digit).first.fill(code_digits)
+                break
+        await _human_delay(0.5, 1)
+
+        verify_btn = await _wait_for_any(page, [
+            'button[name="validate"]', 'button:has-text("Verify")',
+            'button:has-text("Next")', 'button[type="submit"]',
+        ], timeout=5000)
+        if verify_btn:
+            await page.locator(verify_btn).first.click()
+        else:
+            await page.keyboard.press("Enter")
+
+        try:
+            if hasattr(sms_provider, 'complete_activation'):
+                await asyncio.to_thread(sms_provider.complete_activation, order_id)
+        except Exception:
+            pass
+        await _human_delay(3, 5)
+
+    ctx._display_phone = display_phone
+
+
+async def step_5_verify_success(page, ctx: RegContext) -> bool:
+    """Step 5: Verify registration succeeded."""
+    ctx.email = f"{ctx.username}@yahoo.com"
+    final_url = page.url
+    ctx._log(f"Final URL: {final_url}")
+
+    registration_success = False
+    try:
+        success_indicators_url = [
+            "mail.yahoo.com", "account/create/success",
+            "login.yahoo.com/account/verify", "login.yahoo.com/account/challenge",
+            "/welcome", "/myaccount", "/manage_account",
+        ]
+        if any(ind in final_url.lower() for ind in success_indicators_url):
+            registration_success = True
+            ctx._log("[OK] URL confirms successful registration")
+
+        if not registration_success:
+            on_create = "/account/create" in final_url
+            on_success = "/account/create/success" in final_url
+            if not on_create or on_success:
+                registration_success = True
+                ctx._log("[OK] Left registration page - counting as success")
+
+        if registration_success:
+            page_text = await page.locator('body').inner_text()
+            fail_indicators = ["registration failed", "account could not be created"]
+            if any(fi.lower() in page_text.lower() for fi in fail_indicators):
+                registration_success = False
+                ctx._err("[FAIL] Page contains registration error indicators")
+    except Exception as e:
+        ctx._log(f"Success check: error ({e})")
+        on_create = "/account/create" in final_url
+        on_success = "/account/create/success" in final_url
+        if not on_create or on_success:
+            registration_success = True
+
+    if not registration_success:
+        ctx._err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
+        await _debug_screenshot(page, "yahoo_registration_not_confirmed")
+        raise FatalError("E504", f"Registration not confirmed: {final_url}")
+
+    return True
+
+
+# ── Main Orchestrator ────────────────────────────────────────────────────────────
+
 
 async def register_single_yahoo(
     browser_manager: BrowserManager,
@@ -49,7 +1024,7 @@ async def register_single_yahoo(
     ACTIVE_PAGES: dict = None,
     BIRTH_CANCEL_EVENT: threading.Event = None,
 ) -> Account | None:
-    """Register a single Yahoo account on desktop. Requires SMS."""
+    """Register a single Yahoo account using the Defensive Coding Template."""
     if ACTIVE_PAGES is None:
         ACTIVE_PAGES = {}
     if BIRTH_CANCEL_EVENT is None:
@@ -62,1298 +1037,89 @@ async def register_single_yahoo(
             try: db.commit()
             except: pass
         return None
+
     first_name, last_name = random.choice(name_pool)
     password = generate_password()
     username = generate_username(first_name, last_name)
     birthday = generate_birthday()
-
-    context = await browser_manager.create_context(
-        proxy=proxy,
-        geo=None,
-    )
 
     def _log(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
         logger.info(f"[Yahoo][Thread {n}] {msg}")
         if thread_log:
             thread_log.current_action = f"Thread {n}: {msg}"
-            try:
-                db.commit()
-            except Exception:
-                pass
+            try: db.commit()
+            except Exception: pass
 
     def _err(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
         logger.error(f"[Yahoo][Thread {n}] {msg}")
         if thread_log:
             thread_log.error_message = f"Thread {n}: {msg}"[:500]
-            try:
-                db.commit()
-            except Exception:
-                pass
+            try: db.commit()
+            except Exception: pass
 
-    def _set_stop(reason: str, msg: str = ""):
-        """Set stop_reason on thread_log for UI reporting (Phase 4 error map)."""
-        if thread_log:
-            thread_log.stop_reason = reason
-            thread_log.status = "error"
-            if msg:
-                thread_log.error_message = msg[:500]
-            try:
-                db.commit()
-            except Exception:
-                pass
+    ctx = RegContext(
+        provider="yahoo",
+        username=username,
+        password=password,
+        email=f"{username}@yahoo.com",
+        first_name=first_name,
+        last_name=last_name,
+        proxy_ip=f"{proxy.host}:{proxy.port}" if proxy else "",
+        proxy_geo=getattr(proxy, 'country', '') or "" if proxy else "",
+        proxy_type=getattr(proxy, 'proxy_type', '') or "" if proxy else "",
+        thread_id=thread_log.id if thread_log else 0,
+        _log=_log,
+        _err=_err,
+    )
 
-    # ── Initialize Vision Engine (OCR + stage detection) ──
     vision = None
     try:
         from ..vision import VisionEngine
         vision = VisionEngine("yahoo", debug=True)
-        _log("[Vision] Vision Engine active - OCR + stage detection")
+        _log("[Vision] Vision Engine active")
     except Exception as ve:
         logger.debug(f"[Yahoo] Vision not available: {ve}")
 
-    # ── Fast error page detector (saves 20s vs waiting for fields) ──
-    async def _check_error_page(page, context_msg=""):
-        """Quick 2s check for Yahoo error/block pages. Returns error string or None."""
-        url = page.url or ""
-        # URL-based detection
-        error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
-                      "guce.yahoo", "consent.yahoo", "/sorry"]
-        for pattern in error_urls:
-            if pattern in url.lower():
-                return f"Error URL detected: {url}"
-        # DOM-based detection (fast - querySelector is instant)
-        try:
-            error_text = await page.evaluate("""() => {
-                const body = document.body?.innerText?.substring(0, 2000) || '';
-                const lc = body.toLowerCase();
-                const errors = [
-                    'something went wrong', 'try again later', 'suspicious activity',
-                    'temporarily unavailable', 'too many attempts', 'access denied',
-                    'unable to process', 'service unavailable', 'error 500',
-                    'we are unable', 'blocked', 'not available in your region'
-                ];
-                for (const e of errors) {
-                    if (lc.includes(e)) return body.substring(0, 300);
-                }
-                return null;
-            }""")
-            if error_text:
-                return f"Error page text: {error_text[:200]}"
-        except Exception:
-            pass
-        return None
-
-    _active_sms = None  # Track SMS order for crash recovery (cancel if unused)
-    _sms_success = False  # Set True when SMS code verified
-    _current_sms_provider_name = None  # Track provider name for chain rotation
-
-    # Reset SMS chain state for this registration attempt
+    ctx._active_sms = None
+    _sms_success = False
     reset_chain_state("yahoo")
+
+    context = await browser_manager.create_context(proxy=proxy, geo=None)
 
     try:
         page = await context.new_page()
-        thread_id = thread_log.id if thread_log else 0
-        ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
+        ACTIVE_PAGES[ctx.thread_id] = {"page": page, "context": context}
 
-        # ── Enhanced warmup: build Yahoo session/cookies BEFORE signup ──
-        # Yahoo's anti-bot checks for fresh sessions with no prior Yahoo cookies.
-        # Real users visit yahoo.com → build consent cookies → then signup.
-        _log("Session warmup (building Yahoo cookies)...")
-        try:
-            # Step A: Visit Yahoo main page (builds A3, GUC, EuConsent cookies)
-            await page.goto("https://www.yahoo.com", wait_until="domcontentloaded", timeout=20000)
-            await _human_delay(2, 4)
-
-            # Step B: Accept cookies/consent banner if present
-            try:
-                consent_btn = page.locator("button:has-text('Accept'), button:has-text('Agree'), button:has-text('OK'), button[name='agree']").first
-                if await consent_btn.is_visible(timeout=3000):
-                    await consent_btn.click()
-                    await _human_delay(1, 2)
-            except Exception:
-                pass
-
-            # Step C: Simulate browsing — scroll + mouse moves
-            await random_mouse_move(page, steps=3)
-            await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 400 + 200))")
-            await _human_delay(1, 3)
-            await random_mouse_move(page, steps=2)
-            await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 300 + 100))")
-            await _human_delay(1, 2)
-        except Exception as warmup_err:
-            _log(f"Warmup partial: {warmup_err}")
-            # Fallback: try simple Google visit
-            try:
-                await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
-                await _human_delay(1, 2)
-            except Exception:
-                pass
-
-        # Step 1: Navigate to Yahoo signup
-        _log("Opening Yahoo registration page...")
-        try:
-            await page.goto(
-                "https://login.yahoo.com/account/create",
-                wait_until="domcontentloaded",
-                timeout=60000,
-            )
-        except Exception as nav_e:
-            logger.warning(f"[Yahoo] Navigation error: {nav_e}")
-
-        await _human_delay(2, 4)
-
-        # CRITICAL: Check if proxy is dead
-        current_url = page.url or ""
-        if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
-            _set_stop("proxy_dead", f"Proxy offline: {current_url}")
-            if proxy:
-                try:
-                    proxy.status = ProxyStatus.DEAD
-                    proxy.fail_count = (proxy.fail_count or 0) + 1
-                    db.commit()
-                except Exception:
-                    pass
+        await step_0_warmup(page, ctx)
+        await step_1_navigate(page, ctx, proxy, db, vision)
+        if BIRTH_CANCEL_EVENT.is_set():
             return None
-
-        # Check if Yahoo returned error page (E500, rate limit, etc.)
-        if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
-            _err(f"[ERR] Yahoo returned error page - IP blocked or rate limited (URL: {current_url})")
-            _set_stop("ip_blocked", f"Yahoo error page: {current_url}")
-            raise BannedIPError("E301", f"Yahoo error page: {current_url}")
-
-        # Universal block signal scan
-        block_result = await _scan_for_block_signals(page, "yahoo")
-        if block_result["detected"]:
-            _err(f"[BLOCK] {block_result['reason']}")
-            await _debug_screenshot(page, "yahoo_block_detected", _log)
-            if block_result["action"] == "skip_ip":
-                _set_stop("ip_blocked", block_result["reason"])
-                raise BannedIPError("E302", block_result["reason"])
-            elif block_result["action"] == "backoff":
-                _set_stop("rate_limited", block_result["reason"])
-                raise RateLimitError("E201", block_result["reason"])
-
-        await random_mouse_move(page, steps=3)
-        _log(f"Page: {page.url}")
-
-        # ── Vision: detect initial stage ──
-        if vision:
-            try:
-                stage = await vision.analyze(page)
-                _log(f"[Vision] Stage: {stage['stage']} ({stage['confidence']:.0%}) - {stage['description']}")
-                err = await vision.is_error(page)
-                if err:
-                    _err(f"[Vision] Error detected: {err['type']} - {err['text']}")
-                    _set_stop("fingerprint_detected", f"Vision: {err['type']}")
-                    return None
-            except Exception as ve:
-                logger.debug(f"[Yahoo] Vision stage detect: {ve}")
-
-        # Yahoo: all fields on one page - fill with human-like behavior
-        _log(f"Entering data: {first_name} {last_name} / {username}")
-
-        # ── FAST ERROR CHECK (2s vs 20s timeout) ──
-        error = await _check_error_page(page, "before firstname")
-        if error:
-            _err(f"[ERR] Yahoo error before form: {error}")
-            _set_stop("ip_blocked", f"Error before form: {error[:100]}")
-            raise BannedIPError("E303", f"Yahoo error before form: {error[:100]}")
-
-        # First name
-        fn_sel = await _wait_and_find(page, [
-            '#reg-firstName', 'input[name="firstName"]', '#usernamereg-firstName',
-            'input[aria-label*="irst"]', 'input[aria-label*="имя"]',
-            'input[placeholder*="First"]', 'input[placeholder*="имя"]',
-            'input[autocomplete="given-name"]',
-        ], "yahoo_firstname", username, _log, _err, timeout=20000)
-        if not fn_sel:
+        await step_2_fill_form(page, ctx, birthday)
+        if BIRTH_CANCEL_EVENT.is_set():
             return None
-
-        await _human_fill(page, fn_sel, first_name)
-        await _human_delay(1.0, 2.5)  # Human reads before next field
-
-        # Last name
-        ln_sel = await _wait_for_any(page, [
-            '#reg-lastName', 'input[name="lastName"]', '#usernamereg-lastName',
-            'input[aria-label*="ast"]', 'input[aria-label*="фам"]',
-            'input[placeholder*="Last"]', 'input[placeholder*="фам"]',
-            'input[autocomplete="family-name"]',
-        ], timeout=5000)
-        if ln_sel:
-            await _human_fill(page, ln_sel, last_name)
-            await _human_delay(1.2, 2.8)
-
-        # Small scroll down - humans do this
-        await page.mouse.wheel(0, random.randint(50, 150))
-        await _human_delay(0.5, 1.0)
-
-        # Email / Username
-        email_sel = await _wait_for_any(page, [
-            '#reg-userId', 'input[name="userId"]',
-            'input[name="yid"]', '#usernamereg-yid',
-            'input[aria-label*="user"]', 'input[aria-label*="email"]',
-            'input[placeholder*="email"]', 'input[placeholder*="user"]',
-        ], timeout=5000)
-        if email_sel:
-            await _human_fill(page, email_sel, username)
-            await _human_delay(1.5, 3.0)  # Human thinks about username
-
-        # Password
-        pwd_sel = await _wait_for_any(page, [
-            '#reg-password', 'input[name="password"]', '#usernamereg-password',
-            'input[type="password"]',
-            'input[aria-label*="assword"]', 'input[aria-label*="арол"]',
-            'input[placeholder*="assword"]',
-        ], timeout=5000)
-        if pwd_sel:
-            await _human_fill(page, pwd_sel, password)
-            await _human_delay(1.0, 2.0)
-
-        # Birthday - scroll down a bit first
-        await page.mouse.wheel(0, random.randint(30, 80))
-        await _human_delay(0.5, 1.0)
-
-        # Yahoo birthday fields - multiple detection strategies
-        # Strategy 1: CSS selectors (name, placeholder, autocomplete, aria-label)
-        month_sel = await _wait_for_any(page, [
-            'input[name="mm"]', 'input[placeholder="MM"]',
-            'input[placeholder*="Month"]', 'input[placeholder*="onth"]',
-            'input[aria-label="Birthday month"]', 'input[aria-label*="onth"]',
-            'input[id$="-mm"]', 'input[id*="month"]',
-            'input[autocomplete="bday-month"]',
-            '#usernamereg-month',
-        ], timeout=5000)
-        if month_sel:
-            await _human_fill(page, month_sel, str(birthday.month).zfill(2))
-            await _human_delay(0.5, 1.2)
-        else:
-            _log("[WARN] Month field not found by CSS - trying JS fallback")
-
-        day_sel = await _wait_for_any(page, [
-            'input[name="dd"]', 'input[placeholder="DD"]',
-            'input[placeholder*="Day"]', 'input[placeholder*="ay"]',
-            'input[aria-label="Birthday day"]', 'input[aria-label*="day"]',
-            'input[id$="-dd"]', 'input[id*="day"]',
-            'input[autocomplete="bday-day"]',
-            '#usernamereg-day',
-        ], timeout=3000)
-        if day_sel:
-            await _human_fill(page, day_sel, str(birthday.day))
-            await _human_delay(0.5, 1.0)
-        else:
-            _log("[WARN] Day field not found by CSS - trying JS fallback")
-
-        year_sel = await _wait_for_any(page, [
-            'input[name="yyyy"]', 'input[placeholder="YYYY"]',
-            'input[placeholder*="Year"]', 'input[placeholder*="ear"]',
-            'input[aria-label="Birthday year"]', 'input[aria-label*="ear"]',
-            'input[id$="-yyyy"]', 'input[id*="year"]',
-            'input[autocomplete="bday-year"]',
-            '#usernamereg-year',
-        ], timeout=3000)
-        if year_sel:
-            await _human_fill(page, year_sel, str(birthday.year))
-        else:
-            _log("[WARN] Year field not found by CSS - trying JS fallback")
-
-        # Strategy 2: JavaScript fallback for ALL birthday fields
-        # Find inputs near "Month"/"Day"/"Year" labels by proximity
-        if not month_sel or not day_sel or not year_sel:
-            _log("Using JS fallback for birthday fields...")
-            bday_result = await page.evaluate(f"""() => {{
-                const filled = [];
-                // Find all text labels on page
-                const allText = document.querySelectorAll('label, span, div, p');
-                const fields = [
-                    {{ label: /month/i, value: '{str(birthday.month).zfill(2)}' }},
-                    {{ label: /day/i, value: '{str(birthday.day)}' }},
-                    {{ label: /year/i, value: '{str(birthday.year)}' }},
-                ];
-                for (const field of fields) {{
-                    for (const el of allText) {{
-                        if (field.label.test(el.textContent) && el.textContent.length < 30) {{
-                            // Found label - look for nearby input
-                            const parent = el.closest('fieldset, div, section, form');
-                            if (parent) {{
-                                const input = parent.querySelector('input:not([type="hidden"]):not([type="checkbox"])');
-                                if (input && !input.value) {{
-                                    input.value = field.value;
-                                    input.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                    input.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                    filled.push(el.textContent.trim().substring(0, 20));
-                                    break;
-                                }}
-                            }}
-                        }}
-                    }}
-                }}
-                return filled;
-            }}""")
-            if bday_result:
-                _log(f"JS fallback filled: {bday_result}")
-
-        await _human_delay(1.5, 3.0)  # Human reviews form before submitting
-
-        # Scroll to Next button (Yahoo no longer has a terms checkbox)
-        await page.mouse.wheel(0, random.randint(100, 200))
-        await _human_delay(0.8, 1.5)
-
-        # ── Check for 'I agree to these terms' checkbox (Yahoo 2025+ forms) ──
-        terms_checkbox = await _wait_for_any(page, [
-            'input[type="checkbox"]',
-            'label:has-text("I agree") input',
-            '#reg-terms', '#terms',
-        ], timeout=3000)
-        if terms_checkbox:
-            try:
-                is_checked = await page.locator(terms_checkbox).first.is_checked()
-                if not is_checked:
-                    _log("Checking 'I agree to terms' checkbox...")
-                    await _human_click(page, terms_checkbox)
-                    await _human_delay(0.8, 1.5)
-            except Exception:
-                # Fallback: click the label if checkbox isn't directly clickable
-                try:
-                    label = await _wait_for_any(page, [
-                        'label:has-text("I agree")',
-                        'label:has-text("agree to these terms")',
-                    ], timeout=2000)
-                    if label:
-                        await _human_click(page, label)
-                        await _human_delay(0.5, 1.0)
-                except Exception:
-                    pass
-
-        # Click Next / Continue / Submit - with "Email not available" retry
-        _log("Submitting form (Next)...")
-        submit_btn = await _wait_for_any(page, [
-            'button[name="signup"]',
-            'button:has-text("Next")', 'button:has-text("Next")',
-            'button[type="submit"]', '#reg-submit-button',
-            'button:has-text("Continue")', 'button:has-text("Продолжить")',
-            '#usernamereg-submitBtn',
-        ], timeout=5000)
-        if submit_btn:
-            try:
-                await page.locator(submit_btn).first.wait_for(state="attached", timeout=3000)
-                await _human_click(page, submit_btn)
-            except Exception:
-                _log("Button disabled - trying Enter...")
-                await page.keyboard.press("Enter")
-        else:
-            await page.keyboard.press("Enter")
-
-        await _human_delay(4, 8)  # Longer wait for page transition
-
-        # ── Vision: check post-submit stage ──
-        if vision:
-            try:
-                stage = await vision.analyze(page)
-                _log(f"[Vision] After submit: {stage['stage']} ({stage['confidence']:.0%})")
-                err = await vision.is_error(page)
-                if err and err['type'] == 'blocked':
-                    _err(f"[Vision] IP blocked: {err['text']}")
-                    return None
-            except Exception:
-                pass
-
-        # ── CRITICAL: Detect "Email not available" and retry with new username ──
-        for email_retry in range(3):
-            try:
-                page_text = await page.locator('body').inner_text()
-                email_taken_phrases = [
-                    "email not available",
-                    "not available",
-                    "already taken",
-                    "already taken",
-                    "unavailable",
-                ]
-                email_taken = any(p.lower() in page_text.lower() for p in email_taken_phrases)
-            except Exception:
-                email_taken = False
-
-            if email_taken:
-                old_username = username
-                username = generate_username(first_name, last_name)
-                _log(f"[WARN] Email '{old_username}@yahoo.com' taken! Trying: {username}")
-                # Re-fill username field
-                email_sel_retry = await _wait_for_any(page, [
-                    'input[name="yid"]', '#usernamereg-yid', 'input[name="userId"]',
-                ], timeout=3000)
-                if email_sel_retry:
-                    await page.locator(email_sel_retry).first.fill("")
-                    await _human_fill(page, email_sel_retry, username)
-                    await _human_delay(1, 2)
-                    # Re-click submit
-                    submit_retry = await _wait_for_any(page, [
-                        'button:has-text("Next")', 'button[type="submit"]',
-                        'button:has-text("Continue")',
-                    ], timeout=3000)
-                    if submit_retry:
-                        await _human_click(page, submit_retry)
-                    else:
-                        await page.keyboard.press("Enter")
-                    await _human_delay(4, 8)
-                else:
-                    _err("Email field not found for re-entry")
-                    return None
-            else:
-                break  # No error - proceed
-        else:
-            _err(f"Yahoo rejected 3 usernames in a row - try different names")
-            _set_stop("email_taken", "3 usernames rejected")
+        await step_3_submit_form(page, ctx, captcha_provider, vision)
+        if BIRTH_CANCEL_EVENT.is_set():
             return None
-
-        # ── Post-submit: Handle Yahoo's "Add your phone number" page ──
-        post_url = page.url
-        _log(f"После отправки: {post_url}")
-
-        # ── FAST ERROR CHECK after submit ──
-        error = await _check_error_page(page, "after submit")
-        if error:
-            _err(f"[ERR] Yahoo error after submit: {error}")
-            _set_stop("ip_blocked", f"Error after submit: {error[:100]}")
-            # Check ipqsd cookie (IP Quality Score) — datacenter IP detection
-            try:
-                cookies = await page.context.cookies()
-                ipqsd = [c for c in cookies if c.get('name') == 'ipqsd']
-                if ipqsd:
-                    _log(f"[ipqsd] IP Quality Score cookie: {ipqsd[0].get('value', '?')}")
-            except Exception:
-                pass
-            return None
-
-        # Check for reCAPTCHA after submit
-        await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-        # Check for FunCaptcha (Arkose Labs) - Yahoo's primary captcha
-        await _detect_and_solve_funcaptcha(page, captcha_provider, _log)
-        await _human_delay(1, 2)
-
-        # Yahoo shows a separate "Add your phone number" page after registration
-        # We need to detect it, ORDER the SMS number, fill phone, and click "Get code by text"
-        phone_page_input = await _wait_for_any(page, [
-            'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
-            'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
-            'input[data-type="phone"]', 'input[autocomplete="tel"]',
-        ], timeout=15000)
-
-        if phone_page_input:
-            _log("Detected 'Add your phone number' page")
-
-            if not sms_provider:
-                _err("Yahoo requires SMS but no SMS provider configured")
-                _set_stop("no_sms_provider", "No SMS provider configured")
-                return None
-
-            # ── STEP 1: Detect what country Yahoo shows on phone page ──
-            # Instead of ordering random country and trying to change Yahoo's UI,
-            # detect Yahoo's displayed country code and order SMS for THAT country.
-            yahoo_detected_prefix = None
-            yahoo_country_for_sms = None
-            try:
-                yahoo_detected_prefix = await page.evaluate("""() => {
-                    // Look for the country code input (small field showing "+353" etc.)
-                    const inputs = document.querySelectorAll('input');
-                    for (const inp of inputs) {
-                        const val = inp.value.trim();
-                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
-                            return val.replace('+', '');
-                        }
-                    }
-                    // Check select elements
-                    const selects = document.querySelectorAll('select');
-                    for (const sel of selects) {
-                        const opt = sel.options[sel.selectedIndex];
-                        if (opt) {
-                            const m = opt.text.match(/\\+(\\d{1,4})/);
-                            if (m) return m[1];
-                        }
-                    }
-                    return null;
-                }""")
-                if yahoo_detected_prefix:
-                    yahoo_detected_prefix = str(yahoo_detected_prefix).strip()
-                    yahoo_country_for_sms = PREFIX_TO_SMS_COUNTRY.get(yahoo_detected_prefix)
-                    _log(f"Yahoo shows: +{yahoo_detected_prefix} → SMS country: {yahoo_country_for_sms or 'unknown'}")
-            except Exception:
-                pass
-
-            # ── STEP 2: Order SMS for Yahoo's displayed country ──
-            # CRITICAL: Yahoo's country code is READ-ONLY (React-controlled).
-            # We MUST get a number for the country Yahoo shows, or the number
-            # will be rejected as "incorrect". Try ALL providers for that country
-            # before falling back to other countries.
-            proxy_geo = getattr(proxy, 'geo', None) if proxy else None
-            preferred_geo = yahoo_country_for_sms or proxy_geo
-            order = None
-            active_sms_provider = None
-            expanded_countries = []
-
-            if yahoo_country_for_sms:
-                _log(f"[SMS] Must get number for Yahoo's country: {yahoo_country_for_sms} (+{yahoo_detected_prefix})")
-                # Try each provider individually for Yahoo's country ONLY
-                sms_chain = get_sms_chain()
-                for provider_name, provider in sms_chain:
-                    _log(f"[SMS] Trying {provider_name} for {yahoo_country_for_sms}...")
-                    try:
-                        result = await asyncio.to_thread(
-                            provider.order_number, "yahoo", yahoo_country_for_sms
-                        )
-                        if result and "error" not in result:
-                            order = result
-                            active_sms_provider = provider
-                            expanded_countries = [yahoo_country_for_sms]
-                            _log(f"[OK] {provider_name}: got {yahoo_country_for_sms} number: {result.get('number', '?')}")
-                            break
-                        else:
-                            err = result.get("error", "?") if result else "no response"
-                            _log(f"[SMS] {provider_name}: no {yahoo_country_for_sms} numbers ({err})")
-                    except Exception as e:
-                        _log(f"[SMS] {provider_name} error: {e}")
-
-            # Fallback: if Yahoo's country has no numbers, use full chain
-            if not order:
-                if yahoo_country_for_sms:
-                    _log(f"[WARN] No numbers for {yahoo_country_for_sms} on any provider. Trying other countries...")
-                _log(f"Ordering number for Yahoo SMS (preferred country: {preferred_geo})...")
-                order, active_sms_provider, expanded_countries = await order_sms_with_chain(
-                    service="yahoo",
-                    sms_provider=sms_provider,
-                    proxy_geo=preferred_geo,
-                    page=page,
-                    scrape_dropdown=True,
-                    _log=_log,
-                    _err=_err,
-                )
-
-            if not order:
-                _set_stop("sms_no_numbers", "No SMS numbers available")
-                return None
-
-            # Update sms_provider to whichever worked
-            sms_provider = active_sms_provider
-            _cls = type(active_sms_provider).__name__.lower()
-            if 'grizzly' in _cls:
-                _current_sms_provider_name = 'grizzly'
-            elif 'fivesim' in _cls or '5sim' in _cls:
-                _current_sms_provider_name = '5sim'
-            else:
-                _current_sms_provider_name = 'simsms'
-
-            phone_number = order["number"]
-            order_id = order["id"]
-            sms_country = order.get("country", "")
-            _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
-            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
-            _log(f"Number: {display_phone} (country: {sms_country})")
-
-            # ── STEP 3: Strip phone prefix to get local number ──
-            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
-            local_number = phone_number.lstrip("+")
-            if phone_prefix and local_number.startswith(phone_prefix):
-                local_number = local_number[len(phone_prefix):]
-                _log(f"Stripped prefix +{phone_prefix}, entering: {local_number} ({len(local_number)} digits)")
-            else:
-                _log(f"Entering as-is: {local_number} ({len(local_number)} digits)")
-
-            # ── Validate local number length (reject virtual numbers with wrong format) ──
-            MAX_LOCAL_DIGITS = 12
-            MIN_LOCAL_DIGITS = 6
-            if len(local_number) > MAX_LOCAL_DIGITS or len(local_number) < MIN_LOCAL_DIGITS:
-                _log(f"[WARN] Number {local_number} has {len(local_number)} digits - invalid! "
-                     f"Expected {MIN_LOCAL_DIGITS}-{MAX_LOCAL_DIGITS}. Canceling & re-ordering...")
-                try:
-                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                except Exception:
-                    pass
-                # Re-order with next provider via chain
-                order, sms_provider_new, expanded_countries = await order_sms_with_chain(
-                    service="yahoo",
-                    sms_provider=sms_provider,
-                    proxy_geo=preferred_geo,
-                    page=page,
-                    scrape_dropdown=False,
-                    _log=_log,
-                    _err=_err,
-                )
-                if not order:
-                    _err("All SMS providers returned invalid-length numbers")
-                    return None
-                sms_provider = sms_provider_new
-                phone_number = order["number"]
-                order_id = order["id"]
-                sms_country = order.get("country", "")
-                phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
-                local_number = phone_number.lstrip("+")
-                if phone_prefix and local_number.startswith(phone_prefix):
-                    local_number = local_number[len(phone_prefix):]
-                _log(f"Re-ordered number: {local_number} ({len(local_number)} digits)")
-                _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
-
-            # ── STEP 4: Change Yahoo's country code IF it doesn't match ──
-            # Detect what country Yahoo is currently showing on the page
-            yahoo_page_prefix = None
-            try:
-                yahoo_page_prefix = await page.evaluate("""() => {
-                    // Check select elements for current country code
-                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
-                    for (const sel of selects) {
-                        const opt = sel.options[sel.selectedIndex];
-                        if (opt) {
-                            const m = opt.text.match(/\\+(\\d{1,4})/);
-                            if (m) return m[1];
-                        }
-                    }
-                    // Check inputs showing "+XX"
-                    const inputs = document.querySelectorAll('input');
-                    for (const inp of inputs) {
-                        const val = inp.value.trim();
-                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
-                            return val.replace('+', '');
-                        }
-                    }
-                    return null;
-                }""")
-                if yahoo_page_prefix:
-                    yahoo_page_prefix = str(yahoo_page_prefix).strip()
-            except Exception:
-                pass
-
-            target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
-            sms_prefix = phone_prefix or ""
-            country_needs_change = yahoo_page_prefix and sms_prefix and yahoo_page_prefix != sms_prefix
-            country_changed = not country_needs_change  # Already correct = no change needed
-
-            if country_needs_change:
-                _log(f"Yahoo shows +{yahoo_page_prefix}, SMS number +{sms_prefix} - need to change")
-
-                # Yahoo uses a native <select name="shortCountryCode"> with ISO2 values
-                # e.g. <option value="US" data-code="+1">United States (+1)</option>
-                # Using select_option() properly triggers React onChange
-                try:
-                    select_el = page.locator('select[name="shortCountryCode"], select[id^="countryCode"]').first
-                    if await select_el.is_visible(timeout=3000):
-                        # Convert SMS country to ISO2 (e.g. "us" -> "US")
-                        target_iso = COUNTRY_TO_ISO2.get(sms_country, sms_country).upper()
-                        _log(f"Selecting country in dropdown: {target_iso} (+{sms_prefix})")
-
-                        # Method 1: select by option value (ISO2 code)
-                        await select_el.select_option(value=target_iso)
-                        await _human_delay(0.5, 1.0)
-
-                        # Verify the change
-                        new_val = await select_el.input_value()
-                        if new_val == target_iso:
-                            country_changed = True
-                            _log(f"[OK] Country code changed via select: {target_iso} (+{sms_prefix})")
-                        else:
-                            _log(f"[WARN] select_option: value is {new_val}, expected {target_iso}")
-
-                            # Method 2: try by label text containing the prefix
-                            try:
-                                await select_el.select_option(label=f"(+{sms_prefix})")
-                                await _human_delay(0.3, 0.5)
-                                country_changed = True
-                                _log(f"[OK] Country code changed via label match: +{sms_prefix}")
-                            except Exception:
-                                _log(f"[WARN] Label match also failed")
-                    else:
-                        _log("[WARN] Country code <select> not found/visible")
-                except Exception as e:
-                    _log(f"[WARN] select_option failed: {e}")
-
-                # Fallback: try .fill() on input (for non-select layouts)
-                if not country_changed:
-                    try:
-                        all_inputs = await page.locator('input').all()
-                        for inp in all_inputs:
-                            val = (await inp.input_value()).strip()
-                            if val.startswith('+') and 2 <= len(val) <= 5:
-                                _log(f"Fallback: .fill() on input: {val} → +{sms_prefix}")
-                                await inp.fill(f"+{sms_prefix}")
-                                await _human_delay(0.3, 0.5)
-                                new_val = (await inp.input_value()).strip()
-                                if new_val == f"+{sms_prefix}":
-                                    country_changed = True
-                                    _log(f"[OK] Country code changed via .fill(): +{sms_prefix}")
-                                break
-                    except Exception as e:
-                        _log(f"[WARN] .fill() fallback failed: {e}")
-
-                if not country_changed:
-                    # Country change failed - cancel SMS and re-order for Yahoo's country
-                    page_country = PREFIX_TO_SMS_COUNTRY.get(yahoo_page_prefix)
-                    if page_country:
-                        _log(f"[WARN] Can't change +{yahoo_page_prefix}→+{sms_prefix}. "
-                             f"Canceling & re-ordering for {page_country}...")
-                        try:
-                            await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                        except Exception:
-                            pass
-                        # Re-order from Yahoo's displayed country only
-                        try:
-                            new_order = await asyncio.to_thread(
-                                sms_provider.order_number, "yahoo", page_country
-                            )
-                            if new_order and "error" not in new_order:
-                                phone_number = new_order["number"]
-                                order_id = new_order["id"]
-                                sms_country = new_order.get("country", page_country)
-                                phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
-                                local_number = phone_number.lstrip("+")
-                                if phone_prefix and local_number.startswith(phone_prefix):
-                                    local_number = local_number[len(phone_prefix):]
-                                _log(f"[OK] New number for +{yahoo_page_prefix}: {local_number}")
-                                _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
-                            else:
-                                err_msg = new_order.get("error", "unknown") if new_order else "no response"
-                                _log(f"[WARN] No {page_country} numbers: {err_msg} - entering full number as-is")
-                                local_number = f"{sms_prefix}{local_number}"
-                        except Exception as e:
-                            _log(f"[WARN] Re-order failed: {e} - entering full number as-is")
-                            local_number = f"{sms_prefix}{local_number}"
-                    else:
-                        _log(f"[WARN] Unknown prefix +{yahoo_page_prefix} - entering full number")
-                        local_number = f"{sms_prefix}{local_number}"
-
-            # Human-like: read the page text first (real person would read instructions)
-            await random_mouse_move(page, steps=3)
-            await _human_delay(3.0, 5.0)  # Read "Add your phone number" text
-
-            # Small scroll to see the full form
-            await page.mouse.wheel(0, random.randint(30, 80))
-            await _human_delay(0.8, 1.5)
-
-            # Clear field first (in case Yahoo pre-filled something)
-            try:
-                await page.locator(phone_page_input).first.fill("")
-                await _human_delay(0.3, 0.5)
-            except Exception:
-                pass
-
-            # Fill the phone number with human typing
-            await _human_fill(page, phone_page_input, local_number)
-            _log(f"Entered number: {local_number}")
-            await _human_delay(1.5, 3.0)
-
-            # Human reads terms, looks at button before clicking
-            await random_mouse_move(page, steps=2)
-            await _human_delay(2.0, 4.0)
-
-            # Click "Get code by text" button (SMS only — NEVER WhatsApp!)
-            # Yahoo shows different layouts:
-            # 1) "Receive code by text" (purple button) + "Receive code on WhatsApp" (link)
-            # 2) "Get code on WhatsApp" (purple button) + "Receive code by text" (link)
-            # We MUST click SMS, not WhatsApp
-            get_code_btn = await _wait_for_any(page, [
-                'button:has-text("Receive code by text")',
-                'button:has-text("Get code by text")',
-                'button:has-text("code by text")',
-                'button:has-text("Получить код по SMS")',
-                'button:has-text("Text me")',
-                'button:has-text("Send code")',
-                'button:has-text("Enviar código")',
-            ], timeout=5000)
-
-            # If no SMS button found, check for SMS as a link (below WhatsApp button)
-            if not get_code_btn:
-                _log("[WARN] No SMS button — checking for SMS link...")
-                sms_link = await _wait_for_any(page, [
-                    'a:has-text("Receive code by text")',
-                    'a:has-text("code by text")',
-                    'a:has-text("Text me")',
-                    'a:has-text("Enviar código por texto")',
-                    'button:has-text("Receive code")',
-                ], timeout=3000)
-                if sms_link:
-                    get_code_btn = sms_link
-                    _log("[OK] Found SMS as link (below WhatsApp button)")
-
-            # Last resort: generic submit ONLY if no WhatsApp is visible
-            if not get_code_btn:
-                has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
-                if has_whatsapp == 0:
-                    get_code_btn = await _wait_for_any(page, [
-                        'button[type="submit"]',
-                        '#send-code-button',
-                        'button[data-type="sms"]',
-                    ], timeout=3000)
-                    _log("Using generic submit button (no WhatsApp detected)")
-                else:
-                    _err("[FATAL] Only WhatsApp available — no SMS option. Thread dead.")
-                    _set_stop("whatsapp_only", "Only WhatsApp, no SMS option")
-                    # Cancel the SMS order — we can't use it
-                    if _active_sms:
-                        try:
-                            await asyncio.to_thread(
-                                _active_sms["provider"].cancel_number, _active_sms["order_id"]
-                            )
-                        except Exception:
-                            pass
-                    return None
-
-            if get_code_btn:
-                # ── RETRY LOOP: if Yahoo rejects the number, try up to 3 new numbers ──
-                max_phone_retries = 3
-                phone_accepted = False
-
-                for phone_attempt in range(max_phone_retries):
-                    if phone_attempt > 0:
-                        _log(f"Attempt #{phone_attempt + 1} with new number...")
-
-                    _log("Pressing 'Get code by text'...")
-                    await _human_click(page, get_code_btn)
-                    await _human_delay(4, 7)
-
-                    # ── CRITICAL: Yahoo often shows FunCaptcha/reCAPTCHA AFTER clicking 'Get code' ──
-                    # We must detect and solve it BEFORE checking for challenge/fail!
-                    for captcha_attempt in range(2):
-                        # Try FunCaptcha first (Yahoo's primary captcha)
-                        captcha_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, _log)
-                        if not captcha_solved:
-                            # Fallback to reCAPTCHA
-                            captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-                        if captcha_solved:
-                            _log(f"CAPTCHA solved after 'Get code' (attempt {captcha_attempt + 1})")
-                            await _human_delay(3, 6)  # Wait for Yahoo to process
-                            # Re-click submit if still on same page
-                            try:
-                                resubmit = await _wait_for_any(page, [
-                                    'button[type="submit"]',
-                                    'button:has-text("Get code")',
-                                    'button:has-text("Send code")',
-                                    'button:has-text("Continue")',
-                                    'button:has-text("Verify")',
-                                ], timeout=3000)
-                                if resubmit:
-                                    await _human_click(page, resubmit)
-                                    await _human_delay(4, 7)
-                            except Exception:
-                                pass
-                        else:
-                            break
-
-                    # Check for phone rejection error on page
-                    try:
-                        page_text = await page.locator('body').inner_text()
-                        # Only check for SPECIFIC phone rejection phrases
-                        # Removed generic phrases ("oops", "something went wrong") that cause false positives
-                        rejection_phrases = [
-                            "don't support this number",
-                            "doesn't look right",
-                            "not a valid phone",
-                            "invalid phone",
-                            "try another number",
-                            "provide another one",
-                            "unable to verify this number",
-                            "not supported",
-                            "invalid number",
-                        ]
-                        is_rejected = any(phrase.lower() in page_text.lower() for phrase in rejection_phrases)
-                        if is_rejected:
-                            # Log which phrase matched for debugging
-                            matched = [p for p in rejection_phrases if p.lower() in page_text.lower()]
-                            _log(f"Yahoo error on page: {matched}")
-                    except Exception:
-                        is_rejected = False
-
-                    if not is_rejected:
-                        # Also check URL for challenge/fail
-                        curr = page.url
-                        _log(f"After 'Get code': {curr}")
-                        if 'challenge/fail' in curr or '/error' in curr:
-                            # One more attempt: maybe there's a captcha on this page too
-                            captcha_on_fail = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-                            if captcha_on_fail:
-                                _log("CAPTCHA solved on challenge/fail page, trying again...")
-                                await _human_delay(3, 5)
-                                # Check if we moved away from the fail page
-                                curr2 = page.url
-                                if 'challenge/fail' not in curr2 and '/error' not in curr2:
-                                    phone_accepted = True
-                                    break
-                            _err("Yahoo blocked: challenge/fail")
-                            _set_stop("fingerprint_detected", "challenge/fail after phone")
-                            await _debug_screenshot(page, "yahoo_blocked", _log)
-                            try:
-                                await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                            except Exception:
-                                pass
-                            return None
-
-                        # Check if we ACTUALLY moved from the phone page
-                        # If still on /account/create with phone form visible, phone was NOT accepted
-                        try:
-                            phone_still_visible = await page.locator(phone_page_input).first.is_visible()
-                        except Exception:
-                            phone_still_visible = False
-
-                        if phone_still_visible:
-                            _log("[WARN] Phone form still visible - number not accepted, trying another")
-                            is_rejected = True
-                        else:
-                            phone_accepted = True
-                            break
-
-                    # Phone rejected - cancel old number and get a new one
-                    _log(f"Yahoo rejected number {display_phone} - getting new one")
-                    await _debug_screenshot(page, f"yahoo_phone_rejected_{phone_attempt}", _log)
-                    try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                    except Exception:
-                        pass
-
-                    # Order new number via chain rotation (3 attempts/provider, then next)
-                    new_order, new_provider, new_provider_name = await get_next_sms_number(
-                        service="yahoo",
-                        current_provider=sms_provider,
-                        current_provider_name=_current_sms_provider_name or 'simsms',
-                        expanded_countries=expanded_countries,
-                        _log=_log,
-                        _err=_err,
-                    )
-                    if new_provider:
-                        sms_provider = new_provider
-                        _current_sms_provider_name = new_provider_name
-                    if not new_order:
-                        _err("SMS error getting new number")
-                        return None
-
-                    phone_number = new_order["number"]
-                    order_id = new_order["id"]
-                    new_sms_country = new_order.get("country", sms_country)
-                    display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
-                    _log(f"New number: {display_phone} (country: {new_sms_country})")
-
-                    # Recalculate local number
-                    new_phone_prefix = PHONE_COUNTRY_MAP.get(new_sms_country, phone_prefix)
-                    local_number = phone_number.lstrip("+")
-                    if new_phone_prefix and local_number.startswith(new_phone_prefix):
-                        local_number = local_number[len(new_phone_prefix):]
-
-                    # ── CRITICAL: Update Yahoo's country dropdown if new number is different country ──
-                    if new_sms_country != sms_country:
-                        _log(f"Country changed: {sms_country} → {new_sms_country} — updating Yahoo dropdown")
-                        try:
-                            select_el = page.locator('select[name="shortCountryCode"], select[id^="countryCode"]').first
-                            if await select_el.is_visible(timeout=2000):
-                                target_iso = COUNTRY_TO_ISO2.get(new_sms_country, new_sms_country).upper()
-                                await select_el.select_option(value=target_iso)
-                                await _human_delay(0.5, 1.0)
-                                new_val = await select_el.input_value()
-                                if new_val == target_iso:
-                                    _log(f"[OK] Dropdown updated to {target_iso} (+{new_phone_prefix})")
-                                else:
-                                    # Fallback: try label match
-                                    try:
-                                        await select_el.select_option(label=f"(+{new_phone_prefix})")
-                                        _log(f"[OK] Dropdown updated via label: +{new_phone_prefix}")
-                                    except Exception:
-                                        _log(f"[WARN] Dropdown update failed — number may be rejected")
-                        except Exception as e:
-                            _log(f"[WARN] Dropdown update error: {e}")
-                    sms_country = new_sms_country
-                    phone_prefix = new_phone_prefix
-
-                    # Clear phone field and fill with new number
-                    try:
-                        await page.locator(phone_page_input).first.fill("")
-                        await _human_delay(0.3, 0.5)
-                    except Exception:
-                        pass
-                    await _human_fill(page, phone_page_input, local_number)
-                    _log(f"Entered new number: {local_number}")
-                    await _human_delay(1.5, 3.0)
-
-                    # Re-find the button (might change state)
-                    get_code_btn = await _wait_for_any(page, [
-                        'button:has-text("Get code by text")',
-                        'button:has-text("code by text")',
-                        'button:has-text("Получить код")',
-                        'button:has-text("Text me")',
-                        'button:has-text("Send code")',
-                        'button[type="submit"]',
-                        'button[data-type="sms"]',
-                        '#send-code-button',
-                    ], timeout=5000)
-                    if not get_code_btn:
-                        _log("Кнопка 'Get code' not foundа - пробуем Enter")
-                        await page.keyboard.press("Enter")
-                        await _human_delay(2, 4)
-
-                if not phone_accepted:
-                    _err(f"Yahoo rejected {max_phone_retries} numbers in a row - proxy or SMS service issue")
-                    _set_stop("phone_rejected", f"{max_phone_retries} numbers rejected")
-                    return None
-            else:
-                _log("[WARN] Get code by text button not found - trying Enter")
-                await page.keyboard.press("Enter")
-                await _human_delay(4, 7)
-        else:
-            _log("[WARN] Phone page not found - checking for terms/checkbox page...")
-            await _debug_screenshot(page, "4_yahoo_no_phone_page", _log)
-
-            # Yahoo might be showing terms page or password error - check current URL
-            current_url = page.url or ""
-            _log(f"Current URL: {current_url}")
-
-            # Check if still on /account/create — password may be invalid or terms not checked
-            if "/account/create" in current_url and "/error" not in current_url:
-                # Try to find and fix password error
-                try:
-                    page_text = await page.locator('body').inner_text()
-                    if 'must contain at least 8' in page_text.lower() or 'weak' in page_text.lower():
-                        _log("[FIX] Password rejected — re-entering stronger password...")
-                        pwd_retry = await _wait_for_any(page, [
-                            'input[type="password"]', 'input[name="password"]',
-                        ], timeout=3000)
-                        if pwd_retry:
-                            await page.locator(pwd_retry).first.fill("")
-                            await _human_delay(0.3, 0.5)
-                            # Generate a new stronger password
-                            password = generate_password(16)
-                            await _human_fill(page, pwd_retry, password)
-                            await _human_delay(1.5, 2.5)
-                except Exception:
-                    pass
-
-                # Try terms checkbox again
-                terms_cb = await _wait_for_any(page, [
-                    'input[type="checkbox"]',
-                    'label:has-text("I agree") input',
-                ], timeout=3000)
-                if terms_cb:
-                    try:
-                        is_checked = await page.locator(terms_cb).first.is_checked()
-                        if not is_checked:
-                            _log("[FIX] Checking terms checkbox...")
-                            await _human_click(page, terms_cb)
-                            await _human_delay(0.8, 1.5)
-                    except Exception:
-                        try:
-                            label = await _wait_for_any(page, [
-                                'label:has-text("I agree")',
-                            ], timeout=2000)
-                            if label:
-                                await _human_click(page, label)
-                                await _human_delay(0.5, 1.0)
-                        except Exception:
-                            pass
-
-                # Re-submit the form
-                _log("Re-submitting form after fixes...")
-                resubmit = await _wait_for_any(page, [
-                    'button[name="signup"]', 'button:has-text("Next")',
-                    'button[type="submit"]', 'button:has-text("Continue")',
-                ], timeout=5000)
-                if resubmit:
-                    await _human_click(page, resubmit)
-                else:
-                    await page.keyboard.press("Enter")
-                await _human_delay(5, 10)
-
-                # Re-check for phone page
-                phone_page_input = await _wait_for_any(page, [
-                    'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
-                    'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
-                    'input[data-type="phone"]', 'input[autocomplete="tel"]',
-                ], timeout=15000)
-
-                if phone_page_input:
-                    _log("Phone page appeared after re-submit!")
-                    # Continue to the phone handling logic below — but we can't
-                    # easily restart the block, so we need a different approach.
-                    # For now, return None and let retry handle it
-                    _err("Registration not completed - retry needed after form fixes")
-                    return None
-
-            _err("Registration not completed")
-            return None
-
-        # Check for reCAPTCHA after phone submit
-        await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-        await _human_delay(1, 2)
-
-        # SMS verification
-        if order_id:
-            try:
-                if hasattr(sms_provider, 'set_status'):
-                    await asyncio.to_thread(sms_provider.set_status, order_id, 1)
-            except Exception:
-                pass
-
-            _log("Waiting for Yahoo SMS code...")
-            _log(f"Page: {page.url}")
-
-            # Check if Yahoo redirected to challenge/fail BEFORE waiting for code
-            sms_url = page.url
-            if 'challenge/fail' in sms_url or '/error' in sms_url:
-                _err(f"Yahoo redirected to challenge/fail after phone: {sms_url}")
-                await _debug_screenshot(page, "yahoo_challenge_after_phone", _log)
-                # Try solving captcha on this page
-                captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-                if not captcha_solved:
-                    try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                    except Exception:
-                        pass
-                    return None
-                await _human_delay(3, 5)
-
-            # Yahoo uses various code input formats:
-            # - 6 individual digit inputs: #verify-code-0 to #verify-code-5
-            # - Single code input: input[name="code"]
-            # - Other variations
-            first_digit = await _wait_for_any(page, [
-                'input#verify-code-0', 'input[aria-label="Code 1"]',
-                'input[name="code"]', 'input[name="verificationCode"]',
-                'input[name="verify_code"]', 'input[type="tel"][maxlength="1"]',
-                'input[data-type="code"]', 'input.phone-code',
-                'input[autocomplete="one-time-code"]',
-            ], timeout=30000)
-
-            if first_digit:
-                _log(f"[OK] SMS code field found: {first_digit}")
-            else:
-                _log("[WARN] SMS code field NOT FOUND - Yahoo did not show verification form!")
-                _log(f"Current URL: {page.url}")
-                await _debug_screenshot(page, "yahoo_no_sms_field", _log)
-                # Log page text for debugging
-                try:
-                    body_text = await page.locator('body').inner_text()
-                    # Take first 300 chars to see what Yahoo shows
-                    _log(f"Page text: {body_text[:300]}")
-                except Exception:
-                    pass
-
-            sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
-            sms_code = None
-            if isinstance(sms_result, dict):
-                sms_code = sms_result.get("code")
-                if sms_result.get("error"):
-                    _err(f"SMS error: {sms_result['error']}")
-                    try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                    except Exception:
-                        pass
-                    return None
-            elif isinstance(sms_result, str):
-                sms_code = sms_result
-
-            if not sms_code:
-                _err("SMS code not received")
-                _set_stop("sms_timeout", "No SMS code received")
-                try:
-                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                except Exception:
-                    pass
-                return None
-
-            _log(f"SMS code: {sms_code}")
-            # Enter code digit by digit into 6 individual inputs
-            code_digits = str(sms_code).strip()
-            for i, digit in enumerate(code_digits[:6]):
-                digit_sel = f'input#verify-code-{i}'
-                try:
-                    await page.locator(digit_sel).first.fill(digit)
-                    await _human_delay(0.1, 0.3)
-                except Exception:
-                    # Fallback: try single input field
-                    if first_digit:
-                        await page.locator(first_digit).first.fill(code_digits)
-                    break
-            await _human_delay(0.5, 1)
-
-            # Click verify/next button
-            verify_btn = await _wait_for_any(page, [
-                'button[name="validate"]',
-                'button:has-text("Verify")', 'button:has-text("Next")',
-                'button[type="submit"]',
-            ], timeout=5000)
-            if verify_btn:
-                await page.locator(verify_btn).first.click()
-            else:
-                await page.keyboard.press("Enter")
-
-            try:
-                if hasattr(sms_provider, 'complete_activation'):
-                    await asyncio.to_thread(sms_provider.complete_activation, order_id)
-            except Exception:
-                pass
-
-            await _human_delay(3, 5)
-
-        email = f"{username}@yahoo.com"
-        final_url = page.url
-        _log(f"Final URL: {final_url}")
-
-        # ── CRITICAL: Verify registration actually succeeded ──
-        # Check URL and page content for success indicators
-        registration_success = False
-        try:
-            # Yahoo redirects to mail.yahoo.com, or shows welcome/setup/success pages
-            success_indicators_url = [
-                "mail.yahoo.com",
-                "account/create/success",   # Confirmed via real browser testing
-                "login.yahoo.com/account/verify",
-                "login.yahoo.com/account/challenge",
-                "/welcome",
-                "/myaccount",
-                "/manage_account",
-            ]
-            if any(ind in final_url.lower() for ind in success_indicators_url):
-                registration_success = True
-                _log("[OK] URL confirms successful registration")
-
-            # Check if we left the /account/create page (but NOT /account/create/success!)
-            if not registration_success:
-                # Parse: on create page but NOT on success page = still registering
-                on_create = "/account/create" in final_url
-                on_success = "/account/create/success" in final_url
-                if not on_create or on_success:
-                    registration_success = True
-                    _log("[OK] Left registration page - counting as success")
-
-            # Final check: look for error indicators
-            if registration_success:
-                page_text = await page.locator('body').inner_text()
-                fail_indicators = ["registration failed", "account could not be created", "registration failed"]
-                if any(fi.lower() in page_text.lower() for fi in fail_indicators):
-                    registration_success = False
-                    _err("[FAIL] Page contains registration error indicators")
-        except Exception as e:
-            _log(f"Success check: error ({e}), counting as success if URL changed")
-            on_create = "/account/create" in final_url
-            on_success = "/account/create/success" in final_url
-            if not on_create or on_success:
-                registration_success = True
-
-        if not registration_success:
-            _err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
-            _set_stop("reg_not_confirmed", f"URL: {final_url}")
-            await _debug_screenshot(page, "yahoo_registration_not_confirmed", _log)
-            return None
-
-        # Save session
+        await step_4_sms_verification(page, ctx, sms_provider, proxy,
+                                       captcha_provider, BIRTH_CANCEL_EVENT)
+        await step_5_verify_success(page, ctx)
+
+        # Save session and create account
         try:
             session_path = await browser_manager.save_session(context, 0)
         except Exception:
             session_path = None
 
-        _sms_success = True  # SMS was used successfully, don't cancel
+        _sms_success = True
+        display_phone = getattr(ctx, '_display_phone', '')
+
         account = Account(
-            email=email,
-            password=password,
-            provider="yahoo",
-            first_name=first_name,
-            last_name=last_name,
-            gender="random",
-            birthday=birthday,
-            birth_ip=f"{proxy.host}" if proxy else None,
-            status="new",
+            email=ctx.email, password=ctx.password, provider="yahoo",
+            first_name=ctx.first_name, last_name=ctx.last_name,
+            gender="random", birthday=birthday,
+            birth_ip=f"{proxy.host}" if proxy else None, status="new",
         )
         db.add(account)
         db.commit()
@@ -1366,17 +1132,15 @@ async def register_single_yahoo(
             except Exception:
                 pass
 
-        logger.info(f"[OK] Yahoo registered: {email}")
-        export_account_to_file(account, {"sms_phone": locals().get("display_phone", "")})
+        logger.info(f"[OK] Yahoo registered: {ctx.email}")
+        export_account_to_file(account, {"sms_phone": display_phone})
 
-        # IMAP verification (non-blocking - don't fail the birth if IMAP is down)
         try:
             from ...services.imap_checker import verify_account_imap
             await verify_account_imap(account, db, _log, _err)
         except Exception as imap_e:
             logger.debug(f"[Yahoo] IMAP check skipped: {imap_e}")
 
-        # Post-registration warmup - visit inbox/settings to age the session
         try:
             from ..human_behavior import post_registration_warmup
             _log("[OK] Post-reg session warmup...")
@@ -1386,20 +1150,20 @@ async def register_single_yahoo(
 
         return account
 
+    except (RateLimitError, BannedIPError, CaptchaFailError, FatalError, RecoverableError):
+        raise
     except Exception as e:
         logger.error(f"[FAIL] Yahoo registration failed: {e}", exc_info=True)
         _err(str(e)[:500])
-        return None
+        raise FatalError("E599", f"Unhandled: {str(e)[:200]}")
     finally:
-        # Cancel unused SMS order (crash recovery - don't waste money)
-        if _active_sms and not _sms_success:
+        if ctx._active_sms and not _sms_success:
             try:
-                _log_fn = _log if '_log' in dir() else logger.info
-                await asyncio.to_thread(_active_sms["provider"].cancel_order, _active_sms["order_id"])
-                logger.info(f"[Yahoo] [WARN] SMS cancelled (crash recovery): {_active_sms['number']}")
+                await asyncio.to_thread(ctx._active_sms["provider"].cancel_order, ctx._active_sms["order_id"])
+                logger.info(f"[Yahoo] [WARN] SMS cancelled (crash recovery): {ctx._active_sms['number']}")
             except Exception:
                 pass
-        ACTIVE_PAGES.pop(thread_id, None)
+        ACTIVE_PAGES.pop(ctx.thread_id, None)
         try:
             await context.close()
         except Exception:

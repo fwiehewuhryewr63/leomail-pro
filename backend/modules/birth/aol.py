@@ -1,6 +1,8 @@
 """
-Leomail v3 - AOL Registration Engine (with Vision CV)
-Upgraded to Yahoo-level: country detection, phone retry, human behavior, challenge handling.
+Leomail v4 - AOL Registration Engine (Defensive Coding Template)
+Registers aol.com accounts via login.aol.com/account/create.
+Flow: signup -> fill form (name+email+password+birthday) -> submit -> SMS phone page -> verify code -> done
+AOL = Yahoo/Verizon family. Requires SMS. Has FunCaptcha/reCAPTCHA after phone submission.
 """
 import asyncio
 import random
@@ -32,12 +34,752 @@ from ._helpers import (
     scan_for_block_signals as _scan_for_block_signals,
     clean_session as _clean_session,
     rate_limiter as _rate_limiter,
-    RateLimitError, BannedIPError, FatalError,
+    RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
+    RegContext, verify_page_state, block_check, run_step,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, order_sms_retry, get_next_sms_number,
     reset_chain_state, SMS_CODE_TIMEOUT,
     export_account_to_file,
 )
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────────
+
+
+async def _check_error_page(page, context_msg=""):
+    """Quick check for AOL error/block pages. Returns error string or None."""
+    url = page.url or ""
+    error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
+                  "guce.yahoo", "consent.yahoo", "/sorry"]
+    for pattern in error_urls:
+        if pattern in url.lower():
+            return f"Error URL detected: {url}"
+    try:
+        error_text = await page.evaluate("""() => {
+            const body = document.body?.innerText?.substring(0, 2000) || '';
+            const lc = body.toLowerCase();
+            const errors = [
+                'something went wrong', 'try again later', 'suspicious activity',
+                'temporarily unavailable', 'too many attempts', 'access denied',
+                'unable to process', 'service unavailable', 'error 500',
+                'we are unable', 'blocked', 'not available in your region'
+            ];
+            for (const e of errors) {
+                if (lc.includes(e)) return body.substring(0, 300);
+            }
+            return null;
+        }""")
+        if error_text:
+            return f"Error page text: {error_text[:200]}"
+    except Exception:
+        pass
+    return None
+
+
+# ── Step Functions ───────────────────────────────────────────────────────────────
+
+
+async def step_0_warmup(page, ctx: RegContext):
+    """Step 0: Quick warmup — single Google visit."""
+    ctx._log("Quick session warmup...")
+    try:
+        await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
+        await _human_delay(1, 2)
+        await random_mouse_move(page, steps=2)
+    except Exception:
+        pass
+
+
+async def step_1_navigate(page, ctx: RegContext, proxy, db):
+    """Step 1: Navigate to AOL signup. Checks: dead proxy, error page, block signals."""
+    ctx._log("Opening AOL registration page...")
+    try:
+        await page.goto(
+            "https://login.aol.com/account/create",
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+    except Exception as nav_e:
+        logger.warning(f"[AOL] Navigation error: {nav_e}")
+
+    await _human_delay(2, 4)
+
+    # Pre-check: proxy alive?
+    current_url = page.url or ""
+    if "chrome-error" in current_url or "about:blank" == current_url:
+        ctx._err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
+        if proxy:
+            try:
+                proxy.status = ProxyStatus.DEAD
+                proxy.fail_count = (proxy.fail_count or 0) + 1
+                db.commit()
+            except Exception:
+                pass
+        raise FatalError("E501", f"Proxy dead: {current_url}")
+
+    # Check AOL error page
+    if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
+        ctx._err(f"[ERR] AOL returned error page - IP blocked or rate limited (URL: {current_url})")
+        raise BannedIPError("E301", f"AOL error page: {current_url}")
+
+    # Block scan
+    await block_check(page, ctx.provider, ctx, "navigate")
+
+    await random_mouse_move(page, steps=3)
+    ctx._log(f"Page: {page.url}")
+
+
+async def step_2_fill_form(page, ctx: RegContext, birthday):
+    """Step 2: Fill all form fields (name, email, password, birthday). AOL has everything on one page."""
+    # Fast error check
+    error = await _check_error_page(page, "before firstname")
+    if error:
+        ctx._err(f"[ERR] AOL error before form: {error}")
+        raise BannedIPError("E303", f"AOL error before form: {error[:100]}")
+
+    await block_check(page, ctx.provider, ctx, "fill_form")
+
+    ctx._log(f"Entering data: {ctx.first_name} {ctx.last_name} / {ctx.username}")
+
+    # First name
+    fn_sel = await _wait_and_find(page, [
+        'input[name="firstName"]', '#usernamereg-firstName',
+        'input[aria-label*="irst"]', 'input[aria-label*="имя"]',
+        'input[placeholder*="First"]', 'input[placeholder*="имя"]',
+        'input[autocomplete="given-name"]',
+    ], "aol_firstname", ctx.username, ctx._log, ctx._err, timeout=20000)
+    if not fn_sel:
+        raise RecoverableError("E101", "First name field not found")
+
+    await _human_fill(page, fn_sel, ctx.first_name)
+    await _human_delay(1.0, 2.5)
+
+    # Last name
+    ln_sel = await _wait_for_any(page, [
+        'input[name="lastName"]', '#usernamereg-lastName',
+        'input[aria-label*="ast"]', 'input[aria-label*="фам"]',
+        'input[placeholder*="Last"]', 'input[placeholder*="фам"]',
+        'input[autocomplete="family-name"]',
+    ], timeout=5000)
+    if ln_sel:
+        await _human_fill(page, ln_sel, ctx.last_name)
+        await _human_delay(1.2, 2.8)
+
+    await page.mouse.wheel(0, random.randint(50, 150))
+    await _human_delay(0.5, 1.0)
+
+    # Email / Username
+    email_sel = await _wait_for_any(page, [
+        'input#reg-userId', 'input[name="userId"]',
+        'input[name="yid"]', '#usernamereg-yid',
+        'input[aria-label*="user"]', 'input[aria-label*="email"]',
+        'input[placeholder*="email"]', 'input[placeholder*="user"]',
+    ], timeout=5000)
+    if email_sel:
+        await _human_fill(page, email_sel, ctx.username)
+        await _human_delay(1.5, 3.0)
+
+    # Password
+    pwd_sel = await _wait_for_any(page, [
+        'input[name="password"]', '#usernamereg-password', 'input[type="password"]',
+        'input[aria-label*="assword"]', 'input[aria-label*="арол"]',
+        'input[placeholder*="assword"]',
+    ], timeout=5000)
+    if pwd_sel:
+        await _human_fill(page, pwd_sel, ctx.password)
+        await _human_delay(1.0, 2.0)
+
+    # Birthday
+    await page.mouse.wheel(0, random.randint(30, 80))
+    await _human_delay(0.5, 1.0)
+
+    month_sel = await _wait_for_any(page, [
+        'input[name="mm"]', 'input[placeholder="MM"]',
+        'input[placeholder*="onth"]', 'input[aria-label*="onth"]',
+        'select#usernamereg-month', 'select[name="mm"]',
+    ], timeout=5000)
+    if month_sel:
+        tag_name = await page.locator(month_sel).first.evaluate("el => el.tagName")
+        if tag_name.upper() == "SELECT":
+            await page.locator(month_sel).first.select_option(str(birthday.month))
+        else:
+            await _human_fill(page, month_sel, str(birthday.month).zfill(2))
+        await _human_delay(0.5, 1.2)
+
+    day_sel = await _wait_for_any(page, [
+        'input[name="dd"]', 'input[placeholder="DD"]',
+        'input[placeholder*="ay"]', 'input[aria-label*="ay"]',
+        'input#usernamereg-day',
+    ], timeout=3000)
+    if day_sel:
+        await _human_fill(page, day_sel, str(birthday.day))
+        await _human_delay(0.5, 1.0)
+
+    year_sel = await _wait_for_any(page, [
+        'input[name="yyyy"]', 'input[placeholder="YYYY"]',
+        'input[placeholder*="ear"]', 'input[aria-label*="ear"]',
+        'input#usernamereg-year',
+    ], timeout=3000)
+    if year_sel:
+        await _human_fill(page, year_sel, str(birthday.year))
+
+    await _human_delay(1.5, 3.0)
+
+
+async def step_3_submit_form(page, ctx: RegContext, captcha_provider):
+    """Step 3: Submit form. Handles email-taken retry (up to 3 times)."""
+    await page.mouse.wheel(0, random.randint(100, 200))
+    await _human_delay(0.8, 1.5)
+
+    ctx._log("Submitting form (Next)...")
+    submit_btn = await _wait_for_any(page, [
+        'button[name="signup"]',
+        'button:has-text("Next")',
+        'button[type="submit"]', '#reg-submit-button',
+        'button:has-text("Continue")', 'button:has-text("Продолжить")',
+        '#usernamereg-submitBtn',
+    ], timeout=5000)
+    if submit_btn:
+        try:
+            await page.locator(submit_btn).first.wait_for(state="attached", timeout=3000)
+            await _human_click(page, submit_btn)
+        except Exception:
+            ctx._log("Button disabled - trying Enter...")
+            await page.keyboard.press("Enter")
+    else:
+        await page.keyboard.press("Enter")
+
+    await _human_delay(4, 8)
+
+    # Email-taken retry
+    for email_retry in range(3):
+        try:
+            page_text = await page.locator('body').inner_text()
+            email_taken_phrases = [
+                "email not available", "not available",
+                "already taken", "unavailable",
+            ]
+            email_taken = any(p.lower() in page_text.lower() for p in email_taken_phrases)
+        except Exception:
+            email_taken = False
+
+        if email_taken:
+            old_username = ctx.username
+            ctx.username = generate_username(ctx.first_name, ctx.last_name)
+            ctx._log(f"[WARN] Email '{old_username}@aol.com' taken! Trying: {ctx.username}")
+            email_sel_retry = await _wait_for_any(page, [
+                'input[name="yid"]', '#usernamereg-yid', 'input[name="userId"]',
+                'input#reg-userId',
+            ], timeout=3000)
+            if email_sel_retry:
+                await page.locator(email_sel_retry).first.fill("")
+                await _human_fill(page, email_sel_retry, ctx.username)
+                await _human_delay(1, 2)
+                submit_retry = await _wait_for_any(page, [
+                    'button:has-text("Next")', 'button[type="submit"]',
+                    'button:has-text("Continue")',
+                ], timeout=3000)
+                if submit_retry:
+                    await _human_click(page, submit_retry)
+                else:
+                    await page.keyboard.press("Enter")
+                await _human_delay(4, 8)
+            else:
+                raise RecoverableError("E102", "Email field not found for re-entry")
+        else:
+            break
+    else:
+        raise RecoverableError("E103", "AOL rejected 3 usernames in a row")
+
+    # Check for reCAPTCHA after submit
+    await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+    await _human_delay(1, 2)
+
+
+async def step_4_sms_verification(page, ctx: RegContext, sms_provider, proxy,
+                                   captcha_provider, BIRTH_CANCEL_EVENT):
+    """Step 4: Full SMS verification flow with country code matching, WhatsApp avoidance, phone retry."""
+    phone_page_input = await _wait_for_any(page, [
+        'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
+        'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
+        'input[data-type="phone"]', 'input[autocomplete="tel"]',
+    ], timeout=15000)
+
+    if not phone_page_input:
+        ctx._log("[WARN] Phone page not found - AOL may not have moved to next step")
+        await _debug_screenshot(page, "4_aol_no_phone_page")
+        raise RecoverableError("E104", "Phone page not found after form submit")
+
+    ctx._log("Detected 'Add your phone number' page")
+
+    if not sms_provider:
+        raise FatalError("E502", "AOL requires SMS but no SMS provider configured")
+
+    # Order SMS
+    proxy_geo = getattr(proxy, 'geo', None) if proxy else None
+    ctx._log("Ordering number for AOL SMS...")
+
+    order, active_sms_provider, expanded_countries = await order_sms_with_chain(
+        service="aol",
+        sms_provider=sms_provider,
+        proxy_geo=proxy_geo,
+        page=page,
+        scrape_dropdown=True,
+        _log=ctx._log,
+        _err=ctx._err,
+    )
+    if not order:
+        raise RecoverableError("E105", "Failed to order SMS number")
+
+    sms_provider = active_sms_provider
+    _cls = type(active_sms_provider).__name__.lower()
+    if 'grizzly' in _cls:
+        _current_sms_provider_name = 'grizzly'
+    elif 'fivesim' in _cls or '5sim' in _cls:
+        _current_sms_provider_name = '5sim'
+    else:
+        _current_sms_provider_name = 'simsms'
+
+    phone_number = order["number"]
+    order_id = order["id"]
+    sms_country = order.get("country", "")
+    ctx._active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
+    display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+    ctx._log(f"Number: {display_phone} (country: {sms_country})")
+
+    # Strip phone prefix for local number
+    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+    local_number = phone_number.lstrip("+")
+    if phone_prefix and local_number.startswith(phone_prefix):
+        local_number = local_number[len(phone_prefix):]
+        ctx._log(f"Stripped prefix +{phone_prefix}, entering: {local_number}")
+    else:
+        ctx._log(f"Entering as-is: {local_number}")
+
+    # Change AOL's country code IF it doesn't match
+    aol_page_prefix = None
+    try:
+        aol_page_prefix = await page.evaluate("""() => {
+            const selects = document.querySelectorAll('select[id^="countryCode"], select');
+            for (const sel of selects) {
+                const opt = sel.options[sel.selectedIndex];
+                if (opt) {
+                    const m = opt.text.match(/\\+(\\d{1,4})/);
+                    if (m) return m[1];
+                }
+            }
+            const inputs = document.querySelectorAll('input');
+            for (const inp of inputs) {
+                const val = inp.value.trim();
+                if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
+                    return val.replace('+', '');
+                }
+            }
+            return null;
+        }""")
+        if aol_page_prefix:
+            aol_page_prefix = str(aol_page_prefix).strip()
+    except Exception:
+        pass
+
+    target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
+    sms_prefix = phone_prefix or ""
+    country_needs_change = aol_page_prefix and sms_prefix and aol_page_prefix != sms_prefix
+    country_changed = not country_needs_change
+
+    if country_needs_change:
+        ctx._log(f"AOL shows +{aol_page_prefix}, SMS number +{sms_prefix} - need to change")
+        try:
+            changed = await page.evaluate(f"""() => {{
+                const inputs = document.querySelectorAll('input');
+                for (const inp of inputs) {{
+                    const val = inp.value.trim();
+                    if (val.startsWith('+') && val.length <= 5) {{
+                        const setter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value').set;
+                        setter.call(inp, '+{sms_prefix}');
+                        inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                        return true;
+                    }}
+                }}
+                return false;
+            }}""")
+            if changed:
+                country_changed = True
+                ctx._log(f"Country code changed via JS: +{sms_prefix}")
+        except Exception:
+            pass
+
+        if not country_changed:
+            page_country = PREFIX_TO_SMS_COUNTRY.get(aol_page_prefix)
+            if page_country:
+                ctx._log(f"[WARN] Failed to change +{aol_page_prefix}->+{sms_prefix}. "
+                         f"Canceling number and ordering from {page_country}")
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_order, order_id)
+                except Exception:
+                    pass
+                new_order, new_provider, new_provider_name = await get_next_sms_number(
+                    service="aol",
+                    current_provider=sms_provider,
+                    current_provider_name=_current_sms_provider_name or 'simsms',
+                    expanded_countries=[page_country] + [c for c in expanded_countries if c != page_country],
+                    _log=ctx._log,
+                    _err=ctx._err,
+                )
+                if new_provider:
+                    sms_provider = new_provider
+                    _current_sms_provider_name = new_provider_name
+                if new_order:
+                    phone_number = new_order["number"]
+                    order_id = new_order["id"]
+                    sms_country = new_order.get("country", page_country)
+                    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
+                    local_number = phone_number.lstrip("+")
+                    if phone_prefix and local_number.startswith(phone_prefix):
+                        local_number = local_number[len(phone_prefix):]
+                    ctx._log(f"[OK] New number for +{aol_page_prefix}: {local_number}")
+                else:
+                    raise RecoverableError("E106", f"Failed to order number for +{aol_page_prefix}")
+            else:
+                ctx._log(f"[WARN] Failed to change code, unknown prefix +{aol_page_prefix} - entering full number")
+                local_number = f"{sms_prefix}{local_number}"
+
+    # Human-like: read page, scroll
+    await random_mouse_move(page, steps=3)
+    await _human_delay(3.0, 5.0)
+    await page.mouse.wheel(0, random.randint(30, 80))
+    await _human_delay(0.8, 1.5)
+
+    # Fill phone number
+    try:
+        await page.locator(phone_page_input).first.fill("")
+        await _human_delay(0.3, 0.5)
+    except Exception:
+        pass
+    await _human_fill(page, phone_page_input, local_number)
+    ctx._log(f"Entered number: {local_number}")
+    await _human_delay(1.5, 3.0)
+
+    # Click "Get code by text" — NEVER WhatsApp
+    await random_mouse_move(page, steps=2)
+    await _human_delay(2.0, 4.0)
+
+    get_code_btn = await _wait_for_any(page, [
+        'button:has-text("Receive code by text")',
+        'button:has-text("Get code by text")',
+        'button:has-text("code by text")',
+        'button:has-text("Получить код по SMS")',
+        'button:has-text("Text me")',
+        'button:has-text("Send code")',
+        'button:has-text("Enviar código")',
+    ], timeout=5000)
+
+    if not get_code_btn:
+        ctx._log("[WARN] No SMS button — checking for SMS link...")
+        sms_link = await _wait_for_any(page, [
+            'a:has-text("Receive code by text")',
+            'a:has-text("code by text")',
+            'a:has-text("Text me")',
+            'a:has-text("Enviar código por texto")',
+            'button:has-text("Receive code")',
+        ], timeout=3000)
+        if sms_link:
+            get_code_btn = sms_link
+            ctx._log("[OK] Found SMS as link (below WhatsApp button)")
+
+    if not get_code_btn:
+        has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
+        if has_whatsapp == 0:
+            get_code_btn = await _wait_for_any(page, [
+                'button[type="submit"]', '#send-code-button',
+                'button[data-type="sms"]',
+            ], timeout=3000)
+            ctx._log("Using generic submit button (no WhatsApp detected)")
+        else:
+            raise FatalError("E503", "Only WhatsApp available — no SMS option")
+
+    if not get_code_btn:
+        ctx._log("[WARN] Get code by text button not found - trying Enter")
+        await page.keyboard.press("Enter")
+        await _human_delay(4, 7)
+    else:
+        # Phone retry loop
+        max_phone_retries = 3
+        phone_accepted = False
+
+        for phone_attempt in range(max_phone_retries):
+            if phone_attempt > 0:
+                ctx._log(f"Attempt #{phone_attempt + 1} with new number...")
+
+            ctx._log("Pressing 'Get code by text'...")
+            await _human_click(page, get_code_btn)
+            await _human_delay(4, 7)
+
+            # CAPTCHA after clicking 'Get code'
+            for captcha_attempt in range(2):
+                captcha_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, ctx._log)
+                if not captcha_solved:
+                    captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+                if captcha_solved:
+                    ctx._log(f"CAPTCHA solved after 'Get code' (attempt {captcha_attempt + 1})")
+                    await _human_delay(3, 6)
+                    try:
+                        resubmit = await _wait_for_any(page, [
+                            'button[type="submit"]', 'button:has-text("Get code")',
+                            'button:has-text("Send code")', 'button:has-text("Continue")',
+                            'button:has-text("Verify")',
+                        ], timeout=3000)
+                        if resubmit:
+                            await _human_click(page, resubmit)
+                            await _human_delay(4, 7)
+                    except Exception:
+                        pass
+                else:
+                    break
+
+            # Check phone rejection
+            try:
+                page_text = await page.locator('body').inner_text()
+                rejection_phrases = [
+                    "don't support this number", "doesn't look right",
+                    "not a valid phone", "invalid phone",
+                    "try another number", "provide another one",
+                    "unable to verify this number", "not supported", "invalid number",
+                ]
+                is_rejected = any(phrase.lower() in page_text.lower() for phrase in rejection_phrases)
+            except Exception:
+                is_rejected = False
+
+            if not is_rejected:
+                curr = page.url
+                ctx._log(f"After 'Get code': {curr}")
+                if 'challenge/fail' in curr or '/error' in curr:
+                    captcha_on_fail = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+                    if captcha_on_fail:
+                        ctx._log("CAPTCHA solved on challenge/fail page, trying again...")
+                        await _human_delay(3, 5)
+                        curr2 = page.url
+                        if 'challenge/fail' not in curr2 and '/error' not in curr2:
+                            phone_accepted = True
+                            break
+                    raise BannedIPError("E304", f"AOL blocked: challenge/fail ({curr})")
+
+                try:
+                    phone_still_visible = await page.locator(phone_page_input).first.is_visible()
+                except Exception:
+                    phone_still_visible = False
+
+                if phone_still_visible:
+                    ctx._log("[WARN] Phone form still visible - number not accepted, trying another")
+                    is_rejected = True
+                else:
+                    phone_accepted = True
+                    break
+
+            # Phone rejected — cancel and get new number
+            ctx._log(f"AOL rejected number {display_phone} - getting new one")
+            await _debug_screenshot(page, f"aol_phone_rejected_{phone_attempt}")
+            try:
+                await asyncio.to_thread(sms_provider.cancel_number, order_id)
+            except Exception:
+                pass
+
+            new_order, new_provider, new_provider_name = await get_next_sms_number(
+                service="aol",
+                current_provider=sms_provider,
+                current_provider_name=_current_sms_provider_name or 'simsms',
+                expanded_countries=expanded_countries,
+                _log=ctx._log,
+                _err=ctx._err,
+            )
+            if new_provider:
+                sms_provider = new_provider
+                _current_sms_provider_name = new_provider_name
+            if not new_order:
+                raise RecoverableError("E107", "SMS error getting new number")
+
+            phone_number = new_order["number"]
+            order_id = new_order["id"]
+            sms_country = new_order.get("country", sms_country)
+            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+            ctx._log(f"New number: {display_phone} (country: {sms_country})")
+
+            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country, phone_prefix)
+            local_number = phone_number.lstrip("+")
+            if phone_prefix and local_number.startswith(phone_prefix):
+                local_number = local_number[len(phone_prefix):]
+
+            try:
+                await page.locator(phone_page_input).first.fill("")
+                await _human_delay(0.3, 0.5)
+            except Exception:
+                pass
+            await _human_fill(page, phone_page_input, local_number)
+            ctx._log(f"Entered new number: {local_number}")
+            await _human_delay(1.5, 3.0)
+
+            get_code_btn = await _wait_for_any(page, [
+                'button:has-text("Get code by text")',
+                'button:has-text("code by text")',
+                'button[type="submit"]',
+            ], timeout=3000)
+            if not get_code_btn:
+                raise RecoverableError("E108", "Get code button not found after number change")
+
+        if not phone_accepted:
+            raise RecoverableError("E109", f"AOL rejected {max_phone_retries} numbers in a row")
+
+    # reCAPTCHA after phone submit
+    await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+    await _human_delay(1, 2)
+
+    # Wait for SMS code
+    if order_id:
+        try:
+            if hasattr(sms_provider, 'set_status'):
+                await asyncio.to_thread(sms_provider.set_status, order_id, 1)
+        except Exception:
+            pass
+
+        ctx._log("Waiting for AOL SMS code...")
+        ctx._log(f"Page: {page.url}")
+
+        # Check for challenge/fail redirect
+        sms_url = page.url
+        if 'challenge/fail' in sms_url or '/error' in sms_url:
+            ctx._err(f"AOL redirected to challenge/fail after phone: {sms_url}")
+            await _debug_screenshot(page, "aol_challenge_after_phone")
+            captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+            if not captcha_solved:
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                except Exception:
+                    pass
+                raise BannedIPError("E305", f"AOL challenge/fail after phone: {sms_url}")
+            await _human_delay(3, 5)
+
+        # Wait for code input fields
+        first_digit = await _wait_for_any(page, [
+            'input#verify-code-0', 'input[aria-label="Code 1"]',
+            'input[name="code"]', 'input[name="verificationCode"]',
+            'input[name="verify_code"]', 'input[type="tel"][maxlength="1"]',
+            'input[data-type="code"]', 'input.phone-code',
+            'input[autocomplete="one-time-code"]',
+        ], timeout=30000)
+
+        if first_digit:
+            ctx._log(f"[OK] SMS code field found: {first_digit}")
+        else:
+            ctx._log("[WARN] SMS code field NOT FOUND - AOL did not show verification form!")
+            ctx._log(f"Current URL: {page.url}")
+            await _debug_screenshot(page, "aol_no_sms_field")
+
+        sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
+        sms_code = None
+        if isinstance(sms_result, dict):
+            sms_code = sms_result.get("code")
+            if sms_result.get("error"):
+                ctx._err(f"SMS error: {sms_result['error']}")
+                try:
+                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
+                except Exception:
+                    pass
+                raise RecoverableError("E110", f"SMS error: {sms_result['error']}")
+        elif isinstance(sms_result, str):
+            sms_code = sms_result
+
+        if not sms_code:
+            ctx._err("SMS code not received")
+            try:
+                await asyncio.to_thread(sms_provider.cancel_number, order_id)
+            except Exception:
+                pass
+            raise RecoverableError("E111", "SMS code not received")
+
+        ctx._log(f"SMS code: {sms_code}")
+        code_digits = str(sms_code).strip()
+        for i, digit in enumerate(code_digits[:6]):
+            digit_sel = f'input#verify-code-{i}'
+            try:
+                await page.locator(digit_sel).first.fill(digit)
+                await _human_delay(0.1, 0.3)
+            except Exception:
+                if first_digit:
+                    await page.locator(first_digit).first.fill(code_digits)
+                break
+        await _human_delay(0.5, 1)
+
+        verify_btn = await _wait_for_any(page, [
+            'button[name="validate"]',
+            'button:has-text("Verify")', 'button:has-text("Next")',
+            'button[type="submit"]',
+        ], timeout=5000)
+        if verify_btn:
+            await page.locator(verify_btn).first.click()
+        else:
+            await page.keyboard.press("Enter")
+
+        try:
+            if hasattr(sms_provider, 'complete_activation'):
+                await asyncio.to_thread(sms_provider.complete_activation, order_id)
+        except Exception:
+            pass
+
+        await _human_delay(3, 5)
+
+    # Store display_phone for account metadata
+    ctx._display_phone = display_phone
+
+
+async def step_5_verify_success(page, ctx: RegContext) -> bool:
+    """Step 5: Verify registration succeeded."""
+    ctx.email = f"{ctx.username}@aol.com"
+    final_url = page.url
+    ctx._log(f"Final URL: {final_url}")
+
+    registration_success = False
+    try:
+        success_indicators_url = [
+            "mail.aol.com", "aol.com/welcome",
+            "account/create/success", "/welcome",
+            "/myaccount", "/manage_account",
+        ]
+        if any(ind in final_url.lower() for ind in success_indicators_url):
+            registration_success = True
+            ctx._log("[OK] URL confirms successful registration")
+
+        if not registration_success:
+            on_create = "/account/create" in final_url
+            on_success = "/account/create/success" in final_url
+            if not on_create or on_success:
+                registration_success = True
+                ctx._log("[OK] Left registration page - counting as success")
+
+        if registration_success:
+            page_text = await page.locator('body').inner_text()
+            fail_indicators = ["registration failed", "account could not be created"]
+            if any(fi.lower() in page_text.lower() for fi in fail_indicators):
+                registration_success = False
+                ctx._err("[FAIL] Page contains registration error indicators")
+    except Exception as e:
+        ctx._log(f"Success check: error ({e}), counting as success if URL changed")
+        on_create = "/account/create" in final_url
+        on_success = "/account/create/success" in final_url
+        if not on_create or on_success:
+            registration_success = True
+
+    if not registration_success:
+        ctx._err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
+        await _debug_screenshot(page, "aol_registration_not_confirmed")
+        raise FatalError("E504", f"Registration not confirmed: {final_url}")
+
+    return True
+
+
+# ── Main Orchestrator ────────────────────────────────────────────────────────────
+
 
 async def register_single_aol(
     browser_manager: BrowserManager,
@@ -50,7 +792,7 @@ async def register_single_aol(
     ACTIVE_PAGES: dict = None,
     BIRTH_CANCEL_EVENT: threading.Event = None,
 ) -> Account | None:
-    """Register a single AOL account on desktop. Requires SMS. (AOL = Yahoo/Verizon family)."""
+    """Register a single AOL account using the Defensive Coding Template."""
     if ACTIVE_PAGES is None:
         ACTIVE_PAGES = {}
     if BIRTH_CANCEL_EVENT is None:
@@ -63,37 +805,45 @@ async def register_single_aol(
             try: db.commit()
             except: pass
         return None
+
     first_name, last_name = random.choice(name_pool)
     password = generate_password()
     username = generate_username(first_name, last_name)
     birthday = generate_birthday()
 
-    context = await browser_manager.create_context(
-        proxy=proxy,
-        geo=None,
-    )
-
+    # ── Create RegContext ──
     def _log(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
         logger.info(f"[AOL][Thread {n}] {msg}")
         if thread_log:
             thread_log.current_action = f"Thread {n}: {msg}"
-            try:
-                db.commit()
-            except Exception:
-                pass
+            try: db.commit()
+            except Exception: pass
 
     def _err(msg: str):
         n = getattr(thread_log, '_worker_id', 0) + 1 if thread_log else '?'
         logger.error(f"[AOL][Thread {n}] {msg}")
         if thread_log:
             thread_log.error_message = f"Thread {n}: {msg}"[:500]
-            try:
-                db.commit()
-            except Exception:
-                pass
+            try: db.commit()
+            except Exception: pass
 
-    # ── Initialize Vision Engine (OCR + stage detection) ──
+    ctx = RegContext(
+        provider="aol",
+        username=username,
+        password=password,
+        email=f"{username}@aol.com",
+        first_name=first_name,
+        last_name=last_name,
+        proxy_ip=f"{proxy.host}:{proxy.port}" if proxy else "",
+        proxy_geo=getattr(proxy, 'country', '') or "" if proxy else "",
+        proxy_type=getattr(proxy, 'proxy_type', '') or "" if proxy else "",
+        thread_id=thread_log.id if thread_log else 0,
+        _log=_log,
+        _err=_err,
+    )
+
+    # Initialize Vision Engine
     vision = None
     try:
         from ..vision import VisionEngine
@@ -102,822 +852,54 @@ async def register_single_aol(
     except Exception as ve:
         logger.debug(f"[AOL] Vision not available: {ve}")
 
-    # ── Fast error page detector (saves 20s vs waiting for fields) ──
-    async def _check_error_page(page, context_msg=""):
-        """Quick check for AOL error/block pages. Returns error string or None."""
-        url = page.url or ""
-        error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
-                      "guce.yahoo", "consent.yahoo", "/sorry"]
-        for pattern in error_urls:
-            if pattern in url.lower():
-                return f"Error URL detected: {url}"
-        try:
-            error_text = await page.evaluate("""() => {
-                const body = document.body?.innerText?.substring(0, 2000) || '';
-                const lc = body.toLowerCase();
-                const errors = [
-                    'something went wrong', 'try again later', 'suspicious activity',
-                    'temporarily unavailable', 'too many attempts', 'access denied',
-                    'unable to process', 'service unavailable', 'error 500',
-                    'we are unable', 'blocked', 'not available in your region'
-                ];
-                for (const e of errors) {
-                    if (lc.includes(e)) return body.substring(0, 300);
-                }
-                return null;
-            }""")
-            if error_text:
-                return f"Error page text: {error_text[:200]}"
-        except Exception:
-            pass
-        return None
-
-    _active_sms = None  # Track SMS order for crash recovery
+    ctx._active_sms = None
     _sms_success = False
-    _current_sms_provider_name = None  # Track provider name for chain rotation
-
-    # Reset SMS chain state for this registration attempt
     reset_chain_state("aol")
+
+    context = await browser_manager.create_context(proxy=proxy, geo=None)
 
     try:
         page = await context.new_page()
-        thread_id = thread_log.id if thread_log else 0
-        ACTIVE_PAGES[thread_id] = {"page": page, "context": context}
+        ACTIVE_PAGES[ctx.thread_id] = {"page": page, "context": context}
 
-        # Fast warmup - just a quick Google visit (2-3s instead of 15-30s)
-        _log("Quick session warmup...")
-        try:
-            await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
-            await _human_delay(1, 2)
-            await random_mouse_move(page, steps=2)
-        except Exception:
-            pass
+        # ── Execute Steps ──
+        await step_0_warmup(page, ctx)
 
-        # Step 1: Navigate to AOL signup
-        _log("Opening AOL registration page...")
-        try:
-            await page.goto(
-                "https://login.aol.com/account/create",
-                wait_until="domcontentloaded",
-                timeout=60000,
-            )
-        except Exception as nav_e:
-            logger.warning(f"[AOL] Navigation error: {nav_e}")
+        await step_1_navigate(page, ctx, proxy, db)
 
-        await _human_delay(2, 4)
-
-        # CRITICAL: Check if proxy is dead
-        current_url = page.url or ""
-        if "chrome-error" in current_url or "about:blank" == current_url:
-            _err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
-            if proxy:
-                try:
-                    proxy.status = ProxyStatus.DEAD
-                    proxy.fail_count = (proxy.fail_count or 0) + 1
-                    db.commit()
-                except Exception:
-                    pass
-            raise FatalError("E501", f"Proxy dead: {current_url}")
-
-        # Check if AOL returned error page (E500, rate limit, etc.)
-        if "/account/create/error" in current_url or "error" in current_url.split("?")[0].split("/")[-1:]:
-            _err(f"[ERR] AOL returned error page - IP blocked or rate limited (URL: {current_url})")
-            raise BannedIPError("E301", f"AOL error page: {current_url}")
-
-        # Universal block signal scan
-        block_result = await _scan_for_block_signals(page, "aol")
-        if block_result["detected"]:
-            _err(f"[BLOCK] {block_result['reason']}")
-            await _debug_screenshot(page, "aol_block_detected", _log)
-            if block_result["action"] == "skip_ip":
-                raise BannedIPError("E302", block_result["reason"])
-            elif block_result["action"] == "backoff":
-                raise RateLimitError("E201", block_result["reason"])
-
-        await random_mouse_move(page, steps=3)
-        _log(f"Page: {page.url}")
-
-        # AOL: all fields on one page - fill with human-like behavior
-        _log(f"Entering data: {first_name} {last_name} / {username}")
-
-        # ── FAST ERROR CHECK (2s vs 20s timeout) ──
-        error = await _check_error_page(page, "before firstname")
-        if error:
-            _err(f"[ERR] AOL error before form: {error}")
-            raise BannedIPError("E303", f"AOL error before form: {error[:100]}")
-
-        # First name
-        fn_sel = await _wait_and_find(page, [
-            'input[name="firstName"]', '#usernamereg-firstName',
-            'input[aria-label*="irst"]', 'input[aria-label*="имя"]',
-            'input[placeholder*="First"]', 'input[placeholder*="имя"]',
-            'input[autocomplete="given-name"]',
-        ], "aol_firstname", username, _log, _err, timeout=20000)
-        if not fn_sel:
+        if BIRTH_CANCEL_EVENT.is_set():
             return None
 
-        await _human_fill(page, fn_sel, first_name)
-        await _human_delay(1.0, 2.5)
+        await step_2_fill_form(page, ctx, birthday)
 
-        # Last name
-        ln_sel = await _wait_for_any(page, [
-            'input[name="lastName"]', '#usernamereg-lastName',
-            'input[aria-label*="ast"]', 'input[aria-label*="фам"]',
-            'input[placeholder*="Last"]', 'input[placeholder*="фам"]',
-            'input[autocomplete="family-name"]',
-        ], timeout=5000)
-        if ln_sel:
-            await _human_fill(page, ln_sel, last_name)
-            await _human_delay(1.2, 2.8)
-
-        # Small scroll down - humans do this
-        await page.mouse.wheel(0, random.randint(50, 150))
-        await _human_delay(0.5, 1.0)
-
-        # Email / Username
-        email_sel = await _wait_for_any(page, [
-            'input#reg-userId', 'input[name="userId"]',
-            'input[name="yid"]', '#usernamereg-yid',
-            'input[aria-label*="user"]', 'input[aria-label*="email"]',
-            'input[placeholder*="email"]', 'input[placeholder*="user"]',
-        ], timeout=5000)
-        if email_sel:
-            await _human_fill(page, email_sel, username)
-            await _human_delay(1.5, 3.0)
-
-        # Password
-        pwd_sel = await _wait_for_any(page, [
-            'input[name="password"]', '#usernamereg-password', 'input[type="password"]',
-            'input[aria-label*="assword"]', 'input[aria-label*="арол"]',
-            'input[placeholder*="assword"]',
-        ], timeout=5000)
-        if pwd_sel:
-            await _human_fill(page, pwd_sel, password)
-            await _human_delay(1.0, 2.0)
-
-        # Birthday - scroll down a bit first
-        await page.mouse.wheel(0, random.randint(30, 80))
-        await _human_delay(0.5, 1.0)
-
-        # AOL birthday: input[type="tel"] fields or selects
-        month_sel = await _wait_for_any(page, [
-            'input[name="mm"]', 'input[placeholder="MM"]',
-            'input[placeholder*="onth"]', 'input[aria-label*="onth"]',
-            'select#usernamereg-month', 'select[name="mm"]',
-        ], timeout=5000)
-        if month_sel:
-            tag_name = await page.locator(month_sel).first.evaluate("el => el.tagName")
-            if tag_name.upper() == "SELECT":
-                await page.locator(month_sel).first.select_option(str(birthday.month))
-            else:
-                await _human_fill(page, month_sel, str(birthday.month).zfill(2))
-            await _human_delay(0.5, 1.2)
-
-        day_sel = await _wait_for_any(page, [
-            'input[name="dd"]', 'input[placeholder="DD"]',
-            'input[placeholder*="ay"]', 'input[aria-label*="ay"]',
-            'input#usernamereg-day',
-        ], timeout=3000)
-        if day_sel:
-            await _human_fill(page, day_sel, str(birthday.day))
-            await _human_delay(0.5, 1.0)
-
-        year_sel = await _wait_for_any(page, [
-            'input[name="yyyy"]', 'input[placeholder="YYYY"]',
-            'input[placeholder*="ear"]', 'input[aria-label*="ear"]',
-            'input#usernamereg-year',
-        ], timeout=3000)
-        if year_sel:
-            await _human_fill(page, year_sel, str(birthday.year))
-
-        await _human_delay(1.5, 3.0)  # Human reviews form before submitting
-
-        # Scroll to Next button
-        await page.mouse.wheel(0, random.randint(100, 200))
-        await _human_delay(0.8, 1.5)
-
-        # Click Next / Continue / Submit - with "Email not available" retry
-        _log("Submitting form (Next)...")
-        submit_btn = await _wait_for_any(page, [
-            'button[name="signup"]',
-            'button:has-text("Next")', 'button:has-text("Next")',
-            'button[type="submit"]', '#reg-submit-button',
-            'button:has-text("Continue")', 'button:has-text("Продолжить")',
-            '#usernamereg-submitBtn',
-        ], timeout=5000)
-        if submit_btn:
-            try:
-                await page.locator(submit_btn).first.wait_for(state="attached", timeout=3000)
-                await _human_click(page, submit_btn)
-            except Exception:
-                _log("Button disabled - trying Enter...")
-                await page.keyboard.press("Enter")
-        else:
-            await page.keyboard.press("Enter")
-
-        await _human_delay(4, 8)
-
-        # ── CRITICAL: Detect "Email not available" and retry with new username ──
-        for email_retry in range(3):
-            try:
-                page_text = await page.locator('body').inner_text()
-                email_taken_phrases = [
-                    "email not available",
-                    "not available",
-                    "already taken",
-                    "already taken",
-                    "unavailable",
-                ]
-                email_taken = any(p.lower() in page_text.lower() for p in email_taken_phrases)
-            except Exception:
-                email_taken = False
-
-            if email_taken:
-                old_username = username
-                username = generate_username(first_name, last_name)
-                _log(f"[WARN] Email '{old_username}@aol.com' taken! Trying: {username}")
-                email_sel_retry = await _wait_for_any(page, [
-                    'input[name="yid"]', '#usernamereg-yid', 'input[name="userId"]',
-                    'input#reg-userId',
-                ], timeout=3000)
-                if email_sel_retry:
-                    await page.locator(email_sel_retry).first.fill("")
-                    await _human_fill(page, email_sel_retry, username)
-                    await _human_delay(1, 2)
-                    submit_retry = await _wait_for_any(page, [
-                        'button:has-text("Next")', 'button[type="submit"]',
-                        'button:has-text("Continue")',
-                    ], timeout=3000)
-                    if submit_retry:
-                        await _human_click(page, submit_retry)
-                    else:
-                        await page.keyboard.press("Enter")
-                    await _human_delay(4, 8)
-                else:
-                    _err("Email field not found for re-entry")
-                    return None
-            else:
-                break
-        else:
-            _err(f"AOL rejected 3 usernames in a row - try different names")
+        if BIRTH_CANCEL_EVENT.is_set():
             return None
 
-        # ── Post-submit: Handle AOL's "Add your phone number" page ──
-        post_url = page.url
-        _log(f"После отправки: {post_url}")
+        await step_3_submit_form(page, ctx, captcha_provider)
 
-        # Check for reCAPTCHA after submit
-        await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-        await _human_delay(1, 2)
-
-        # AOL shows a separate "Add your phone number" page after registration
-        phone_page_input = await _wait_for_any(page, [
-            'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
-            'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
-            'input[data-type="phone"]', 'input[autocomplete="tel"]',
-        ], timeout=15000)
-
-        if phone_page_input:
-            _log("Detected 'Add your phone number' page")
-
-            if not sms_provider:
-                _err("AOL requires SMS but no SMS provider configured")
-                return None
-
-            # ── STEP 1: Order SMS via shared auto-intelligence ──
-            proxy_geo = getattr(proxy, 'geo', None) if proxy else None
-            _log("Ordering number for AOL SMS...")
-
-            order, active_sms_provider, expanded_countries = await order_sms_with_chain(
-                service="aol",
-                sms_provider=sms_provider,
-                proxy_geo=proxy_geo,
-                page=page,
-                scrape_dropdown=True,
-                _log=_log,
-                _err=_err,
-            )
-
-            if not order:
-                return None
-
-            sms_provider = active_sms_provider
-            _cls = type(active_sms_provider).__name__.lower()
-            if 'grizzly' in _cls:
-                _current_sms_provider_name = 'grizzly'
-            elif 'fivesim' in _cls or '5sim' in _cls:
-                _current_sms_provider_name = '5sim'
-            else:
-                _current_sms_provider_name = 'simsms'
-
-            phone_number = order["number"]
-            order_id = order["id"]
-            sms_country = order.get("country", "")
-            _active_sms = {"provider": sms_provider, "order_id": order_id, "number": phone_number}
-            display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
-            _log(f"Number: {display_phone} (country: {sms_country})")
-
-            # ── STEP 3: Strip phone prefix to get local number ──
-            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
-            local_number = phone_number.lstrip("+")
-            if phone_prefix and local_number.startswith(phone_prefix):
-                local_number = local_number[len(phone_prefix):]
-                _log(f"Stripped prefix +{phone_prefix}, entering: {local_number}")
-            else:
-                _log(f"Entering as-is: {local_number}")
-
-            # ── STEP 4: Change AOL's country code IF it doesn't match ──
-            # Detect what country AOL is currently showing on the page
-            aol_page_prefix = None
-            try:
-                aol_page_prefix = await page.evaluate("""() => {
-                    const selects = document.querySelectorAll('select[id^="countryCode"], select');
-                    for (const sel of selects) {
-                        const opt = sel.options[sel.selectedIndex];
-                        if (opt) {
-                            const m = opt.text.match(/\\+(\\d{1,4})/);
-                            if (m) return m[1];
-                        }
-                    }
-                    const inputs = document.querySelectorAll('input');
-                    for (const inp of inputs) {
-                        const val = inp.value.trim();
-                        if (val.startsWith('+') && val.length <= 5 && val.length >= 2) {
-                            return val.replace('+', '');
-                        }
-                    }
-                    return null;
-                }""")
-                if aol_page_prefix:
-                    aol_page_prefix = str(aol_page_prefix).strip()
-            except Exception:
-                pass
-
-            target_iso = COUNTRY_TO_ISO2.get(sms_country, "").upper()
-            sms_prefix = phone_prefix or ""
-            country_needs_change = aol_page_prefix and sms_prefix and aol_page_prefix != sms_prefix
-            country_changed = not country_needs_change
-
-            if country_needs_change:
-                _log(f"AOL shows +{aol_page_prefix}, SMS number +{sms_prefix} - need to change")
-                try:
-                    changed = await page.evaluate(f"""() => {{
-                        const inputs = document.querySelectorAll('input');
-                        for (const inp of inputs) {{
-                            const val = inp.value.trim();
-                            if (val.startsWith('+') && val.length <= 5) {{
-                                const setter = Object.getOwnPropertyDescriptor(
-                                    window.HTMLInputElement.prototype, 'value').set;
-                                setter.call(inp, '+{sms_prefix}');
-                                inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                return true;
-                            }}
-                        }}
-                        return false;
-                    }}""")
-                    if changed:
-                        country_changed = True
-                        _log(f"Country code changed via JS: +{sms_prefix}")
-                except Exception:
-                    pass
-
-                if not country_changed:
-                    page_country = PREFIX_TO_SMS_COUNTRY.get(aol_page_prefix)
-                    if page_country:
-                        _log(f"[WARN] Не удалось сменить +{aol_page_prefix}->+{sms_prefix}. "
-                             f"Canceling number and ordering from {page_country}")
-                        try:
-                            await asyncio.to_thread(sms_provider.cancel_order, order_id)
-                        except Exception:
-                            pass
-                        new_order, new_provider, new_provider_name = await get_next_sms_number(
-                            service="aol",
-                            current_provider=sms_provider,
-                            current_provider_name=_current_sms_provider_name or 'simsms',
-                            expanded_countries=[page_country] + [c for c in expanded_countries if c != page_country],
-                            _log=_log,
-                            _err=_err,
-                        )
-                        if new_provider:
-                            sms_provider = new_provider
-                            _current_sms_provider_name = new_provider_name
-                        if new_order:
-                            phone_number = new_order["number"]
-                            order_id = new_order["id"]
-                            sms_country = new_order.get("country", page_country)
-                            phone_prefix = PHONE_COUNTRY_MAP.get(sms_country)
-                            local_number = phone_number.lstrip("+")
-                            if phone_prefix and local_number.startswith(phone_prefix):
-                                local_number = local_number[len(phone_prefix):]
-                            _log(f"[OK] New number for +{aol_page_prefix}: {local_number}")
-                        else:
-                            _err(f"Failed to order number for +{aol_page_prefix}")
-                            return None
-                    else:
-                        _log(f"[WARN] Failed to change code, unknown prefix +{aol_page_prefix} - entering full number")
-                        local_number = f"{sms_prefix}{local_number}"
-
-            # Human-like: read the page text first
-            await random_mouse_move(page, steps=3)
-            await _human_delay(3.0, 5.0)
-
-            # Small scroll to see the full form
-            await page.mouse.wheel(0, random.randint(30, 80))
-            await _human_delay(0.8, 1.5)
-
-            # Clear field first (in case AOL pre-filled something)
-            try:
-                await page.locator(phone_page_input).first.fill("")
-                await _human_delay(0.3, 0.5)
-            except Exception:
-                pass
-
-            # Fill the phone number with human typing
-            await _human_fill(page, phone_page_input, local_number)
-            _log(f"Entered number: {local_number}")
-            await _human_delay(1.5, 3.0)
-
-            # Human reads terms, looks at button before clicking
-            await random_mouse_move(page, steps=2)
-            await _human_delay(2.0, 4.0)
-
-            # Click "Get code by text" button (SMS only — NEVER WhatsApp!)
-            # AOL shows different layouts:
-            # 1) "Receive code by text" (purple button) + "Receive code on WhatsApp" (link)
-            # 2) "Get code on WhatsApp" (purple button) + "Receive code by text" (link)
-            # We MUST click SMS, not WhatsApp
-            get_code_btn = await _wait_for_any(page, [
-                'button:has-text("Receive code by text")',
-                'button:has-text("Get code by text")',
-                'button:has-text("code by text")',
-                'button:has-text("Получить код по SMS")',
-                'button:has-text("Text me")',
-                'button:has-text("Send code")',
-                'button:has-text("Enviar código")',
-            ], timeout=5000)
-
-            # If no SMS button found, check for SMS as a link (below WhatsApp button)
-            if not get_code_btn:
-                _log("[WARN] No SMS button — checking for SMS link...")
-                sms_link = await _wait_for_any(page, [
-                    'a:has-text("Receive code by text")',
-                    'a:has-text("code by text")',
-                    'a:has-text("Text me")',
-                    'a:has-text("Enviar código por texto")',
-                    'button:has-text("Receive code")',
-                ], timeout=3000)
-                if sms_link:
-                    get_code_btn = sms_link
-                    _log("[OK] Found SMS as link (below WhatsApp button)")
-
-            # Last resort: generic submit ONLY if no WhatsApp is visible
-            if not get_code_btn:
-                has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
-                if has_whatsapp == 0:
-                    get_code_btn = await _wait_for_any(page, [
-                        'button[type="submit"]',
-                        '#send-code-button',
-                        'button[data-type="sms"]',
-                    ], timeout=3000)
-                    _log("Using generic submit button (no WhatsApp detected)")
-                else:
-                    _err("[FATAL] Only WhatsApp available — no SMS option. Thread dead.")
-                    if _active_sms:
-                        try:
-                            await asyncio.to_thread(
-                                _active_sms["provider"].cancel_number, _active_sms["order_id"]
-                            )
-                        except Exception:
-                            pass
-                    return None
-
-            if get_code_btn:
-                # ── RETRY LOOP: if AOL rejects the number, try up to 3 new numbers ──
-                max_phone_retries = 3
-                phone_accepted = False
-
-                for phone_attempt in range(max_phone_retries):
-                    if phone_attempt > 0:
-                        _log(f"Attempt #{phone_attempt + 1} with new number...")
-
-                    _log("Pressing 'Get code by text'...")
-                    await _human_click(page, get_code_btn)
-                    await _human_delay(4, 7)
-
-                    # ── CRITICAL: AOL shows FunCaptcha/reCAPTCHA AFTER clicking 'Get code' ──
-                    for captcha_attempt in range(2):
-                        # Try FunCaptcha first (AOL = Yahoo family, uses Arkose Labs)
-                        captcha_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, _log)
-                        if not captcha_solved:
-                            # Fallback to reCAPTCHA
-                            captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-                        if captcha_solved:
-                            _log(f"CAPTCHA solved after 'Get code' (attempt {captcha_attempt + 1})")
-                            await _human_delay(3, 6)
-                            # Re-click submit if still on same page
-                            try:
-                                resubmit = await _wait_for_any(page, [
-                                    'button[type="submit"]',
-                                    'button:has-text("Get code")',
-                                    'button:has-text("Send code")',
-                                    'button:has-text("Continue")',
-                                    'button:has-text("Verify")',
-                                ], timeout=3000)
-                                if resubmit:
-                                    await _human_click(page, resubmit)
-                                    await _human_delay(4, 7)
-                            except Exception:
-                                pass
-                        else:
-                            break
-
-                    # Check for phone rejection error on page
-                    try:
-                        page_text = await page.locator('body').inner_text()
-                        rejection_phrases = [
-                            "don't support this number",
-                            "doesn't look right",
-                            "not a valid phone",
-                            "invalid phone",
-                            "try another number",
-                            "provide another one",
-                            "unable to verify this number",
-                            "not supported",
-                            "invalid number",
-                        ]
-                        is_rejected = any(phrase.lower() in page_text.lower() for phrase in rejection_phrases)
-                        if is_rejected:
-                            matched = [p for p in rejection_phrases if p.lower() in page_text.lower()]
-                            _log(f"AOL error on page: {matched}")
-                    except Exception:
-                        is_rejected = False
-
-                    if not is_rejected:
-                        curr = page.url
-                        _log(f"After 'Get code': {curr}")
-                        if 'challenge/fail' in curr or '/error' in curr:
-                            captcha_on_fail = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-                            if captcha_on_fail:
-                                _log("CAPTCHA solved on challenge/fail page, trying again...")
-                                await _human_delay(3, 5)
-                                curr2 = page.url
-                                if 'challenge/fail' not in curr2 and '/error' not in curr2:
-                                    phone_accepted = True
-                                    break
-                            _err("AOL blocked: challenge/fail")
-                            await _debug_screenshot(page, "aol_blocked", _log)
-                            try:
-                                await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                            except Exception:
-                                pass
-                            return None
-
-                        # Check if we ACTUALLY moved from the phone page
-                        try:
-                            phone_still_visible = await page.locator(phone_page_input).first.is_visible()
-                        except Exception:
-                            phone_still_visible = False
-
-                        if phone_still_visible:
-                            _log("[WARN] Phone form still visible - number not accepted, trying another")
-                            is_rejected = True
-                        else:
-                            phone_accepted = True
-                            break
-
-                    # Phone rejected - cancel old number and get a new one
-                    _log(f"AOL rejected number {display_phone} - getting new one")
-                    await _debug_screenshot(page, f"aol_phone_rejected_{phone_attempt}", _log)
-                    try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                    except Exception:
-                        pass
-
-                    # Order new number via chain rotation (3 attempts/provider, then next)
-                    new_order, new_provider, new_provider_name = await get_next_sms_number(
-                        service="aol",
-                        current_provider=sms_provider,
-                        current_provider_name=_current_sms_provider_name or 'simsms',
-                        expanded_countries=expanded_countries,
-                        _log=_log,
-                        _err=_err,
-                    )
-                    if new_provider:
-                        sms_provider = new_provider
-                        _current_sms_provider_name = new_provider_name
-                    if not new_order:
-                        _err("SMS error getting new number")
-                        return None
-
-                    phone_number = new_order["number"]
-                    order_id = new_order["id"]
-                    sms_country = new_order.get("country", sms_country)
-                    display_phone = phone_number if phone_number.startswith("+") else f"+{phone_number}"
-                    _log(f"New number: {display_phone} (country: {sms_country})")
-
-                    # Recalculate local number
-                    phone_prefix = PHONE_COUNTRY_MAP.get(sms_country, phone_prefix)
-                    local_number = phone_number.lstrip("+")
-                    if phone_prefix and local_number.startswith(phone_prefix):
-                        local_number = local_number[len(phone_prefix):]
-
-                    # Clear phone field and fill with new number
-                    try:
-                        await page.locator(phone_page_input).first.fill("")
-                        await _human_delay(0.3, 0.5)
-                    except Exception:
-                        pass
-                    await _human_fill(page, phone_page_input, local_number)
-                    _log(f"Entered new number: {local_number}")
-                    await _human_delay(1.5, 3.0)
-
-                    # Re-find the button
-                    get_code_btn = await _wait_for_any(page, [
-                        'button:has-text("Get code by text")',
-                        'button:has-text("code by text")',
-                        'button[type="submit"]',
-                    ], timeout=3000)
-                    if not get_code_btn:
-                        _err("Get code button not found after number change")
-                        return None
-
-                if not phone_accepted:
-                    _err(f"AOL rejected {max_phone_retries} numbers in a row - proxy or SMS service issue")
-                    return None
-            else:
-                _log("[WARN] Get code by text button not found - trying Enter")
-                await page.keyboard.press("Enter")
-                await _human_delay(4, 7)
-        else:
-            _log("[WARN] Phone page not found - AOL may not have moved to next step")
-            await _debug_screenshot(page, "4_aol_no_phone_page", _log)
+        if BIRTH_CANCEL_EVENT.is_set():
             return None
 
-        # Check for reCAPTCHA after phone submit
-        await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-        await _human_delay(1, 2)
+        await step_4_sms_verification(page, ctx, sms_provider, proxy,
+                                       captcha_provider, BIRTH_CANCEL_EVENT)
 
-        # SMS verification
-        if order_id:
-            try:
-                if hasattr(sms_provider, 'set_status'):
-                    await asyncio.to_thread(sms_provider.set_status, order_id, 1)
-            except Exception:
-                pass
+        await step_5_verify_success(page, ctx)
 
-            _log("Waiting for AOL SMS code...")
-            _log(f"Page: {page.url}")
-
-            # Check if AOL redirected to challenge/fail BEFORE waiting for code
-            sms_url = page.url
-            if 'challenge/fail' in sms_url or '/error' in sms_url:
-                _err(f"AOL redirected to challenge/fail after phone: {sms_url}")
-                await _debug_screenshot(page, "aol_challenge_after_phone", _log)
-                captcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, _log)
-                if not captcha_solved:
-                    try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                    except Exception:
-                        pass
-                    return None
-                await _human_delay(3, 5)
-
-            # Wait for code input fields (6-digit format, same as Yahoo)
-            first_digit = await _wait_for_any(page, [
-                'input#verify-code-0', 'input[aria-label="Code 1"]',
-                'input[name="code"]', 'input[name="verificationCode"]',
-                'input[name="verify_code"]', 'input[type="tel"][maxlength="1"]',
-                'input[data-type="code"]', 'input.phone-code',
-                'input[autocomplete="one-time-code"]',
-            ], timeout=30000)
-
-            if first_digit:
-                _log(f"[OK] SMS code field found: {first_digit}")
-            else:
-                _log("[WARN] SMS code field NOT FOUND - AOL did not show verification form!")
-                _log(f"Current URL: {page.url}")
-                await _debug_screenshot(page, "aol_no_sms_field", _log)
-                try:
-                    body_text = await page.locator('body').inner_text()
-                    _log(f"Page text: {body_text[:300]}")
-                except Exception:
-                    pass
-
-            sms_result = await asyncio.to_thread(sms_provider.get_sms_code, order_id, 300, BIRTH_CANCEL_EVENT)
-            sms_code = None
-            if isinstance(sms_result, dict):
-                sms_code = sms_result.get("code")
-                if sms_result.get("error"):
-                    _err(f"SMS error: {sms_result['error']}")
-                    try:
-                        await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                    except Exception:
-                        pass
-                    return None
-            elif isinstance(sms_result, str):
-                sms_code = sms_result
-
-            if not sms_code:
-                _err("SMS code not received")
-                try:
-                    await asyncio.to_thread(sms_provider.cancel_number, order_id)
-                except Exception:
-                    pass
-                return None
-
-            _log(f"SMS code: {sms_code}")
-            # Enter code digit by digit into 6 individual inputs
-            code_digits = str(sms_code).strip()
-            for i, digit in enumerate(code_digits[:6]):
-                digit_sel = f'input#verify-code-{i}'
-                try:
-                    await page.locator(digit_sel).first.fill(digit)
-                    await _human_delay(0.1, 0.3)
-                except Exception:
-                    # Fallback: try single input field
-                    if first_digit:
-                        await page.locator(first_digit).first.fill(code_digits)
-                    break
-            await _human_delay(0.5, 1)
-
-            # Click verify/next button
-            verify_btn = await _wait_for_any(page, [
-                'button[name="validate"]',
-                'button:has-text("Verify")', 'button:has-text("Next")',
-                'button[type="submit"]',
-            ], timeout=5000)
-            if verify_btn:
-                await page.locator(verify_btn).first.click()
-            else:
-                await page.keyboard.press("Enter")
-
-            try:
-                if hasattr(sms_provider, 'complete_activation'):
-                    await asyncio.to_thread(sms_provider.complete_activation, order_id)
-            except Exception:
-                pass
-
-            await _human_delay(3, 5)
-
-        email = f"{username}@aol.com"
-        final_url = page.url
-        _log(f"Final URL: {final_url}")
-
-        # ── CRITICAL: Verify registration actually succeeded ──
-        registration_success = False
-        try:
-            success_indicators_url = [
-                "mail.aol.com",
-                "aol.com/welcome",
-                "account/create/success",
-                "/welcome",
-                "/myaccount",
-                "/manage_account",
-            ]
-            if any(ind in final_url.lower() for ind in success_indicators_url):
-                registration_success = True
-                _log("[OK] URL confirms successful registration")
-
-            if not registration_success:
-                on_create = "/account/create" in final_url
-                on_success = "/account/create/success" in final_url
-                if not on_create or on_success:
-                    registration_success = True
-                    _log("[OK] Left registration page - counting as success")
-
-            # Final check: look for error indicators
-            if registration_success:
-                page_text = await page.locator('body').inner_text()
-                fail_indicators = ["registration failed", "account could not be created", "registration failed"]
-                if any(fi.lower() in page_text.lower() for fi in fail_indicators):
-                    registration_success = False
-                    _err("[FAIL] Page contains registration error indicators")
-        except Exception as e:
-            _log(f"Success check: error ({e}), counting as success if URL changed")
-            on_create = "/account/create" in final_url
-            on_success = "/account/create/success" in final_url
-            if not on_create or on_success:
-                registration_success = True
-
-        if not registration_success:
-            _err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
-            await _debug_screenshot(page, "aol_registration_not_confirmed", _log)
-            return None
-
-        # Save session
+        # ── Save session and create account ──
         try:
             session_path = await browser_manager.save_session(context, 0)
         except Exception:
             session_path = None
 
         _sms_success = True
+        display_phone = getattr(ctx, '_display_phone', '')
+
         account = Account(
-            email=email,
-            password=password,
+            email=ctx.email,
+            password=ctx.password,
             provider="aol",
-            first_name=first_name,
-            last_name=last_name,
+            first_name=ctx.first_name,
+            last_name=ctx.last_name,
             gender="random",
             birthday=birthday,
             birth_ip=f"{proxy.host}" if proxy else None,
@@ -934,7 +916,7 @@ async def register_single_aol(
             except Exception:
                 pass
 
-        logger.info(f"[OK] AOL registered: {email}")
+        logger.info(f"[OK] AOL registered: {ctx.email}")
         export_account_to_file(account, {"sms_phone": display_phone})
 
         # IMAP verification (non-blocking)
@@ -944,7 +926,7 @@ async def register_single_aol(
         except Exception as imap_e:
             logger.debug(f"[AOL] IMAP check skipped: {imap_e}")
 
-        # Post-registration warmup - visit inbox/settings to age the session
+        # Post-registration warmup
         try:
             from ..human_behavior import post_registration_warmup
             _log("[OK] Post-reg session warmup...")
@@ -954,18 +936,20 @@ async def register_single_aol(
 
         return account
 
+    except (RateLimitError, BannedIPError, CaptchaFailError, FatalError, RecoverableError):
+        raise
     except Exception as e:
         logger.error(f"[FAIL] AOL registration failed: {e}", exc_info=True)
         _err(str(e)[:500])
-        return None
+        raise FatalError("E599", f"Unhandled: {str(e)[:200]}")
     finally:
-        if _active_sms and not _sms_success:
+        if ctx._active_sms and not _sms_success:
             try:
-                await asyncio.to_thread(_active_sms["provider"].cancel_order, _active_sms["order_id"])
-                logger.info(f"[AOL] [WARN] SMS cancelled (crash recovery): {_active_sms['number']}")
+                await asyncio.to_thread(ctx._active_sms["provider"].cancel_order, ctx._active_sms["order_id"])
+                logger.info(f"[AOL] [WARN] SMS cancelled (crash recovery): {ctx._active_sms['number']}")
             except Exception:
                 pass
-        ACTIVE_PAGES.pop(thread_id, None)
+        ACTIVE_PAGES.pop(ctx.thread_id, None)
         try:
             await context.close()
         except Exception:
