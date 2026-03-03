@@ -15,7 +15,6 @@ from ..models import (
     Campaign, CampaignStatus, CampaignTemplate, CampaignLink, CampaignRecipient,
     Account, AccountStatus, Proxy, ProxyStatus, ThreadLog,
 )
-from ..services.smtp_sender import send_email, SendResult
 
 
 # ─── Global campaign registry ────────────────────────────────────────────────
@@ -258,17 +257,17 @@ class BlitzCampaignRunner:
                 ):
                     break
 
-                # Pick provider (hotmail = outlook)
+                # Pick provider
                 providers = campaign.providers or ["yahoo"]
-                raw_provider = random.choice(providers)
-                provider = "outlook" if raw_provider == "hotmail" else raw_provider
+                provider = random.choice(providers)
 
                 # Get proxy - round-robin distribution across workers
                 # Each worker offsets into the pool so threads don't all grab the same proxy
                 # Apply cooldown filter (same as birth.py)
                 from datetime import datetime, timedelta
                 cooldown_min = {"yahoo": 30, "aol": 30, "gmail": 30,
-                                "outlook": 15, "hotmail": 15}.get(provider.lower(), 20)
+                                "outlook": 15, "hotmail": 15,
+                                "proton": 15, "tuta": 15}.get(provider.lower(), 20)
                 cutoff = datetime.utcnow() - timedelta(minutes=cooldown_min)
                 active_proxies = db.query(Proxy).filter(
                     Proxy.status == ProxyStatus.ACTIVE,
@@ -356,6 +355,7 @@ class BlitzCampaignRunner:
         from ..birth import (
             register_single_gmail, register_single_yahoo,
             register_single_aol, register_single_outlook,
+            register_single_protonmail, register_single_tuta,
         )
         from ..browser_manager import BrowserManager
         from ..birth._helpers import get_sms_provider, get_captcha_provider, get_sms_chain
@@ -468,6 +468,46 @@ class BlitzCampaignRunner:
                     BIRTH_CANCEL_EVENT=cancel_event,
                 )
 
+            elif provider == "hotmail":
+                account = await register_single_outlook(
+                    browser_manager=bm,
+                    proxy=proxy,
+                    device_type="desktop",
+                    name_pool=name_pool,
+                    captcha_provider=captcha_provider,
+                    db=db,
+                    thread_log=thread_log,
+                    domain="hotmail.com",
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
+                )
+
+            elif provider == "proton":
+                account = await register_single_protonmail(
+                    browser_manager=bm,
+                    proxy=proxy,
+                    device_type="desktop",
+                    name_pool=name_pool,
+                    captcha_provider=captcha_provider,
+                    db=db,
+                    thread_log=thread_log,
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
+                )
+
+            elif provider == "tuta":
+                account = await register_single_tuta(
+                    browser_manager=bm,
+                    proxy=proxy,
+                    device_type="desktop",
+                    name_pool=name_pool,
+                    captcha_provider=captcha_provider,
+                    db=db,
+                    thread_log=thread_log,
+                    ACTIVE_PAGES=active_pages,
+                    BIRTH_CANCEL_EVENT=cancel_event,
+                )
+
             else:
                 logger.error(f"Unknown provider: {provider}")
                 return None
@@ -503,7 +543,9 @@ class BlitzCampaignRunner:
     # ─── Send Worker ──────────────────────────────────────────────────────────
 
     async def _send_worker(self, worker_id: int):
-        """Pull accounts from queue, send emails until account dies."""
+        """Pull accounts from queue, send emails via BROWSER (no SMTP)."""
+        from ..browser_manager import BrowserManager
+
         while not self._stop_event.is_set():
             await self._pause_event.wait()
             if self._stop_event.is_set():
@@ -520,6 +562,9 @@ class BlitzCampaignRunner:
                 break
 
             db = SessionLocal()
+            bm = None
+            page = None
+            context = None
             try:
                 campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
                 if not campaign or campaign.status not in (
@@ -531,15 +576,63 @@ class BlitzCampaignRunner:
                 password = account_data["password"]
                 provider = account_data["provider"]
                 from_name = account_data.get("first_name", "")
+                account_id = account_data.get("account_id")
 
-                logger.info(f"Blitz send[{worker_id}]: starting with {email}")
+                logger.info(f"Blitz send[{worker_id}]: starting with {email} (browser mode)")
 
                 consecutive_errors = 0
-                emails_sent = 0  # count for THIS campaign only (MAX cap)
-                # Warmup level: existing accounts start at their maturity level
-                # so they immediately get fast delays (1min for warmed accounts)
+                emails_sent = 0
                 warmup_level = account_data.get("prior_sends", 0)
 
+                # ── Open browser for this account ──
+                bm = BrowserManager(headless=True)
+                await bm.start()
+
+                # Load saved session if account exists in DB, otherwise create fresh context
+                if account_id:
+                    from ..models import Account as AccountModel
+                    acc_obj = db.query(AccountModel).filter(AccountModel.id == account_id).first()
+                    if acc_obj and hasattr(bm, 'load_session_context'):
+                        try:
+                            context, _ = await bm.load_session_context(
+                                account_id=account_id,
+                                proxy=acc_obj.proxy,
+                                device_type="desktop",
+                                geo=acc_obj.geo,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Blitz send[{worker_id}]: session load failed: {e}, using fresh context")
+                            context = None
+
+                if not context:
+                    context = await bm.new_context(proxy=None)
+
+                page = await context.new_page()
+
+                # ── Navigate to webmail ──
+                MAIL_URLS = {
+                    "yahoo": "https://mail.yahoo.com/",
+                    "aol": "https://mail.aol.com/",
+                    "gmail": "https://mail.google.com",
+                    "outlook": "https://outlook.live.com/mail",
+                    "hotmail": "https://outlook.live.com/mail",
+                    "proton": "https://mail.proton.me",
+                    "tuta": "https://app.tuta.com",
+                }
+                mail_url = MAIL_URLS.get(provider, "https://mail.yahoo.com/")
+                try:
+                    await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(random.uniform(3, 6))
+                except Exception as e:
+                    logger.error(f"Blitz send[{worker_id}]: failed to open {mail_url}: {e}")
+                    break
+
+                # Check if session is valid (not redirected to login)
+                if "signin" in page.url or "login" in page.url or "account" in page.url:
+                    logger.warning(f"Blitz send[{worker_id}] {email}: session expired / not logged in")
+                    break
+
+                # ── Send loop (reuses same browser page) ──
                 while (
                     not self._stop_event.is_set()
                     and consecutive_errors < MAX_CONSECUTIVE_ERRORS
@@ -556,18 +649,16 @@ class BlitzCampaignRunner:
                     ).first()
 
                     if not recipient:
-                        # No more recipients -> campaign complete
                         logger.info(f"Blitz send[{worker_id}]: no more recipients")
                         await self.stop("All recipients sent")
                         break
 
-                    # Get template - ONE-TIME USE (like links, each template burns after use)
+                    # Get template - ONE-TIME USE
                     template = db.query(CampaignTemplate).filter(
                         CampaignTemplate.campaign_id == self.campaign_id,
                         CampaignTemplate.active == True  # noqa
-                    ).first()  # sequential, not random
+                    ).first()
                     if not template:
-                        # Wait for user to add templates (hot-reload)
                         logger.warning(f"Blitz send[{worker_id}]: no active templates, waiting for reload...")
                         for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
                             await asyncio.sleep(10)
@@ -584,7 +675,7 @@ class BlitzCampaignRunner:
                             await self.stop("No active templates (waited 5 min)")
                             break
 
-                    # Lock template - mark inactive BEFORE send to prevent other threads using it
+                    # Lock template
                     template_id = template.id
                     template.active = False
                     template.use_count = (template.use_count or 0) + 1
@@ -598,7 +689,6 @@ class BlitzCampaignRunner:
                     ).order_by(CampaignLink.use_count.asc()).first()
 
                     if not link:
-                        # Wait for user to add more links (hot-reload)
                         logger.warning(f"Blitz send[{worker_id}]: all links exhausted, waiting for reload...")
                         for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
                             await asyncio.sleep(10)
@@ -616,75 +706,81 @@ class BlitzCampaignRunner:
                             await self.stop("All links exhausted (waited 5 min)")
                             break
 
-                    # Randomize link (but DON'T increment use_count yet!)
+                    # Randomize link
                     rand_hash = ''.join(random.choices(
                         string.ascii_letters + string.digits, k=6
                     ))
                     link_url = f"{link.esp_url}#{rand_hash}"
-                    link_id = link.id  # save for post-send update
+                    link_id = link.id
 
-                    # Render template with BASIC/VIP variables
+                    # Render template with variables
                     subject = template.subject
                     body = template.body_html
 
-                    # ═══ BASIC variables (always available) ═══
-                    # {{USERNAME}} = part before @ in recipient email
                     to_email_str = recipient.email or ""
                     username = to_email_str.split("@")[0] if "@" in to_email_str else to_email_str
                     subject = subject.replace("{{USERNAME}}", username)
                     body = body.replace("{{USERNAME}}", username)
 
-                    # ═══ VIP variables ═══
-                    # {{NAME}} = first_name from VIP db, falls back to username if BASIC
                     to_name = getattr(recipient, 'first_name', '') or ''
                     if not to_name:
-                        to_name = username  # BASIC fallback: {{NAME}} = username
+                        to_name = username
                     subject = subject.replace("{{NAME}}", to_name)
                     body = body.replace("{{NAME}}", to_name)
-
-                    # Legacy compatibility
                     subject = subject.replace("{{FIRSTNAME}}", to_name)
                     body = body.replace("{{FIRSTNAME}}", to_name)
                     subject = subject.replace("{first_name}", from_name)
                     body = body.replace("{first_name}", from_name)
 
-                    # Date
                     date_str = datetime.utcnow().strftime("%d/%m/%Y")
                     subject = subject.replace("{{DATE}}", date_str).replace("{date}", date_str)
                     body = body.replace("{{DATE}}", date_str).replace("{date}", date_str)
 
-                    # ═══ LINK variable ═══
-                    # {{LINK}} = ESP link with random hash
                     body = body.replace("{{LINK}}", link_url)
                     subject = subject.replace("{{LINK}}", link_url)
-                    # Legacy
                     body = body.replace("{link}", link_url)
 
-                    # Lock recipient to prevent double-send by other threads
+                    # Lock recipient
                     recipient.sent = True
                     recipient.sent_at = datetime.utcnow()
                     db.commit()
 
-                    # Send via SMTP (blocking call in thread)
-                    result, detail = await asyncio.to_thread(
-                        send_email,
-                        account_email=email,
-                        account_password=password,
-                        provider=provider,
-                        to_email=recipient.email,
-                        subject=subject,
-                        body_html=body,
-                        from_name=from_name,
-                    )
+                    # ═══ BROWSER COMPOSE & SEND ═══
+                    send_ok = False
+                    send_error = ""
+                    is_dead = False
+                    is_rate_limited = False
 
-                    # ═══ Process result - ONLY count resources on SUCCESS ═══
-                    if result == SendResult.OK:
+                    try:
+                        await self._browser_compose_send(
+                            page, provider, recipient.email, subject, body
+                        )
+                        send_ok = True
+                    except Exception as e:
+                        send_error = str(e).lower()
+                        if any(x in send_error for x in [
+                            "limit", "too many", "rate", "throttl",
+                            "temporarily locked", "try again later",
+                        ]):
+                            is_rate_limited = True
+                        elif any(x in send_error for x in [
+                            "signin", "login", "session expired",
+                            "locked", "suspended", "disabled",
+                            "verify your identity",
+                        ]):
+                            is_dead = True
+                        logger.warning(
+                            f"Blitz send[{worker_id}] {email} -> {recipient.email} "
+                            f"BROWSER ERROR: {str(e)[:200]}"
+                        )
+
+                    # ═══ Process result ═══
+                    if send_ok:
                         recipient.result = "ok"
                         emails_sent += 1
                         warmup_level += 1
                         consecutive_errors = 0
 
-                        # NOW increment link usage (only on success!)
                         link = db.query(CampaignLink).filter(
                             CampaignLink.id == link_id
                         ).first()
@@ -693,16 +789,12 @@ class BlitzCampaignRunner:
                             if link.use_count >= link.max_uses:
                                 link.active = False
 
-                        # Template already burned (active=False before send) - no action needed
-
-                        # Update campaign stats - only real successes
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
                         ).first()
                         if campaign:
                             campaign.total_sent = (campaign.total_sent or 0) + 1
 
-                        # Track account maturity for future warmup skip
                         if account_data.get("account_id"):
                             acc = db.query(Account).filter(
                                 Account.id == account_data["account_id"]
@@ -717,12 +809,10 @@ class BlitzCampaignRunner:
                             f"({emails_sent}/{MAX_EMAILS_PER_ACCOUNT})"
                         )
 
-                    elif result == SendResult.RATE_LIMIT:
-                        # Rate limited - undo recipient + template, SWITCH to new account
+                    elif is_rate_limited:
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
-                        # Unlock template (wasn't delivered)
                         t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
                         if t:
                             t.active = True
@@ -736,14 +826,12 @@ class BlitzCampaignRunner:
                         logger.warning(
                             f"Blitz send[{worker_id}] {email} RATE LIMITED -> switching account"
                         )
-                        break  # exit inner loop -> get NEW account from queue
+                        break
 
-                    elif result in (SendResult.AUTH_FAIL, SendResult.SUSPENDED):
-                        # Account is dead - undo recipient + template, DON'T burn
+                    elif is_dead:
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
-                        # Unlock template
                         t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
                         if t:
                             t.active = True
@@ -756,36 +844,12 @@ class BlitzCampaignRunner:
                             campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                         db.commit()
                         logger.warning(
-                            f"Blitz send[{worker_id}] {email} DEAD: {result} - {detail[:80]}"
+                            f"Blitz send[{worker_id}] {email} DEAD: {send_error[:80]}"
                         )
-                        break  # exit inner loop, get new account
-
-                    elif result == SendResult.BOUNCE:
-                        # Bad recipient address - mark as bounce, DON'T burn link
-                        recipient.result = "bounce"
-                        campaign = db.query(Campaign).filter(
-                            Campaign.id == self.campaign_id
-                        ).first()
-                        if campaign:
-                            campaign.total_errors = (campaign.total_errors or 0) + 1
-                        db.commit()
-                        consecutive_errors = 0  # bounce is recipient issue, not account
-
-                    elif result == SendResult.NETWORK:
-                        # Network issue - undo everything including template
-                        recipient.sent = False
-                        recipient.sent_at = None
-                        recipient.result = None
-                        t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
-                        if t:
-                            t.active = True
-                            t.use_count = max((t.use_count or 1) - 1, 0)
-                        db.commit()
-                        consecutive_errors += 1
-                        await asyncio.sleep(10)
+                        break
 
                     else:
-                        # Unknown error - mark failed, DON'T burn link
+                        # Generic browser error
                         recipient.result = "error"
                         campaign = db.query(Campaign).filter(
                             Campaign.id == self.campaign_id
@@ -795,7 +859,7 @@ class BlitzCampaignRunner:
                         db.commit()
                         consecutive_errors += 1
 
-                    # Progressive warmup delay - uses warmup_level (includes prior sends)
+                    # Progressive warmup delay
                     delay = get_warmup_delay(warmup_level)
                     if warmup_level <= len(WARMUP_DELAYS):
                         logger.debug(
@@ -810,7 +874,6 @@ class BlitzCampaignRunner:
                     campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                     db.commit()
 
-                # Mark account as dead in DB
                 if account_data.get("account_id"):
                     acc = db.query(Account).filter(
                         Account.id == account_data["account_id"]
@@ -830,7 +893,206 @@ class BlitzCampaignRunner:
                 logger.error(f"Blitz send[{worker_id}] error: {e}")
                 await asyncio.sleep(5)
             finally:
+                # Close browser for this account
+                if page:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                if bm:
+                    try:
+                        await bm.stop()
+                    except Exception:
+                        pass
                 db.close()
+
+    async def _browser_compose_send(
+        self, page, provider: str, to_email: str, subject: str, body: str
+    ):
+        """
+        Compose and send one email via browser UI.
+        Raises Exception on failure (caller handles error classification).
+        """
+        if provider in ("yahoo", "aol"):
+            await self._browser_send_yahoo_aol(page, to_email, subject, body, provider)
+        elif provider in ("outlook", "hotmail"):
+            await self._browser_send_outlook(page, to_email, subject, body)
+        elif provider == "gmail":
+            await self._browser_send_gmail(page, to_email, subject, body)
+        elif provider == "proton":
+            await self._browser_send_proton(page, to_email, subject, body)
+        elif provider == "tuta":
+            await self._browser_send_tuta(page, to_email, subject, body)
+        else:
+            raise Exception(f"Browser send not implemented for provider: {provider}")
+
+    async def _browser_send_yahoo_aol(
+        self, page, to_email: str, subject: str, body: str, provider: str = "yahoo"
+    ):
+        """Compose and send in Yahoo/AOL Mail via browser."""
+        if provider == "aol":
+            compose_sel = 'a[data-test-id="compose-button"], button:has-text("Compose")'
+        else:
+            compose_sel = 'button[aria-label="New message"], a[data-test-id="compose-button"]'
+        await page.locator(compose_sel).first.click(timeout=10000)
+        await asyncio.sleep(random.uniform(1.5, 3))
+
+        to_field = page.locator('input#message-to-field')
+        await to_field.click()
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+        await to_field.type(to_email, delay=random.randint(30, 70))
+        await asyncio.sleep(random.uniform(0.3, 0.6))
+        await page.keyboard.press("Tab")
+        await asyncio.sleep(random.uniform(0.5, 1))
+
+        subj_field = page.locator('input#compose-subject-input')
+        await subj_field.click()
+        await subj_field.fill("")
+        await subj_field.type(subject, delay=random.randint(20, 50))
+        await asyncio.sleep(random.uniform(0.3, 0.8))
+
+        body_field = page.locator('div[aria-label="Message body"]')
+        await body_field.click()
+        await page.evaluate(
+            "(el, html) => el.innerHTML = html",
+            [await body_field.element_handle(), body],
+        ) if "<" in body else await body_field.type(body, delay=random.randint(10, 30))
+        await asyncio.sleep(random.uniform(0.5, 1.5))
+
+        for sel in [
+            'button[aria-label="Send this email"]',
+            'button[title="Send this email"]',
+            'button:has-text("Send")',
+        ]:
+            try:
+                btn = page.locator(sel).first
+                if await btn.is_visible(timeout=1000):
+                    await btn.click()
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(random.uniform(2, 4))
+
+        page_text = await page.inner_text("body")
+        if "limit" in page_text.lower() or "too many" in page_text.lower():
+            raise Exception("Daily sending limit detected")
+        if "temporarily locked" in page_text.lower():
+            raise Exception("Account temporarily locked")
+
+    async def _browser_send_gmail(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Gmail via browser."""
+        await page.click('[gh="cm"], [data-tooltip="Compose"]', timeout=10000)
+        await asyncio.sleep(random.uniform(1, 2.5))
+
+        to_input = page.locator('input[name="to"], [aria-label="To recipients"]').first
+        await to_input.click()
+        await to_input.type(to_email, delay=random.randint(30, 60))
+        await asyncio.sleep(random.uniform(0.5, 1.5))
+
+        subj_input = page.locator('input[name="subjectbox"]').first
+        await subj_input.click()
+        await subj_input.type(subject, delay=random.randint(20, 50))
+        await asyncio.sleep(random.uniform(0.3, 1))
+
+        body_el = page.locator('[aria-label="Message Body"], [role="textbox"]').first
+        await body_el.click()
+        await page.evaluate(
+            "(el, html) => el.innerHTML = html",
+            [await body_el.element_handle(), body],
+        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
+        await asyncio.sleep(random.uniform(0.5, 2))
+
+        await page.click('[aria-label="Send"], [data-tooltip="Send"]')
+        await asyncio.sleep(random.uniform(2, 4))
+
+    async def _browser_send_outlook(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Outlook/Hotmail via browser."""
+        await page.click('[aria-label="New mail"], button:has-text("New mail")', timeout=10000)
+        await asyncio.sleep(random.uniform(1, 3))
+
+        to_input = page.locator('[aria-label="To"], input[role="combobox"]').first
+        await to_input.click()
+        await to_input.type(to_email, delay=random.randint(30, 60))
+        await asyncio.sleep(random.uniform(1, 2))
+        await page.keyboard.press("Tab")
+
+        subj_input = page.locator('[aria-label="Add a subject"]').first
+        await subj_input.click()
+        await subj_input.type(subject, delay=random.randint(20, 50))
+        await asyncio.sleep(random.uniform(0.3, 1))
+
+        body_el = page.locator('[aria-label="Message body"], [role="textbox"]').first
+        await body_el.click()
+        await page.evaluate(
+            "(el, html) => el.innerHTML = html",
+            [await body_el.element_handle(), body],
+        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
+        await asyncio.sleep(random.uniform(0.5, 2))
+
+        await page.click('[aria-label="Send"], button:has-text("Send")')
+        await asyncio.sleep(random.uniform(2, 4))
+
+    async def _browser_send_proton(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Proton Mail via browser."""
+        await page.click('[data-testid="sidebar:compose"], button:has-text("New message")', timeout=10000)
+        await asyncio.sleep(random.uniform(1, 3))
+
+        to_input = page.locator('[data-testid="composer:to"] input, input[placeholder*="Recipient"]').first
+        await to_input.click()
+        await to_input.type(to_email, delay=random.randint(30, 60))
+        await asyncio.sleep(random.uniform(0.5, 1))
+        await page.keyboard.press("Tab")
+        await asyncio.sleep(random.uniform(0.3, 0.6))
+
+        subj_input = page.locator('[data-testid="composer:subject"] input, input[placeholder="Subject"]').first
+        await subj_input.click()
+        await subj_input.type(subject, delay=random.randint(20, 50))
+        await asyncio.sleep(random.uniform(0.3, 1))
+
+        body_el = page.locator('[data-testid="composer:body"] [contenteditable="true"], [contenteditable="true"]').first
+        await body_el.click()
+        await page.evaluate(
+            "(el, html) => el.innerHTML = html",
+            [await body_el.element_handle(), body],
+        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
+        await asyncio.sleep(random.uniform(0.5, 2))
+
+        await page.click('[data-testid="composer:send-button"], button:has-text("Send")')
+        await asyncio.sleep(random.uniform(2, 5))
+
+    async def _browser_send_tuta(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Tuta Mail via browser."""
+        await page.click('button[title="New email"], button:has-text("New email"), [aria-label="New email"]', timeout=10000)
+        await asyncio.sleep(random.uniform(1, 3))
+
+        to_input = page.locator('input[aria-label="To"], input[placeholder*="To"], .bubbleTextField input').first
+        await to_input.click()
+        await to_input.type(to_email, delay=random.randint(30, 60))
+        await asyncio.sleep(random.uniform(0.5, 1))
+        await page.keyboard.press("Enter")
+        await asyncio.sleep(random.uniform(0.3, 0.6))
+
+        subj_input = page.locator('input[aria-label="Subject"], input[placeholder="Subject"]').first
+        await subj_input.click()
+        await subj_input.type(subject, delay=random.randint(20, 50))
+        await asyncio.sleep(random.uniform(0.3, 1))
+
+        body_el = page.locator('[contenteditable="true"], .editor-squire-wrapper [contenteditable]').first
+        await body_el.click()
+        await page.evaluate(
+            "(el, html) => el.innerHTML = html",
+            [await body_el.element_handle(), body],
+        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
+        await asyncio.sleep(random.uniform(0.5, 2))
+
+        await page.click('button[title="Send"], button:has-text("Send")')
+        await asyncio.sleep(random.uniform(2, 5))
 
     # ─── Resource Monitor ─────────────────────────────────────────────────────
 

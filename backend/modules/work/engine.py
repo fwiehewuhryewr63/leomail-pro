@@ -1,7 +1,7 @@
 """
 Leomail v3 - Work Module (Mass Mailing Engine)
 Browser-based sending: open profile, compose with template variables + spintax, send, track.
-Supports: Yahoo, AOL, Gmail, Outlook/Hotmail.
+Supports: Yahoo, AOL, Gmail, Outlook/Hotmail, Proton, Tuta.
 """
 import random
 import asyncio
@@ -276,6 +276,8 @@ class WorkSession:
                 "gmail": "https://mail.google.com",
                 "outlook": "https://outlook.live.com/mail",
                 "hotmail": "https://outlook.live.com/mail",
+                "proton": "https://mail.proton.me",
+                "tuta": "https://app.tuta.com",
             }
             mail_url = mail_urls.get(provider, "https://mail.yahoo.com/")
             await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
@@ -334,6 +336,10 @@ class WorkSession:
                         await self._send_outlook(page, recipient["email"], subject, body)
                     elif provider == "gmail":
                         await self._send_gmail(page, recipient["email"], subject, body)
+                    elif provider == "proton":
+                        await self._send_proton(page, recipient["email"], subject, body)
+                    elif provider == "tuta":
+                        await self._send_tuta(page, recipient["email"], subject, body)
 
                     self.sent_count += 1
                     self.consecutive_errors = 0
@@ -559,6 +565,90 @@ class WorkSession:
 
         await page.click('[aria-label="Send"], button:has-text("Send")')
         await asyncio.sleep(random.uniform(2, 4))
+
+    # ───────────────────────────────────────────────────
+    #  PROTON MAIL SENDER
+    # ───────────────────────────────────────────────────
+
+    async def _send_proton(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Proton Mail."""
+        await page.click(
+            '[data-testid="sidebar:compose"], button:has-text("New message")',
+            timeout=10000,
+        )
+        await asyncio.sleep(random.uniform(1, 3))
+
+        to_input = page.locator(
+            '[data-testid="composer:to"] input, input[placeholder*="Recipient"]'
+        ).first
+        await to_input.click()
+        await _human_delay(0.2, 0.5)
+        await to_input.type(to_email, delay=random.randint(30, 60))
+        await _human_delay(0.5, 1)
+        await page.keyboard.press("Tab")
+        await _human_delay(0.3, 0.6)
+
+        await _type_human(
+            page,
+            '[data-testid="composer:subject"] input, input[placeholder="Subject"]',
+            subject,
+        )
+        await _human_delay(0.3, 1)
+
+        await _type_human(
+            page,
+            '[data-testid="composer:body"] [contenteditable="true"]',
+            body,
+            is_contenteditable=True,
+        )
+        await _human_delay(0.5, 2)
+
+        await page.click(
+            '[data-testid="composer:send-button"], button:has-text("Send")'
+        )
+        await asyncio.sleep(random.uniform(2, 5))
+
+    # ───────────────────────────────────────────────────
+    #  TUTA MAIL SENDER
+    # ───────────────────────────────────────────────────
+
+    async def _send_tuta(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Tuta Mail."""
+        await page.click(
+            'button[title="New email"], button:has-text("New email"), '
+            '[aria-label="New email"]',
+            timeout=10000,
+        )
+        await asyncio.sleep(random.uniform(1, 3))
+
+        to_input = page.locator(
+            'input[aria-label="To"], input[placeholder*="To"], '
+            '.bubbleTextField input'
+        ).first
+        await to_input.click()
+        await _human_delay(0.2, 0.5)
+        await to_input.type(to_email, delay=random.randint(30, 60))
+        await _human_delay(0.5, 1)
+        await page.keyboard.press("Enter")
+        await _human_delay(0.3, 0.6)
+
+        await _type_human(
+            page,
+            'input[aria-label="Subject"], input[placeholder="Subject"]',
+            subject,
+        )
+        await _human_delay(0.3, 1)
+
+        await _type_human(
+            page,
+            '[contenteditable="true"], .editor-squire-wrapper [contenteditable]',
+            body,
+            is_contenteditable=True,
+        )
+        await _human_delay(0.5, 2)
+
+        await page.click('button[title="Send"], button:has-text("Send")')
+        await asyncio.sleep(random.uniform(2, 5))
 
 
 # ─────────────────────────────────────────────────────────
