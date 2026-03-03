@@ -1,28 +1,26 @@
 """
-Leomail v4 - Blitz Pipeline Engine
-Continuous Birth -> Send -> Die -> Repeat conveyor.
-Two async pools: birth_pool feeds send_pool via asyncio.Queue.
+Leomail v4 - Campaign Engine (Send-Only)
+Loads Ready accounts from farms -> sends emails via browser -> tracks results.
+No account creation — autoreg is a separate module.
 """
 import asyncio
 import random
 import string
-import threading
 from datetime import datetime
 from loguru import logger
 
 from ..database import SessionLocal
 from ..models import (
     Campaign, CampaignStatus, CampaignTemplate, CampaignLink, CampaignRecipient,
-    Account, AccountStatus, Proxy, ProxyStatus, ThreadLog,
+    Account, AccountStatus, Proxy, ProxyStatus,
 )
 
 
 # ─── Global campaign registry ────────────────────────────────────────────────
-# campaign_id -> BlitzCampaignRunner instance
-_active_campaigns: dict[int, "BlitzCampaignRunner"] = {}
+_active_campaigns: dict[int, "CampaignRunner"] = {}
 
 
-def get_active_campaign(campaign_id: int) -> "BlitzCampaignRunner | None":
+def get_active_campaign(campaign_id: int) -> "CampaignRunner | None":
     return _active_campaigns.get(campaign_id)
 
 
@@ -32,9 +30,9 @@ def list_active_campaigns() -> list[int]:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-MAX_EMAILS_PER_ACCOUNT = 50   # then burn account
+MAX_EMAILS_PER_ACCOUNT = 50   # then rotate to next account
 MAX_CONSECUTIVE_ERRORS = 3    # kill account after N errors in a row
-BIRTH_RETRY_DELAY = 30        # seconds between birth retries on failure
+SEND_RETRY_DELAY = 30         # seconds between retries on failure
 RESOURCE_CHECK_INTERVAL = 300  # check resources every 5 min
 RESOURCE_WAIT_TIMEOUT = 300   # wait up to 5 min for user to add links/templates
 
@@ -52,6 +50,7 @@ WARMUP_DELAYS = [
     60,    # after 8th+: 1 min (minimum)
 ]
 
+
 def get_warmup_delay(emails_sent: int) -> float:
     """Get delay in seconds based on how many emails this account has sent."""
     if emails_sent < len(WARMUP_DELAYS):
@@ -62,48 +61,21 @@ def get_warmup_delay(emails_sent: int) -> float:
     return base * jitter
 
 
-# ── Auto GEO -> Name Pack mapping ──
-GEO_NAME_PACK_MAP = {
-    "AR": "argentina_5k", "BO": "bolivia_5k", "BR": "brazil_5k",
-    "CA": "canada_5k", "CL": "chile_5k", "CO": "colombia_5k",
-    "CR": "costa_rica_5k", "CU": "cuba_5k", "DO": "dominican_5k",
-    "EC": "ecuador_5k", "EG": "egypt_5k", "SV": "el_salvador_5k",
-    "GT": "guatemala_5k", "HN": "honduras_5k", "MX": "mexico_5k",
-    "NI": "nicaragua_5k", "NG": "nigeria_5k", "PA": "panama_5k",
-    "PY": "paraguay_5k", "PE": "peru_5k", "PR": "puerto_rico_5k",
-    "ZA": "south_africa_5k", "UY": "uruguay_5k", "US": "us_names_5k",
-    "VE": "venezuela_5k",
-    "GB": "us_uk", "UK": "us_uk", "AU": "us_uk", "NZ": "us_uk",
-    "DE": "europe_de_fr_it", "FR": "europe_de_fr_it", "IT": "europe_de_fr_it",
-    "RU": "ru_cis", "UA": "ru_cis", "KZ": "ru_cis", "BY": "ru_cis",
-    "SA": "arab", "AE": "arab",
-    "KE": "africa", "TZ": "africa",
-}
-
-def resolve_name_pack(campaign_name_pack: str, geo: str) -> str:
-    """Auto-resolve name pack: explicit > GEO mapping > us_names_5k."""
-    if campaign_name_pack and campaign_name_pack != "auto":
-        return campaign_name_pack
-    geo_upper = (geo or "").upper().strip()
-    if geo_upper in GEO_NAME_PACK_MAP:
-        return GEO_NAME_PACK_MAP[geo_upper]
-    return "us_names_5k"
-
-
-class BlitzCampaignRunner:
+class CampaignRunner:
     """
-    Runs a single campaign with two pools:
-    - birth_pool: N threads birthing accounts -> pushing to send_queue
-    - send_pool:  M threads pulling accounts from queue -> sending -> burning
+    Runs a send-only campaign:
+    - Loads Ready accounts from linked farms
+    - Opens browser sessions for each account
+    - Sends emails via browser UI (Yahoo/AOL/Gmail/Outlook/Proton)
+    - Tracks send stats, rate limits, dead accounts
     """
 
     def __init__(self, campaign_id: int):
         self.campaign_id = campaign_id
-        self.send_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=50)
+        self.account_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
         self._stop_event = asyncio.Event()
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # not paused initially
-        self._birth_tasks: list[asyncio.Task] = []
         self._send_tasks: list[asyncio.Task] = []
         self._monitor_task: asyncio.Task | None = None
 
@@ -112,75 +84,65 @@ class BlitzCampaignRunner:
         return not self._stop_event.is_set()
 
     async def start(self):
-        """Start the blitz pipeline."""
+        """Start the campaign — load accounts from farms, launch send workers."""
         db = SessionLocal()
         try:
             campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
             if not campaign:
-                logger.error(f"Blitz: Campaign {self.campaign_id} not found")
+                logger.error(f"Campaign {self.campaign_id} not found")
                 return
 
-            birth_threads = campaign.birth_threads or 10
-            send_threads = campaign.send_threads or 20
+            send_threads = campaign.send_threads or 10
 
-            # ── Pre-load existing farm accounts into send queue ──
-            existing_count = 0
-            if campaign.use_existing and campaign.farm_ids:
-                from ..models import Account, Farm, farm_accounts
-                farm_id_list = campaign.farm_ids if isinstance(campaign.farm_ids, list) else []
-                if farm_id_list:
-                    # Get all alive accounts from selected farms
-                    accs = (
-                        db.query(Account)
-                        .join(farm_accounts)
-                        .filter(
-                            farm_accounts.c.farm_id.in_(farm_id_list),
-                            Account.status.notin_(["dead", "banned"]),
-                        )
-                        .all()
+            # ── Load accounts from farms into send queue ──
+            loaded = 0
+            farm_ids = campaign.farm_ids if isinstance(campaign.farm_ids, list) else []
+            if farm_ids:
+                from ..models import Farm, farm_accounts
+                accs = (
+                    db.query(Account)
+                    .join(farm_accounts)
+                    .filter(
+                        farm_accounts.c.farm_id.in_(farm_ids),
+                        Account.status.notin_(["dead", "banned"]),
                     )
-                    for acc in accs:
-                        await self.send_queue.put({
-                            "email": acc.email,
-                            "password": acc.password,
-                            "provider": acc.provider,
-                            "first_name": acc.first_name or "",
-                            "account_id": acc.id,
-                            "is_existing": True,
-                            "prior_sends": acc.total_emails_sent or 0,
-                        })
-                        existing_count += 1
-                    logger.info(
-                        f"Blitz START: loaded {existing_count} existing accounts "
-                        f"from farms {farm_id_list}"
-                    )
+                    .all()
+                )
+                for acc in accs:
+                    await self.account_queue.put({
+                        "email": acc.email,
+                        "password": acc.password,
+                        "provider": acc.provider,
+                        "first_name": acc.first_name or "",
+                        "account_id": acc.id,
+                        "prior_sends": acc.total_emails_sent or 0,
+                    })
+                    loaded += 1
+
+            if loaded == 0:
+                logger.error(f"Campaign {campaign.name}: no accounts found in farms {farm_ids}")
+                campaign.status = CampaignStatus.STOPPED
+                campaign.stop_reason = "No accounts in selected farms"
+                db.commit()
+                return
 
             logger.info(
-                f"Blitz START: campaign={campaign.name} "
-                f"birth={birth_threads} send={send_threads} "
-                f"existing={existing_count}"
+                f"Campaign START: {campaign.name} — "
+                f"{loaded} accounts loaded, {send_threads} send threads"
             )
 
-            # Start birth pool
-            for i in range(birth_threads):
-                task = asyncio.create_task(
-                    self._birth_worker(i),
-                    name=f"blitz-birth-{self.campaign_id}-{i}"
-                )
-                self._birth_tasks.append(task)
-
-            # Start send pool
+            # Start send workers
             for i in range(send_threads):
                 task = asyncio.create_task(
                     self._send_worker(i),
-                    name=f"blitz-send-{self.campaign_id}-{i}"
+                    name=f"campaign-send-{self.campaign_id}-{i}"
                 )
                 self._send_tasks.append(task)
 
             # Start resource monitor
             self._monitor_task = asyncio.create_task(
                 self._resource_monitor(),
-                name=f"blitz-monitor-{self.campaign_id}"
+                name=f"campaign-monitor-{self.campaign_id}"
             )
 
             _active_campaigns[self.campaign_id] = self
@@ -189,17 +151,15 @@ class BlitzCampaignRunner:
             db.close()
 
     async def stop(self, reason: str = "Manual stop"):
-        """Stop the blitz pipeline."""
+        """Stop the campaign."""
         self._stop_event.set()
         self._pause_event.set()  # unblock any paused workers
 
-        # Cancel all tasks
-        for t in self._birth_tasks + self._send_tasks:
+        for t in self._send_tasks:
             t.cancel()
         if self._monitor_task:
             self._monitor_task.cancel()
 
-        # Update campaign status
         db = SessionLocal()
         try:
             campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
@@ -211,10 +171,10 @@ class BlitzCampaignRunner:
             db.close()
 
         _active_campaigns.pop(self.campaign_id, None)
-        logger.info(f"Blitz STOP: campaign={self.campaign_id}, reason={reason}")
+        logger.info(f"Campaign STOP: id={self.campaign_id}, reason={reason}")
 
     async def pause(self):
-        """Pause the pipeline (workers wait)."""
+        """Pause the campaign (workers wait)."""
         self._pause_event.clear()
         db = SessionLocal()
         try:
@@ -224,10 +184,10 @@ class BlitzCampaignRunner:
                 db.commit()
         finally:
             db.close()
-        logger.info(f"Blitz PAUSED: campaign={self.campaign_id}")
+        logger.info(f"Campaign PAUSED: id={self.campaign_id}")
 
     async def resume(self):
-        """Resume paused pipeline."""
+        """Resume paused campaign."""
         self._pause_event.set()
         db = SessionLocal()
         try:
@@ -238,345 +198,12 @@ class BlitzCampaignRunner:
                 db.commit()
         finally:
             db.close()
-        logger.info(f"Blitz RESUMED: campaign={self.campaign_id}")
-
-    # ─── Birth Worker ─────────────────────────────────────────────────────────
-
-    async def _birth_worker(self, worker_id: int):
-        """Birth accounts and push to send queue."""
-        while not self._stop_event.is_set():
-            await self._pause_event.wait()  # block if paused
-            if self._stop_event.is_set():
-                break
-
-            db = SessionLocal()
-            try:
-                campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
-                if not campaign or campaign.status not in (
-                    CampaignStatus.RUNNING, CampaignStatus.PAUSED
-                ):
-                    break
-
-                # Pick provider
-                providers = campaign.providers or ["yahoo"]
-                provider = random.choice(providers)
-
-                # Get proxy - round-robin distribution across workers
-                # Each worker offsets into the pool so threads don't all grab the same proxy
-                # Apply cooldown filter (same as birth.py)
-                from datetime import datetime, timedelta
-                cooldown_min = {"yahoo": 30, "aol": 30, "gmail": 30,
-                                "outlook": 15, "hotmail": 15,
-                                "proton": 15}.get(provider.lower(), 20)
-                cutoff = datetime.utcnow() - timedelta(minutes=cooldown_min)
-                active_proxies = db.query(Proxy).filter(
-                    Proxy.status == ProxyStatus.ACTIVE,
-                    (Proxy.last_used_at == None) | (Proxy.last_used_at < cutoff),  # noqa: E711
-                ).order_by(Proxy.fail_count.asc(), Proxy.id.asc()).all()
-
-                if not active_proxies:
-                    logger.warning(f"Blitz birth[{worker_id}]: No proxies available (cooldown {cooldown_min}min)")
-                    await asyncio.sleep(BIRTH_RETRY_DELAY)
-                    continue
-
-                # Round-robin: each worker picks a different proxy from the pool
-                proxy = active_proxies[worker_id % len(active_proxies)]
-                proxy.last_used_at = datetime.utcnow()
-                db.commit()
-
-                name_pack = resolve_name_pack(campaign.name_pack, campaign.geo)
-
-                logger.debug(f"Blitz birth[{worker_id}]: birthing {provider} via proxy {proxy.id} ({proxy.host}:{proxy.port})...")
-
-                account_data = await self._do_birth(
-                    provider, name_pack, proxy, campaign.geo, db
-                )
-
-                if account_data:
-                    await self.send_queue.put(account_data)
-
-                    # Update stats + reset proxy fail counter on success
-                    campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
-                    if campaign:
-                        campaign.accounts_born = (campaign.accounts_born or 0) + 1
-                    proxy.fail_count = 0  # reset consecutive fails
-                    proxy.total_births = (proxy.total_births or 0) + 1  # track lifetime success
-                    db.commit()
-
-                    logger.info(
-                        f"Blitz birth[{worker_id}]: {account_data['email']} "
-                        f"-> send queue ({self.send_queue.qsize()} waiting)"
-                    )
-                else:
-                    # Birth failed - increment proxy fail counter
-                    proxy.fail_count = (proxy.fail_count or 0) + 1
-                    proxy.total_fails = (proxy.total_fails or 0) + 1  # track lifetime fails
-
-                    # Smart DEAD detection:
-                    # 1) 5 consecutive fails = DEAD
-                    # 2) OR lifetime success rate < 20% after 10+ attempts = DEAD
-                    total_attempts = (proxy.total_births or 0) + (proxy.total_fails or 0)
-                    success_rate = (proxy.total_births or 0) / max(total_attempts, 1)
-
-                    if proxy.fail_count >= 5:
-                        proxy.status = ProxyStatus.DEAD
-                        logger.warning(
-                            f"Blitz birth[{worker_id}]: proxy {proxy.id} -> DEAD (5 consecutive fails)"
-                        )
-                    elif total_attempts >= 10 and success_rate < 0.2:
-                        proxy.status = ProxyStatus.DEAD
-                        logger.warning(
-                            f"Blitz birth[{worker_id}]: proxy {proxy.id} -> DEAD "
-                            f"(success rate {success_rate:.0%} after {total_attempts} attempts)"
-                        )
-                    db.commit()
-
-                    # Adaptive cooldown: more fails = longer wait
-                    cooldown = min(BIRTH_RETRY_DELAY * proxy.fail_count, 120)
-                    logger.warning(
-                        f"Blitz birth[{worker_id}]: birth failed "
-                        f"(proxy {proxy.id} fails: {proxy.fail_count}, cooldown: {cooldown}s)"
-                    )
-                    await asyncio.sleep(cooldown)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Blitz birth[{worker_id}] error: {e}")
-                await asyncio.sleep(BIRTH_RETRY_DELAY)
-            finally:
-                db.close()
-
-    async def _do_birth(self, provider: str, name_pack: str, proxy, geo: str, db) -> dict | None:
-        """
-        Execute a single account birth using real birth modules.
-        Returns {email, password, first_name, provider, proxy_id, account_id} or None.
-        """
-        from ..birth import (
-            register_single_gmail, register_single_yahoo,
-            register_single_aol, register_single_outlook,
-            register_single_protonmail,
-        )
-        from ..browser_manager import BrowserManager
-        from ..birth._helpers import (
-            get_sms_provider, get_captcha_provider, get_sms_chain,
-            rate_limiter, clean_session,
-            RecoverableError, RateLimitError, BannedIPError, CaptchaFailError, FatalError,
-        )
-        import os, json
-
-        # ── Rate limiter check: is this IP already burned/cooling? ──
-        proxy_ip = f"{proxy.host}:{proxy.port}" if proxy else "direct"
-        can_go, wait_time = rate_limiter.can_proceed(provider, proxy_ip)
-        if not can_go:
-            logger.warning(f"Blitz birth: rate limiter blocks {provider}@{proxy_ip} (wait {wait_time:.0f}s)")
-            return None
-
-        # ── Load name pack ──
-        name_pool = []
-        for name_dir in ["user_data/names", "backend/data/names", "data/names"]:
-            name_file = os.path.join(name_dir, f"{name_pack}.txt")
-            if os.path.exists(name_file):
-                with open(name_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        parts = line.split(",")
-                        first = parts[0].strip()
-                        last = parts[1].strip() if len(parts) > 1 else "Smith"
-                        if first:
-                            name_pool.append((first, last))
-                break
-
-        if not name_pool:
-            # Fallback - generate random
-            name_pool = [("Maria", "Silva"), ("Jessica", "Smith"), ("Sarah", "Johnson")]
-            logger.warning(f"Blitz: name pack '{name_pack}' not found, using fallback names")
-
-        # ── Get SMS provider (with fallback chain) ──
-        sms_provider = None
-        sms_chain = get_sms_chain("simsms")
-        if sms_chain:
-            sms_provider = sms_chain[0][1]  # (name, provider_instance)
-
-        # ── Get Captcha provider ──
-        captcha_provider = get_captcha_provider()
-
-        # ── Create ThreadLog for this birth ──
-        thread_log = ThreadLog(
-            task_id=0,
-            thread_number=0,
-            status="running",
-            current_action=f"Blitz birth: {provider}",
-        )
-        db.add(thread_log)
-        db.commit()
-
-        # ── Start browser ──
-        bm = BrowserManager(headless=True)
-        await bm.start()
-
-        active_pages = {}
-        cancel_event = threading.Event()
-
-        try:
-            account = None
-
-            if provider == "yahoo":
-                account = await register_single_yahoo(
-                    browser_manager=bm,
-                    proxy=proxy,
-        
-                    name_pool=name_pool,
-                    sms_provider=sms_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    captcha_provider=captcha_provider,
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
-
-            elif provider == "aol":
-                account = await register_single_aol(
-                    browser_manager=bm,
-                    proxy=proxy,
-        
-                    name_pool=name_pool,
-                    sms_provider=sms_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    captcha_provider=captcha_provider,
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
-
-            elif provider == "outlook":
-                domain = "outlook.com"
-                account = await register_single_outlook(
-                    browser_manager=bm,
-                    proxy=proxy,
-        
-                    name_pool=name_pool,
-                    captcha_provider=captcha_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    domain=domain,
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
-
-            elif provider == "gmail":
-                account = await register_single_gmail(
-                    browser_manager=bm,
-                    proxy=proxy,
-                    name_pool=name_pool,
-                    captcha_provider=captcha_provider,
-                    sms_provider=sms_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
-
-            elif provider == "hotmail":
-                account = await register_single_outlook(
-                    browser_manager=bm,
-                    proxy=proxy,
-        
-                    name_pool=name_pool,
-                    captcha_provider=captcha_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    domain="hotmail.com",
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
-
-            elif provider == "proton":
-                account = await register_single_protonmail(
-                    browser_manager=bm,
-                    proxy=proxy,
-        
-                    name_pool=name_pool,
-                    captcha_provider=captcha_provider,
-                    db=db,
-                    thread_log=thread_log,
-                    ACTIVE_PAGES=active_pages,
-                    BIRTH_CANCEL_EVENT=cancel_event,
-                )
-
-
-            else:
-                logger.error(f"Unknown provider: {provider}")
-                return None
-
-            # ── Process result ──
-            if account and isinstance(account, Account):
-                # Record success in rate limiter to reset backoff
-                rate_limiter.record_success(provider, proxy_ip)
-                return {
-                    "email": account.email,
-                    "password": account.password,
-                    "first_name": account.first_name or "",
-                    "provider": provider,
-                    "proxy_id": proxy.id if proxy else None,
-                    "account_id": account.id,
-                }
-            return None
-
-        except RateLimitError as e:
-            logger.warning(f"Birth rate limited ({provider}): [{e.code}] {e.message}")
-            rate_limiter.record_block(provider, proxy_ip)
-            return None
-        except BannedIPError as e:
-            logger.warning(f"Birth IP banned ({provider}): [{e.code}] {e.message}")
-            rate_limiter.record_block(provider, proxy_ip)
-            # Mark proxy as having a failure pattern
-            if proxy:
-                proxy.fail_count = (proxy.fail_count or 0) + 3  # penalize harder for IP ban
-                try:
-                    db.commit()
-                except Exception:
-                    pass
-            return None
-        except CaptchaFailError as e:
-            logger.warning(f"Birth captcha failed ({provider}): [{e.code}] {e.message}")
-            return None
-        except FatalError as e:
-            logger.error(f"Birth FATAL ({provider}): [{e.code}] {e.message}")
-            return None
-        except RecoverableError as e:
-            logger.info(f"Birth recoverable ({provider}): [{e.code}] {e.message}")
-            return None
-        except Exception as e:
-            logger.error(f"Birth execution error ({provider}): {e}")
-            return None
-        finally:
-            # Clean session state before closing (prevents cookie/cache leaks)
-            for pid, pdata in active_pages.items():
-                try:
-                    ctx = pdata.get("context")
-                    if ctx:
-                        await clean_session(ctx)
-                except Exception:
-                    pass
-            # Close all open pages
-            for pid, pdata in active_pages.items():
-                try:
-                    await pdata["page"].close()
-                except Exception:
-                    pass
-                try:
-                    await pdata["context"].close()
-                except Exception:
-                    pass
-            await bm.stop()
+        logger.info(f"Campaign RESUMED: id={self.campaign_id}")
 
     # ─── Send Worker ──────────────────────────────────────────────────────────
 
     async def _send_worker(self, worker_id: int):
-        """Pull accounts from queue, send emails via BROWSER (no SMTP)."""
+        """Pull accounts from queue, send emails via BROWSER."""
         from ..browser_manager import BrowserManager
 
         while not self._stop_event.is_set():
@@ -584,13 +211,15 @@ class BlitzCampaignRunner:
             if self._stop_event.is_set():
                 break
 
-            # Get account from birth queue
+            # Get account from queue
             try:
                 account_data = await asyncio.wait_for(
-                    self.send_queue.get(), timeout=30
+                    self.account_queue.get(), timeout=30
                 )
             except asyncio.TimeoutError:
-                continue
+                # No more accounts in queue — worker exits
+                logger.info(f"Campaign send[{worker_id}]: no more accounts in queue")
+                break
             except asyncio.CancelledError:
                 break
 
@@ -611,7 +240,7 @@ class BlitzCampaignRunner:
                 from_name = account_data.get("first_name", "")
                 account_id = account_data.get("account_id")
 
-                logger.info(f"Blitz send[{worker_id}]: starting with {email} (browser mode)")
+                logger.info(f"Campaign send[{worker_id}]: starting with {email}")
 
                 consecutive_errors = 0
                 emails_sent = 0
@@ -621,20 +250,18 @@ class BlitzCampaignRunner:
                 bm = BrowserManager(headless=True)
                 await bm.start()
 
-                # Load saved session if account exists in DB, otherwise create fresh context
+                # Load saved session if available
                 if account_id:
-                    from ..models import Account as AccountModel
-                    acc_obj = db.query(AccountModel).filter(AccountModel.id == account_id).first()
+                    acc_obj = db.query(Account).filter(Account.id == account_id).first()
                     if acc_obj and hasattr(bm, 'load_session_context'):
                         try:
                             context, _ = await bm.load_session_context(
                                 account_id=account_id,
                                 proxy=acc_obj.proxy,
-                    
                                 geo=acc_obj.geo,
                             )
                         except Exception as e:
-                            logger.warning(f"Blitz send[{worker_id}]: session load failed: {e}, using fresh context")
+                            logger.warning(f"Campaign send[{worker_id}]: session load failed: {e}")
                             context = None
 
                 if not context:
@@ -656,13 +283,19 @@ class BlitzCampaignRunner:
                     await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
                     await asyncio.sleep(random.uniform(3, 6))
                 except Exception as e:
-                    logger.error(f"Blitz send[{worker_id}]: failed to open {mail_url}: {e}")
-                    break
+                    logger.error(f"Campaign send[{worker_id}]: failed to open {mail_url}: {e}")
+                    continue
 
                 # Check if session is valid (not redirected to login)
                 if "signin" in page.url or "login" in page.url or "account" in page.url:
-                    logger.warning(f"Blitz send[{worker_id}] {email}: session expired / not logged in")
-                    break
+                    logger.warning(f"Campaign send[{worker_id}] {email}: session expired / not logged in")
+                    # Mark account as needing re-auth
+                    if account_id:
+                        acc = db.query(Account).filter(Account.id == account_id).first()
+                        if acc:
+                            acc.status = AccountStatus.DEAD
+                            db.commit()
+                    continue
 
                 # ── Send loop (reuses same browser page) ──
                 while (
@@ -681,17 +314,17 @@ class BlitzCampaignRunner:
                     ).first()
 
                     if not recipient:
-                        logger.info(f"Blitz send[{worker_id}]: no more recipients")
+                        logger.info(f"Campaign send[{worker_id}]: no more recipients")
                         await self.stop("All recipients sent")
                         break
 
-                    # Get template - ONE-TIME USE
+                    # Get template
                     template = db.query(CampaignTemplate).filter(
                         CampaignTemplate.campaign_id == self.campaign_id,
                         CampaignTemplate.active == True  # noqa
                     ).first()
                     if not template:
-                        logger.warning(f"Blitz send[{worker_id}]: no active templates, waiting for reload...")
+                        logger.warning(f"Campaign send[{worker_id}]: no active templates, waiting...")
                         for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
                             await asyncio.sleep(10)
                             if self._stop_event.is_set():
@@ -701,13 +334,12 @@ class BlitzCampaignRunner:
                                 CampaignTemplate.active == True
                             ).first()
                             if template:
-                                logger.info(f"Blitz send[{worker_id}]: templates reloaded")
                                 break
                         if not template:
                             await self.stop("No active templates (waited 5 min)")
                             break
 
-                    # Lock template
+                    # Lock template (one-time use)
                     template_id = template.id
                     template.active = False
                     template.use_count = (template.use_count or 0) + 1
@@ -721,7 +353,7 @@ class BlitzCampaignRunner:
                     ).order_by(CampaignLink.use_count.asc()).first()
 
                     if not link:
-                        logger.warning(f"Blitz send[{worker_id}]: all links exhausted, waiting for reload...")
+                        logger.warning(f"Campaign send[{worker_id}]: all links exhausted, waiting...")
                         for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
                             await asyncio.sleep(10)
                             if self._stop_event.is_set():
@@ -732,7 +364,6 @@ class BlitzCampaignRunner:
                                 CampaignLink.use_count < CampaignLink.max_uses
                             ).order_by(CampaignLink.use_count.asc()).first()
                             if link:
-                                logger.info(f"Blitz send[{worker_id}]: links reloaded ({link.esp_url[:40]}...)")
                                 break
                         if not link:
                             await self.stop("All links exhausted (waited 5 min)")
@@ -802,8 +433,8 @@ class BlitzCampaignRunner:
                         ]):
                             is_dead = True
                         logger.warning(
-                            f"Blitz send[{worker_id}] {email} -> {recipient.email} "
-                            f"BROWSER ERROR: {str(e)[:200]}"
+                            f"Campaign send[{worker_id}] {email} -> {recipient.email} "
+                            f"ERROR: {str(e)[:200]}"
                         )
 
                     # ═══ Process result ═══
@@ -827,9 +458,9 @@ class BlitzCampaignRunner:
                         if campaign:
                             campaign.total_sent = (campaign.total_sent or 0) + 1
 
-                        if account_data.get("account_id"):
+                        if account_id:
                             acc = db.query(Account).filter(
-                                Account.id == account_data["account_id"]
+                                Account.id == account_id
                             ).first()
                             if acc:
                                 acc.total_emails_sent = (acc.total_emails_sent or 0) + 1
@@ -837,11 +468,12 @@ class BlitzCampaignRunner:
 
                         db.commit()
                         logger.debug(
-                            f"Blitz send[{worker_id}] {email} -> {recipient.email} "
+                            f"Campaign send[{worker_id}] {email} -> {recipient.email} "
                             f"({emails_sent}/{MAX_EMAILS_PER_ACCOUNT})"
                         )
 
                     elif is_rate_limited:
+                        # Undo recipient + template lock, switch account
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -856,11 +488,12 @@ class BlitzCampaignRunner:
                             campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                         db.commit()
                         logger.warning(
-                            f"Blitz send[{worker_id}] {email} RATE LIMITED -> switching account"
+                            f"Campaign send[{worker_id}] {email} RATE LIMITED -> switching account"
                         )
                         break
 
                     elif is_dead:
+                        # Undo recipient + template lock, mark account dead
                         recipient.sent = False
                         recipient.sent_at = None
                         recipient.result = None
@@ -874,9 +507,13 @@ class BlitzCampaignRunner:
                         if campaign:
                             campaign.total_errors = (campaign.total_errors or 0) + 1
                             campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
+                        if account_id:
+                            acc = db.query(Account).filter(Account.id == account_id).first()
+                            if acc:
+                                acc.status = AccountStatus.DEAD
                         db.commit()
                         logger.warning(
-                            f"Blitz send[{worker_id}] {email} DEAD: {send_error[:80]}"
+                            f"Campaign send[{worker_id}] {email} DEAD: {send_error[:80]}"
                         )
                         break
 
@@ -895,37 +532,28 @@ class BlitzCampaignRunner:
                     delay = get_warmup_delay(warmup_level)
                     if warmup_level <= len(WARMUP_DELAYS):
                         logger.debug(
-                            f"Blitz send[{worker_id}] {email}: warmup delay "
+                            f"Campaign send[{worker_id}] {email}: warmup delay "
                             f"{delay:.0f}s (level={warmup_level}, sent={emails_sent})"
                         )
                     await asyncio.sleep(delay)
 
-                # Account exhausted or dead
+                # Account exhausted or dead — update stats
                 campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
                 if campaign:
                     campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
                     db.commit()
 
-                if account_data.get("account_id"):
-                    acc = db.query(Account).filter(
-                        Account.id == account_data["account_id"]
-                    ).first()
-                    if acc:
-                        acc.status = AccountStatus.DEAD
-                        db.commit()
-
                 logger.info(
-                    f"Blitz send[{worker_id}] {email} burned: "
+                    f"Campaign send[{worker_id}] {email} done: "
                     f"sent={emails_sent}, errors={consecutive_errors}"
                 )
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Blitz send[{worker_id}] error: {e}")
+                logger.error(f"Campaign send[{worker_id}] error: {e}")
                 await asyncio.sleep(5)
             finally:
-                # Close browser for this account
                 if page:
                     try:
                         await page.close()
@@ -942,6 +570,8 @@ class BlitzCampaignRunner:
                     except Exception:
                         pass
                 db.close()
+
+    # ─── Browser Compose & Send ───────────────────────────────────────────────
 
     async def _browser_compose_send(
         self, page, provider: str, to_email: str, subject: str, body: str
@@ -1096,11 +726,10 @@ class BlitzCampaignRunner:
         await page.click('[data-testid="composer:send-button"], button:has-text("Send")')
         await asyncio.sleep(random.uniform(2, 5))
 
-
     # ─── Resource Monitor ─────────────────────────────────────────────────────
 
     async def _resource_monitor(self):
-        """Periodic resource check - auto-pause on critical deficit."""
+        """Periodic resource check — auto-stop on critical deficit."""
         while not self._stop_event.is_set():
             try:
                 await asyncio.sleep(RESOURCE_CHECK_INTERVAL)
@@ -1115,16 +744,14 @@ class BlitzCampaignRunner:
                     if not campaign:
                         break
 
-                    # Check remaining recipients
                     remaining = db.query(CampaignRecipient).filter(
                         CampaignRecipient.campaign_id == self.campaign_id,
                         CampaignRecipient.sent == False  # noqa
                     ).count()
                     if remaining == 0:
-                        await self.stop("All recipients sent - campaign complete")
+                        await self.stop("All recipients sent — campaign complete")
                         break
 
-                    # Check remaining links
                     active_links = db.query(CampaignLink).filter(
                         CampaignLink.campaign_id == self.campaign_id,
                         CampaignLink.active == True  # noqa
@@ -1133,7 +760,6 @@ class BlitzCampaignRunner:
                         await self.stop("All ESP links exhausted")
                         break
 
-                    # Check active templates
                     active_templates = db.query(CampaignTemplate).filter(
                         CampaignTemplate.campaign_id == self.campaign_id,
                         CampaignTemplate.active == True  # noqa
@@ -1142,18 +768,9 @@ class BlitzCampaignRunner:
                         await self.stop("No active templates")
                         break
 
-                    # Check alive proxies
-                    alive_proxies = db.query(Proxy).filter(
-                        Proxy.status == ProxyStatus.ACTIVE
-                    ).count()
-                    if alive_proxies == 0:
-                        await self.stop("No alive proxies")
-                        break
-
-                    # Log status
                     logger.info(
-                        f"Blitz monitor [{campaign.name}]: "
-                        f"sent={campaign.total_sent}, queue={self.send_queue.qsize()}, "
+                        f"Campaign monitor [{campaign.name}]: "
+                        f"sent={campaign.total_sent}, "
                         f"links={active_links}, recipients={remaining}"
                     )
 
@@ -1163,37 +780,37 @@ class BlitzCampaignRunner:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Blitz monitor error: {e}")
+                logger.error(f"Campaign monitor error: {e}")
 
 
 # ─── Public API (called from campaigns router) ───────────────────────────────
 
-async def start_blitz(campaign_id: int):
-    """Start a blitz campaign."""
+async def start_campaign_engine(campaign_id: int):
+    """Start a campaign."""
     if campaign_id in _active_campaigns:
         raise ValueError(f"Campaign {campaign_id} already running")
 
-    runner = BlitzCampaignRunner(campaign_id)
+    runner = CampaignRunner(campaign_id)
     await runner.start()
     return runner
 
 
-async def stop_blitz(campaign_id: int, reason: str = "Manual stop"):
-    """Stop a running blitz campaign."""
+async def stop_campaign_engine(campaign_id: int, reason: str = "Manual stop"):
+    """Stop a running campaign."""
     runner = _active_campaigns.get(campaign_id)
     if runner:
         await runner.stop(reason)
 
 
-async def pause_blitz(campaign_id: int):
-    """Pause a running blitz campaign."""
+async def pause_campaign_engine(campaign_id: int):
+    """Pause a running campaign."""
     runner = _active_campaigns.get(campaign_id)
     if runner:
         await runner.pause()
 
 
-async def resume_blitz(campaign_id: int):
-    """Resume a paused blitz campaign."""
+async def resume_campaign_engine(campaign_id: int):
+    """Resume a paused campaign."""
     runner = _active_campaigns.get(campaign_id)
     if runner:
         await runner.resume()

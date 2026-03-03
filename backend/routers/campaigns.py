@@ -386,13 +386,13 @@ async def start_campaign(campaign_id: int, db: Session = Depends(get_db)):
     c.stop_reason = None
     db.commit()
 
-    # Start Blitz Engine
-    from ..modules.blitz_engine import start_blitz, get_active_campaign
+    # Start Campaign Engine
+    from ..modules.campaign_engine import start_campaign_engine, get_active_campaign
     existing = get_active_campaign(c.id)
     if existing:
         await existing.resume()
     else:
-        await start_blitz(c.id)
+        await start_campaign_engine(c.id)
     return {"ok": True, "status": "running"}
 
 
@@ -405,9 +405,9 @@ async def pause_campaign(campaign_id: int, db: Session = Depends(get_db)):
 
     c.status = CampaignStatus.PAUSED
     db.commit()
-    # Signal Blitz Engine to pause
-    from ..modules.blitz_engine import pause_blitz
-    await pause_blitz(c.id)
+    # Signal Campaign Engine to pause
+    from ..modules.campaign_engine import pause_campaign_engine
+    await pause_campaign_engine(c.id)
     return {"ok": True, "status": "paused"}
 
 
@@ -418,9 +418,9 @@ async def stop_campaign(campaign_id: int, db: Session = Depends(get_db)):
     if not c:
         raise HTTPException(404, "Campaign not found")
 
-    # Signal Blitz Engine to stop
-    from ..modules.blitz_engine import stop_blitz
-    await stop_blitz(c.id, "Manual stop")
+    # Signal Campaign Engine to stop
+    from ..modules.campaign_engine import stop_campaign_engine
+    await stop_campaign_engine(c.id, "Manual stop")
 
     c.status = CampaignStatus.STOPPED
     c.stop_reason = "Manual stop"
@@ -725,7 +725,7 @@ async def preflight_check(campaign_id: int, db: Session = Depends(get_db)):
     return checks
 
 
-# ─── Link Helper (used by Blitz Engine) ───────────────────────────────────────
+# ─── Link Helper (used by Campaign Engine) ───────────────────────────────────
 
 def get_randomized_link(db: Session, campaign_id: int) -> str | None:
     """Get next ESP link with #hash randomization. Returns None if all exhausted."""
