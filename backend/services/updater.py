@@ -14,7 +14,7 @@ from datetime import datetime
 from loguru import logger
 
 # Current version
-VERSION = "4.3.0"
+VERSION = "4.5.0"
 VERSION_FILE = "version.json"
 
 # GitHub repo for releases
