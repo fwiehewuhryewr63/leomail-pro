@@ -42,6 +42,13 @@ class FarmSplit(BaseModel):
     split_by: str = "provider"  # provider, geo, status
     new_farm_name_prefix: str = "Split"
 
+class FarmMoveAccounts(BaseModel):
+    account_ids: List[int]
+    target_farm_id: int
+
+class FarmRemoveAccounts(BaseModel):
+    account_ids: List[int]
+
 
 # === Template ===
 

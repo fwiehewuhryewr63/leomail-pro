@@ -16,6 +16,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG = {
     "sms": {
         "default": "simsms",
+        "5sim": {"api_key": "", "enabled": True},
         "simsms": {"api_key": "", "enabled": True},
         "grizzly": {"api_key": "", "enabled": False}
     },
@@ -109,31 +110,30 @@ def save_config(data: dict):
     logger.info("Config saved")
 
 
+# Service name -> (config section, config key) mapping for API keys
+_API_KEY_PATHS = {
+    "5sim":       ("sms", "5sim"),
+    "simsms":     ("sms", "simsms"),
+    "grizzly":    ("sms", "grizzly"),
+    "capguru":    ("captcha", "capguru"),
+    "twocaptcha": ("captcha", "twocaptcha"),
+    "capsolver":  ("captcha", "capsolver"),
+    "asocks":     ("proxy_providers", "asocks"),
+    "proxy6":     ("proxy_providers", "proxy6"),
+    "belurk":     ("proxy_providers", "belurk"),
+    "iproyal":    ("proxy_providers", "iproyal"),
+    "proxycheap": ("proxy_providers", "proxycheap"),
+}
+
+
 def get_api_key(service: str) -> str | None:
     config = load_config()
-    if service == "grizzly":
-        key = config.get("sms", {}).get("grizzly", {}).get("api_key", "")
-        return key if key else None
-    elif service == "simsms":
-        key = config.get("sms", {}).get("simsms", {}).get("api_key", "")
-        return key if key else None
-    elif service == "capguru":
-        key = config.get("captcha", {}).get("capguru", {}).get("api_key", "")
-        return key if key else None
-    elif service == "twocaptcha":
-        key = config.get("captcha", {}).get("twocaptcha", {}).get("api_key", "")
-        return key if key else None
-    elif service == "capsolver":
-        key = config.get("captcha", {}).get("capsolver", {}).get("api_key", "")
-        return key if key else None
-    elif service == "5sim":
-        key = config.get("sms", {}).get("5sim", {}).get("api_key", "")
-        return key if key else None
-    elif service in ("asocks", "proxy6", "belurk", "iproyal", "proxycheap"):
-        key = config.get("proxy_providers", {}).get(service, {}).get("api_key", "")
-        return key if key else None
-
-    return None
+    path = _API_KEY_PATHS.get(service)
+    if not path:
+        return None
+    section, key = path
+    val = config.get(section, {}).get(key, {}).get("api_key", "")
+    return val if val else None
 
 
 def get_warmup_schedule() -> dict:
@@ -170,6 +170,7 @@ def init_directories():
         CONFIG_DIR / "logs" / "errors",
         CONFIG_DIR / "screenshots",
         CONFIG_DIR / "links",
+        CONFIG_DIR / "validator",
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,5 @@
 """
-Leomail v3 - Birth Router
+Leomail v4 - Birth Router
 Pooled registration of Gmail/Outlook accounts with captcha, SMS, profiles.
 """
 from fastapi import APIRouter, Depends, BackgroundTasks
@@ -10,8 +10,7 @@ from ..database import get_db, SessionLocal
 from ..models import Proxy, ProxyStatus, Task, TaskStatus, Account, Farm, ThreadLog
 from ..modules.browser_manager import BrowserManager
 from ..services.captcha_provider import CaptchaProvider
-from ..services.sms_provider import GrizzlySMS
-from ..services.simsms_provider import SimSmsProvider
+# SMS providers loaded via chain (get_sms_chain), not individual imports
 from ..services.proxy_manager import ProxyManager
 from ..utils import generate_birthday, generate_password, generate_username
 from ..modules.human_behavior import (
@@ -33,7 +32,7 @@ from ..modules.birth.gmail import register_single_gmail
 from ..modules.birth.yahoo import register_single_yahoo
 from ..modules.birth.aol import register_single_aol
 from ..modules.birth.protonmail import register_single_protonmail
-from ..modules.birth._helpers import get_sms_provider as _get_sms_provider
+from ..modules.birth._helpers import get_sms_chain as _get_sms_chain
 from ..services.proxy_providers import tiered_auto_buy
 from ..modules.birth._helpers import get_captcha_provider as _get_captcha_provider
 from ..services.engine_manager import engine_manager, EngineType
@@ -52,11 +51,9 @@ BIRTH_CANCEL_EVENT = threading.Event()
 
 
 class BirthRequest(BaseModel):
-    provider: str = "outlook"  # gmail, outlook
+    provider: str = "outlook"  # gmail, outlook, yahoo, aol, hotmail, protonmail
     quantity: int = 1
     name_pack_ids: list[int] = []
-    sms_provider: str = "simsms"  # simsms, grizzly
-    sms_countries: list[str] = []  # allowed countries, empty = auto
     threads: int = 1
     farm_name: str = ""  # auto-generated if empty
     headless: bool = True  # False = visible browser window on server
@@ -117,7 +114,7 @@ async def run_birth_task(request: BirthRequest):
                 if name_packs_for_label:
                     pack_names = [p.name for p in name_packs_for_label]
                     geo_label = " + ".join(pack_names)[:30]
-            farm_name = f"{date_str} - {provider_label} - {geo_label} - Lvl0"
+            farm_name = f"{geo_label} / {provider_label} / {date_str}"
         farm = Farm(name=farm_name, description=f"{request.quantity}x {request.provider}")
         db.add(farm)
         db.commit()
@@ -192,7 +189,8 @@ async def run_birth_task(request: BirthRequest):
 
         # Get providers
         captcha = _get_captcha_provider()
-        sms = _get_sms_provider(request.sms_provider)
+        # SMS: chain auto-rotation (5sim → grizzly → simsms), no manual selection
+        has_sms_chain = bool(_get_sms_chain())
 
         # CRITICAL: Abort if no names loaded
         if not name_pool or not first_names_list:
@@ -343,19 +341,8 @@ async def run_birth_task(request: BirthRequest):
                             name_index[0] += 1
                         worker_name_pool = [name_pair]
 
-                        # Thread-safe SMS: create per-worker COPY of sms provider
-                        # (fixes race condition - each worker gets own object)
-                        worker_sms = None
-                        if sms:
-                            worker_sms = copy.deepcopy(sms)
-                            worker_sms_countries = None
-                            if proxy and getattr(proxy, 'geo', None):
-                                worker_sms_countries = [proxy.geo.lower()]
-                            elif request.sms_countries:
-                                worker_sms_countries = list(request.sms_countries)
-                            worker_blacklist = list(country_blacklist) if country_blacklist else []
-                            worker_sms._sms_countries = worker_sms_countries
-                            worker_sms._country_blacklist = worker_blacklist
+                        # SMS: chain handles provider rotation + country rules automatically
+                        # No need for per-worker deepcopy — chain creates providers internally
 
                         account = None
                         if request.provider == "outlook":
@@ -374,38 +361,38 @@ async def run_birth_task(request: BirthRequest):
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "gmail":
-                            if not worker_sms:
+                            if not has_sms_chain:
                                 thread_log.status = "error"
-                                thread_log.error_message = "Gmail requires SMS provider"
+                                thread_log.error_message = "Gmail requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
                                 db.commit()
                                 return
                             account = await register_single_gmail(
                                 browser_manager, proxy, worker_name_pool,
-                                captcha, worker_sms, db, thread_log,
+                                captcha, None, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "yahoo":
-                            if not worker_sms:
+                            if not has_sms_chain:
                                 thread_log.status = "error"
-                                thread_log.error_message = "Yahoo requires SMS provider"
+                                thread_log.error_message = "Yahoo requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
                                 db.commit()
                                 return
                             account = await register_single_yahoo(
                                 browser_manager, proxy,
-                                worker_name_pool, captcha, worker_sms, db, thread_log,
+                                worker_name_pool, captcha, None, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
                         elif request.provider == "aol":
-                            if not worker_sms:
+                            if not has_sms_chain:
                                 thread_log.status = "error"
-                                thread_log.error_message = "AOL requires SMS provider"
+                                thread_log.error_message = "AOL requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
                                 db.commit()
                                 return
                             account = await register_single_aol(
                                 browser_manager, proxy,
-                                worker_name_pool, worker_sms, db, thread_log,
+                                worker_name_pool, None, db, thread_log,
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
@@ -469,14 +456,8 @@ async def run_birth_task(request: BirthRequest):
 
                             # Smart retry: blacklist country if SMS actually timed out
                             # (NOT for "no numbers" or user cancel - only real delivery failure)
-                            if worker_sms and hasattr(worker_sms, '_last_country') and worker_sms._last_country:
-                                sms_countries_list = getattr(worker_sms, '_sms_countries', []) or []
-                                # Don't blacklist if only 1 country selected - nowhere else to go
-                                if len(sms_countries_list) > 1:
-                                    # Only blacklist on actual SMS delivery timeout, not other errors
-                                    if "timeout" in err_msg and "sms not received" in err_msg:
-                                        country_blacklist.add(worker_sms._last_country)
-                                        logger.info(f"[Birth] Country '{worker_sms._last_country}' blacklisted (SMS timeout)")
+                            # Country blacklisting is now handled by SMS chain internally
+                            # (get_next_sms_number tracks used_numbers and switches providers)
 
                             db.commit()
                             logger.info(f"[Birth] [FAIL] Worker {worker_id}: attempt {current_attempt} failed, retrying...")

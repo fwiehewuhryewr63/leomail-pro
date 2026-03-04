@@ -180,6 +180,7 @@ def check_system_health(db: Session) -> dict:
         "captcha": captcha_data,
         "proxies": _check_proxies(db),
         "campaigns": _check_campaigns(db),
+        "validator": _check_validator(),
     }
 
     # Overall status
@@ -199,6 +200,20 @@ def check_system_health(db: Session) -> dict:
         health["overall"] = "ok"
 
     return health
+
+
+def _check_validator() -> dict:
+    """Check validator engine status (in-memory - instant)."""
+    try:
+        from ..routers.validator import _validator_state
+        return {
+            "running": _validator_state["running"],
+            "total": _validator_state["total"],
+            "valid": _validator_state["valid"],
+            "invalid": _validator_state["invalid"],
+        }
+    except Exception:
+        return {"running": False, "total": 0, "valid": 0, "invalid": 0}
 
 
 def _check_proxies(db: Session) -> dict:

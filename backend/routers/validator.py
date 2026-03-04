@@ -23,11 +23,13 @@ from loguru import logger
 from ..database import SessionLocal, PROJECT_ROOT
 from ..models import Account, AccountStatus, Task, TaskStatus, ThreadLog, Proxy, Farm, farm_accounts
 from ..services.proxy_manager import ProxyManager
+from ..services.engine_manager import engine_manager, EngineType
 
 router = APIRouter(prefix="/api/validator", tags=["validator"])
 
 # ─── State ──────────────────────────────────────────────────────────────────
 VALIDATOR_CANCEL_EVENT = threading.Event()
+_state_lock = threading.Lock()  # protects _validator_state counters from race conditions
 _validator_state = {
     "running": False,
     "parsed_accounts": [],          # [{email, password, recovery, provider}]
@@ -263,7 +265,7 @@ async def start_validation(request: ValidatorStartRequest):
         date_str = datetime.now().strftime('%Y.%m.%d')
         providers = set(a["provider"] for a in accounts_to_validate)
         provider_label = "+".join(sorted(p.capitalize() for p in providers))
-        farm_name = f"{date_str} - Import - {provider_label}"
+        farm_name = f"Import / {provider_label} / {date_str}"
 
     farm = Farm(name=farm_name)
     db.add(farm)
@@ -272,6 +274,9 @@ async def start_validation(request: ValidatorStartRequest):
     logger.info(f"[Validator] Created farm: {farm_name} (ID: {farm.id})")
 
     db.close()
+
+    # Integrate with EngineManager
+    engine_manager.start_engine(EngineType.VALIDATOR, request.threads, len(accounts_to_validate), task.id)
 
     # Launch validation in background
     asyncio.get_event_loop().run_in_executor(
@@ -301,6 +306,7 @@ async def stop_validation():
 
     VALIDATOR_CANCEL_EVENT.set()
     _validator_state["running"] = False
+    engine_manager.stop_engine(EngineType.VALIDATOR)
 
     # Update task
     db = SessionLocal()
@@ -390,7 +396,8 @@ def _run_validator_pool(accounts: list, threads: int, save_session: bool, task_i
                     "current_step": f"Validating {provider}...",
                     "error": None,
                 }
-                _validator_state["processing"] += 1
+                with _state_lock:
+                    _validator_state["processing"] += 1
 
                 start_time = time.time()
                 is_valid = False
@@ -405,10 +412,12 @@ def _run_validator_pool(accounts: list, threads: int, save_session: bool, task_i
                     logger.error(f"[Validator] T-{thread_idx+1} Error validating {email}: {e}")
 
                 elapsed = round(time.time() - start_time, 1)
-                _validator_state["processing"] -= 1
+                with _state_lock:
+                    _validator_state["processing"] -= 1
 
                 if is_valid:
-                    _validator_state["valid"] += 1
+                    with _state_lock:
+                        _validator_state["valid"] += 1
                     status = "valid"
 
                     # Save to DB
@@ -445,17 +454,19 @@ def _run_validator_pool(accounts: list, threads: int, save_session: bool, task_i
                         logger.error(f"[Validator] DB error for {email}: {db_err}")
                         db.rollback()
                 else:
-                    _validator_state["invalid"] += 1
+                    with _state_lock:
+                        _validator_state["invalid"] += 1
                     status = "invalid"
 
                 # Record result
-                _validator_state["results"].append({
-                    "email": email,
-                    "provider": provider,
-                    "status": status,
-                    "time_sec": elapsed,
-                    "error": error_msg,
-                })
+                with _state_lock:
+                    _validator_state["results"].append({
+                        "email": email,
+                        "provider": provider,
+                        "status": status,
+                        "time_sec": elapsed,
+                        "error": error_msg,
+                    })
 
                 # Update thread log
                 _validator_state["thread_logs"][thread_idx] = {
@@ -513,6 +524,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session: bool, task_i
         f"[Validator] Done: {_validator_state['valid']} valid, "
         f"{_validator_state['invalid']} invalid out of {len(accounts)}"
     )
+    engine_manager.finish_engine(EngineType.VALIDATOR)
 
 
 async def _validate_single_account(

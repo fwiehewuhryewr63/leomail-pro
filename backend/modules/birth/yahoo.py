@@ -37,7 +37,7 @@ from ._helpers import (
     RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
     RegContext, verify_page_state, block_check, run_step,
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
-    order_sms_with_chain, order_sms_retry, get_next_sms_number, get_sms_chain,
+    order_sms_with_chain, get_next_sms_number, get_sms_chain,
     reset_chain_state, SMS_CODE_TIMEOUT,
     export_account_to_file,
 )
@@ -481,7 +481,10 @@ async def step_4_sms_verification(page, ctx: RegContext, sms_provider, proxy,
 
     ctx._log("Detected 'Add your phone number' page")
     if not sms_provider:
-        raise FatalError("E502", "Yahoo requires SMS but no SMS provider configured")
+        # Check if ANY SMS provider is configured via chain
+        from ._helpers import get_sms_chain
+        if not get_sms_chain():
+            raise FatalError("E502", "Yahoo requires SMS but no SMS provider configured (add 5SIM/Grizzly/SimSMS in Settings)")
 
     # Detect Yahoo's displayed country code
     yahoo_detected_prefix = None

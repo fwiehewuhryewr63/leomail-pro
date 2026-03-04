@@ -1,14 +1,15 @@
 """
-Leomail v2.2 - Error Handler & Ban Controller
+Leomail v4 - Error Handler & Ban Controller
 Full classification of SMTP errors, bans, limits, MailerDaemon, bounces.
 Auto-actions: mark dead, pause, rotate, invalidate recipient.
 """
 import re
+import enum
 from datetime import datetime
 from loguru import logger
 
 
-class ErrorType:
+class ErrorType(str, enum.Enum):
     BAN = "ban"
     LIMIT = "limit"
     MAILER_DAEMON = "mailer_daemon"

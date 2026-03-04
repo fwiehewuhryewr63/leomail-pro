@@ -323,7 +323,10 @@ async def step_6_sms_verification(page, ctx: RegContext, sms_provider, proxy,
         return
 
     if not sms_provider:
-        raise FatalError("E502", "Google requires SMS but no SMS provider configured")
+        # Check if ANY SMS provider is configured via chain
+        from ._helpers import get_sms_chain
+        if not get_sms_chain():
+            raise FatalError("E502", "Google requires SMS but no SMS provider configured (add 5SIM/Grizzly/SimSMS in Settings)")
 
     ctx._log("Ordering number for Gmail SMS...")
     from ...services.geo_resolver import resolve_proxy_geo, get_sms_countries_priority

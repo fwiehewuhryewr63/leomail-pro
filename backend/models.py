@@ -48,6 +48,7 @@ class ThreadType(str, enum.Enum):
     BIRTH = "birth"
     WARMUP = "warmup"
     WORK = "work"
+    VALIDATOR = "validator"
 
 class Gender(str, enum.Enum):
     MALE = "male"
@@ -274,7 +275,7 @@ class NamePack(Base):
 
 
 class Link(Base):
-    """(Deprecated in v3.1) Individual link tracking."""
+    """DEPRECATED (v3.1): Not used. Kept for DB schema compatibility. Use CampaignLink instead."""
     __tablename__ = "links"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -291,7 +292,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
-    type = Column(String, index=True)  # birth, warmup, work
+    type = Column(String, index=True)  # birth, warmup, work, validator
     status = Column(String, default=TaskStatus.PENDING)
     details = Column(String, nullable=True)
     stop_reason = Column(String, nullable=True)  # Why the task stopped/terminated

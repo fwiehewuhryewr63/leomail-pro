@@ -1,9 +1,10 @@
 """
 Leomail v4 - Engine Manager
-Singleton that manages 3 independent engines running in parallel:
+Singleton that manages 4 independent engines running in parallel:
   1. AUTOREG (birth)  - creates accounts -> Farm
   2. WARMUP           - warms up accounts from farms -> Ready status
   3. CAMPAIGN (work)  - sends emails using warmed accounts
+  4. VALIDATOR         - checks account health via IMAP login
 
 Each engine has its own thread pool, cancel event, and status tracking.
 Shared resources (proxies, accounts DB) use locks to avoid conflicts.
@@ -20,6 +21,7 @@ class EngineType(str, Enum):
     AUTOREG = "autoreg"
     WARMUP = "warmup"
     CAMPAIGN = "campaign"
+    VALIDATOR = "validator"
 
 
 class EngineStatus(str, Enum):
@@ -99,11 +101,12 @@ class EngineManager:
             return
         self._initialized = True
 
-        # 3 independent engine states
+        # 4 independent engine states
         self.engines: Dict[EngineType, EngineState] = {
             EngineType.AUTOREG: EngineState(EngineType.AUTOREG),
             EngineType.WARMUP: EngineState(EngineType.WARMUP),
             EngineType.CAMPAIGN: EngineState(EngineType.CAMPAIGN),
+            EngineType.VALIDATOR: EngineState(EngineType.VALIDATOR),
         }
 
         # Shared proxy lock - prevents 2 engines from grabbing the same proxy
@@ -113,7 +116,7 @@ class EngineManager:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
 
-        logger.info("[EngineManager] Initialized - 3 engines ready")
+        logger.info("[EngineManager] Initialized - 4 engines ready")
 
     # ── Engine Lifecycle ──
 
@@ -161,7 +164,7 @@ class EngineManager:
     # ── Status ──
 
     def get_status(self) -> Dict[str, Any]:
-        """Get status of all 3 engines. Used by frontend."""
+        """Get status of all 4 engines. Used by frontend."""
         return {
             etype.value: estate.to_dict()
             for etype, estate in self.engines.items()

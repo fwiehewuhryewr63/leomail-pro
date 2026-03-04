@@ -1,9 +1,10 @@
 """
-Leomail v3 - Birth Helpers
+Leomail v4 - Birth Helpers
 Shared utility functions for all provider registration engines.
 """
 import asyncio
 import random
+import threading
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
@@ -186,33 +187,109 @@ YAHOO_COUNTRY_PRIORITY = [
     "jp",   # Japan        +81  — 0.7K (PREMIUM real SIM)
 ]
 
+# ── Per-provider SMS country rules ──
+# mode: "geo_match" = SMS country MUST match proxy IP country (Yahoo/AOL requirement)
+#       "tier1"     = use high-quality Tier-1 countries only (Gmail)
+#       "flexible"  = any country, broad fallback list (Outlook/Hotmail)
+#       "none"      = SMS not used (ProtonMail)
+EMAIL_PROVIDER_SMS_RULES = {
+    "gmail": {
+        "mode": "tier1",
+        "countries": ["us", "uk", "ca", "de", "nl", "se", "pl", "fr"],
+    },
+    "yahoo": {
+        "mode": "geo_match",  # SMS country MUST match proxy geo
+        "fallback": YAHOO_COUNTRY_PRIORITY,
+    },
+    "aol": {
+        "mode": "geo_match",  # same Verizon engine as Yahoo
+        "fallback": YAHOO_COUNTRY_PRIORITY,
+    },
+    "outlook": {
+        "mode": "flexible",
+        "countries": COUNTRY_FALLBACK_PRIORITY,
+    },
+    "hotmail": {
+        "mode": "flexible",
+        "countries": COUNTRY_FALLBACK_PRIORITY,
+    },
+    "protonmail": {
+        "mode": "none",
+    },
+}
 
-def service_country_priority(service: str) -> list:
-    """Return service-specific country priority list."""
-    if service in ("yahoo", "aol"):
-        return YAHOO_COUNTRY_PRIORITY
-    return COUNTRY_FALLBACK_PRIORITY
+
+def service_country_priority(service: str, proxy_geo: str = None) -> list:
+    """Return service-specific country priority list using EMAIL_PROVIDER_SMS_RULES.
+    For geo_match mode (Yahoo/AOL): proxy geo country forced first.
+    For tier1 mode (Gmail): hardcoded Tier-1 countries.
+    For flexible mode (Outlook): broad fallback list.
+    """
+    rules = EMAIL_PROVIDER_SMS_RULES.get(service, {"mode": "flexible", "countries": COUNTRY_FALLBACK_PRIORITY})
+    mode = rules.get("mode", "flexible")
+
+    if mode == "none":
+        return []  # ProtonMail doesn't use SMS
+
+    if mode == "geo_match":
+        # Yahoo/AOL: proxy geo country MUST be first
+        result = []
+        if proxy_geo:
+            geo_cc = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
+            if geo_cc:
+                result.append(geo_cc)
+        # Then fallback countries (Yahoo pool-size priority)
+        for c in rules.get("fallback", YAHOO_COUNTRY_PRIORITY):
+            if c not in result:
+                result.append(c)
+        return result
+
+    if mode == "tier1":
+        # Gmail: Tier-1 only (expensive real SIM)
+        result = []
+        if proxy_geo:
+            geo_cc = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
+            if geo_cc and geo_cc in rules.get("countries", []):
+                result.append(geo_cc)  # proxy geo first IF it's Tier-1
+        for c in rules.get("countries", []):
+            if c not in result:
+                result.append(c)
+        return result
+
+    # flexible (Outlook/Hotmail): proxy geo first, then broad list
+    result = []
+    if proxy_geo:
+        geo_cc = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
+        if geo_cc:
+            result.append(geo_cc)
+    for c in rules.get("countries", COUNTRY_FALLBACK_PRIORITY):
+        if c not in result:
+            result.append(c)
+    return result
 
 
 # ── Per-task SMS chain state tracker ──
 # Tracks which provider we're on and how many attempts used
 _sms_chain_state = {}  # {service: {"provider_idx": int, "attempt": int, "used_numbers": set}}
+_sms_chain_lock = threading.Lock()  # protects _sms_chain_state from concurrent access
 
 
 def _get_chain_state(service: str) -> dict:
     """Get or create chain state for a service (yahoo, outlook, etc.)."""
-    if service not in _sms_chain_state:
-        _sms_chain_state[service] = {
-            "provider_idx": 0,
-            "attempt": 0,
-            "used_numbers": set(),
-        }
-    return _sms_chain_state[service]
+    with _sms_chain_lock:
+        if service not in _sms_chain_state:
+            _sms_chain_state[service] = {
+                "provider_idx": 0,
+                "attempt": 0,
+                "used_numbers": set(),
+            }
+        return _sms_chain_state[service]
 
 
 def reset_chain_state(service: str):
     """Reset chain state (call at start of each registration attempt)."""
-    _sms_chain_state.pop(service, None)
+    with _sms_chain_lock:
+        _sms_chain_state.pop(service, None)
 
 
 async def scrape_phone_dropdown(page, _log=None) -> list[str]:
@@ -303,17 +380,10 @@ async def order_sms_with_chain(
     if not _err:
         _err = lambda msg: logger.error(msg)
 
-    # ── Build ordered country list ──
-    expanded_countries = []
+    # ── Build ordered country list using EMAIL_PROVIDER_SMS_RULES ──
+    expanded_countries = service_country_priority(service, proxy_geo)
 
-    # Priority 1: proxy GEO
-    if proxy_geo:
-        proxy_sms = ISO2_TO_SMS_COUNTRY.get(proxy_geo.upper())
-        if proxy_sms:
-            expanded_countries.append(proxy_sms)
-            _log(f"Proxy geo {proxy_geo} -> SMS country: {proxy_sms}")
-
-    # Priority 2: dropdown scraping (Yahoo/AOL)
+    # Enrich with dropdown data (Yahoo/AOL only)
     dropdown_countries = []
     if scrape_dropdown and page:
         prefixes = await scrape_phone_dropdown(page, _log)
@@ -324,15 +394,15 @@ async def order_sms_with_chain(
                     dropdown_countries.append(cc)
             _log(f"Dropdown countries: {dropdown_countries[:10]}...")
 
-    for c in dropdown_countries:
-        if c not in expanded_countries:
-            expanded_countries.append(c)
-
-    # Priority 3: service-specific fallback countries (Yahoo uses Phase 3 tier data)
-    if len(expanded_countries) < 3:
-        for c in service_country_priority(service):
+    # Insert dropdown countries after geo but before fallback
+    # For geo_match: keep geo first, then dropdown, then fallback
+    if dropdown_countries:
+        # Find where to insert: after proxy geo (index 0-1) but before general fallback
+        insert_at = 1 if proxy_geo else 0
+        for c in dropdown_countries:
             if c not in expanded_countries:
-                expanded_countries.append(c)
+                expanded_countries.insert(insert_at, c)
+                insert_at += 1
 
     _log(f"SMS countries (priority): {expanded_countries[:8]}...")
 
@@ -452,12 +522,11 @@ async def get_next_sms_number(
         _log(f"[SMS] Switching to {provider_name} (attempt 1/{SMS_MAX_ATTEMPTS_PER_PROVIDER})")
 
     # Order new number from this provider
+    # ALWAYS use order_number_from_countries to respect EMAIL_PROVIDER_SMS_RULES
     order = None
     try:
-        if hasattr(provider, 'order_best_number'):
-            _log(f"[SMS] {provider_name}: ordering BEST number for {service}")
-            order = await asyncio.to_thread(provider.order_best_number, service)
-        elif hasattr(provider, 'order_number_from_countries'):
+        if hasattr(provider, 'order_number_from_countries'):
+            _log(f"[SMS] {provider_name}: ordering from countries {expanded_countries[:5]}... (price DESC)")
             order = await asyncio.to_thread(
                 provider.order_number_from_countries, service, expanded_countries
             )

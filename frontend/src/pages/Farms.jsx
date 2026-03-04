@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Database, Plus, Download, Trash2, ChevronRight, Users, X,
-    Activity, Calendar, Mail, AlertTriangle, TrendingUp, Merge, Upload
+    Activity, Calendar, Mail, AlertTriangle, TrendingUp, Merge, Upload, ArrowRight, MinusCircle
 } from 'lucide-react';
 
 import { API } from '../api';
@@ -18,6 +18,9 @@ export default function Farms() {
     const [mergeName, setMergeName] = useState('');
     const [showImport, setShowImport] = useState(false);
     const [importText, setImportText] = useState('');
+    const [selectedAccounts, setSelectedAccounts] = useState(new Set());
+    const [showMoveTo, setShowMoveTo] = useState(false);
+    const [emptyFarmIds, setEmptyFarmIds] = useState([]);  // farms to prompt for deletion
 
     const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
     const toggleAll = () => setSelected(prev => prev.size === farms.length ? new Set() : new Set(farms.map(f => f.id)));
@@ -34,7 +37,11 @@ export default function Farms() {
             body: JSON.stringify({ source_farm_ids: [...selected], target_name: mergeName })
         });
         const d = await res.json();
-        alert(`Merged ${d.accounts_merged} accounts into farm "${mergeName}"`);
+        if (d.empty_farms?.length > 0) {
+            setEmptyFarmIds(d.empty_farms);
+        } else {
+            alert(`Merged ${d.accounts_merged} accounts into farm "${mergeName}"`);
+        }
         setSelected(new Set()); setShowMerge(false); setMergeName(''); load();
     };
 
@@ -50,6 +57,43 @@ export default function Farms() {
         alert(`Imported ${d.imported} accounts (${Object.entries(d.providers || {}).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
         setImportText(''); setShowImport(false);
         viewFarm(farmDetail.id);
+    };
+
+    const moveAccounts = async (targetFarmId) => {
+        if (!farmDetail || selectedAccounts.size === 0) return;
+        const res = await fetch(`${API}/farms/${farmDetail.id}/move-accounts`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_ids: [...selectedAccounts], target_farm_id: targetFarmId })
+        });
+        const d = await res.json();
+        if (d.error) { alert(d.error); return; }
+        setSelectedAccounts(new Set()); setShowMoveTo(false);
+        if (d.source_empty) {
+            setEmptyFarmIds([farmDetail.id]);
+        }
+        viewFarm(farmDetail.id); load();
+    };
+
+    const removeFromFarm = async () => {
+        if (!farmDetail || selectedAccounts.size === 0) return;
+        if (!confirm(`Remove ${selectedAccounts.size} accounts from this farm?`)) return;
+        const res = await fetch(`${API}/farms/${farmDetail.id}/remove-accounts`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_ids: [...selectedAccounts] })
+        });
+        const d = await res.json();
+        setSelectedAccounts(new Set());
+        if (d.source_empty) {
+            setEmptyFarmIds([farmDetail.id]);
+        }
+        viewFarm(farmDetail.id); load();
+    };
+
+    const deleteEmptyFarms = async () => {
+        for (const id of emptyFarmIds) {
+            await fetch(`${API}/farms/${id}`, { method: 'DELETE' });
+        }
+        setEmptyFarmIds([]); setFarmDetail(null); load();
     };
 
     const load = () => fetch(`${API}/farms/`).then(r => r.json()).then(setFarms).catch(() => { });
@@ -255,28 +299,78 @@ export default function Farms() {
                             ))}
                         </div>
 
-                        {detailTab === 'accounts' && farmDetail.accounts?.map(acc => (
-                            <div key={acc.id} style={{
-                                padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)',
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82em'
-                            }}>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ color: '#e8ecf4', fontWeight: 500 }}>{acc.email}</div>
-                                    <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 10 }}>
-                                        <span style={{ color: '#06b6d4' }}>{acc.provider}</span>
-                                        <span>{acc.geo || '?'}</span>
-                                        <span>Day {acc.warmup_day}</span>
-                                        {acc.sent_count > 0 && <span><Mail size={10} /> <span style={{ color: '#f59e0b' }}>{acc.sent_count}</span> sent</span>}
+                        {detailTab === 'accounts' && (
+                            <>
+                                {/* Account actions bar */}
+                                {farmDetail.accounts?.length > 0 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: '0.78em' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: 'var(--text-muted)' }}>
+                                            <input type="checkbox"
+                                                checked={selectedAccounts.size === farmDetail.accounts.length && farmDetail.accounts.length > 0}
+                                                onChange={() => setSelectedAccounts(prev => prev.size === farmDetail.accounts.length ? new Set() : new Set(farmDetail.accounts.map(a => a.id)))}
+                                            /> Select All
+                                        </label>
+                                        {selectedAccounts.size > 0 && (
+                                            <>
+                                                <button className="btn btn-sm" onClick={() => setShowMoveTo(!showMoveTo)}
+                                                    style={{ marginLeft: 'auto', borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                                                    <ArrowRight size={12} /> Move ({selectedAccounts.size})
+                                                </button>
+                                                <button className="btn btn-sm btn-danger" onClick={removeFromFarm}>
+                                                    <MinusCircle size={12} /> Remove
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
-                                </div>
-                                <span style={{
-                                    padding: '3px 10px', borderRadius: 20, fontSize: '0.68em', fontWeight: 600,
-                                    background: `${statusColors[acc.status]}12`, color: statusColors[acc.status]
-                                }}>
-                                    {statusLabels[acc.status]?.toUpperCase() || acc.status}
-                                </span>
-                            </div>
-                        ))}
+                                )}
+                                {/* Move to farm dropdown */}
+                                {showMoveTo && (
+                                    <div style={{ marginBottom: 10, padding: 10, background: 'rgba(16,185,129,0.04)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.12)' }}>
+                                        <div style={{ fontSize: '0.75em', fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>Move to farm:</div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                            {farms.filter(f => f.id !== farmDetail.id).map(f => (
+                                                <button key={f.id} className="btn btn-sm" onClick={() => moveAccounts(f.id)}
+                                                    style={{ fontSize: '0.75em' }}>
+                                                    {f.name} ({f.account_count})
+                                                </button>
+                                            ))}
+                                            {farms.filter(f => f.id !== farmDetail.id).length === 0 && (
+                                                <span style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>No other farms available</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                                {/* Account list */}
+                                {farmDetail.accounts?.map(acc => (
+                                    <div key={acc.id} style={{
+                                        padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82em',
+                                        background: selectedAccounts.has(acc.id) ? 'rgba(16,185,129,0.04)' : 'transparent',
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                                            <input type="checkbox" checked={selectedAccounts.has(acc.id)}
+                                                onChange={() => setSelectedAccounts(prev => { const s = new Set(prev); s.has(acc.id) ? s.delete(acc.id) : s.add(acc.id); return s; })}
+                                                style={{ accentColor: 'var(--accent)' }} />
+                                            <div>
+                                                <div style={{ color: '#e8ecf4', fontWeight: 500 }}>{acc.email}</div>
+                                                <div style={{ fontSize: '0.75em', color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 10 }}>
+                                                    <span style={{ color: '#06b6d4' }}>{acc.provider}</span>
+                                                    <span>{acc.geo || '?'}</span>
+                                                    <span>Day {acc.warmup_day}</span>
+                                                    {acc.sent_count > 0 && <span><Mail size={10} /> <span style={{ color: '#f59e0b' }}>{acc.sent_count}</span> sent</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span style={{
+                                            padding: '3px 10px', borderRadius: 20, fontSize: '0.68em', fontWeight: 600,
+                                            background: `${statusColors[acc.status]}12`, color: statusColors[acc.status]
+                                        }}>
+                                            {statusLabels[acc.status]?.toUpperCase() || acc.status}
+                                        </span>
+                                    </div>
+                                ))}
+                            </>
+                        )}
 
                         {detailTab === 'timeline' && (
                             <div style={{ padding: '10px 0' }}>
@@ -326,6 +420,28 @@ export default function Farms() {
                                 <Merge size={14} /> Merge
                             </button>
                             <button className="btn" onClick={() => setShowMerge(false)}>Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Empty farm cleanup dialog */}
+            {emptyFarmIds.length > 0 && (
+                <div className="modal-overlay" onClick={() => setEmptyFarmIds([])}>
+                    <div className="card modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 400, padding: 24, textAlign: 'center' }}>
+                        <AlertTriangle size={32} style={{ color: '#f59e0b', marginBottom: 10 }} />
+                        <div style={{ fontWeight: 700, fontSize: '1em', marginBottom: 8 }}>
+                            {emptyFarmIds.length === 1 ? 'Farm is now empty' : `${emptyFarmIds.length} farms are now empty`}
+                        </div>
+                        <div style={{ fontSize: '0.82em', color: 'var(--text-muted)', marginBottom: 16 }}>
+                            All accounts have been moved. Delete {emptyFarmIds.length === 1 ? 'this empty farm' : 'these empty farms'}?
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                            <button className="btn btn-danger" onClick={deleteEmptyFarms}>
+                                <Trash2 size={14} /> Delete
+                            </button>
+                            <button className="btn" onClick={() => setEmptyFarmIds([])}>
+                                Keep
+                            </button>
                         </div>
                     </div>
                 </div>

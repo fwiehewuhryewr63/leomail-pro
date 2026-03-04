@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Farm, Account, farm_accounts
-from ..schemas import FarmCreate, FarmMerge, FarmSplit
+from ..schemas import FarmCreate, FarmMerge, FarmSplit, FarmMoveAccounts, FarmRemoveAccounts
 from loguru import logger
 from fastapi.responses import StreamingResponse
 import json, zipfile, io, datetime, random
@@ -106,31 +106,43 @@ async def delete_farm(farm_id: int, db: Session = Depends(get_db)):
 
 @router.post("/merge")
 async def merge_farms(req: FarmMerge, db: Session = Depends(get_db)):
-    """Merge multiple farms into one new farm."""
+    """Merge multiple farms into one new farm. Enforces 1 account = 1 farm."""
     new_farm = Farm(name=req.target_name)
     db.add(new_farm)
     db.flush()
 
-    merged_count = 0
+    # Step 1: Collect all account IDs from source farms
+    account_ids = set()
     for source_id in req.source_farm_ids:
         source = db.query(Farm).filter(Farm.id == source_id).first()
         if source:
             for acc in source.accounts:
-                if acc not in new_farm.accounts:
-                    new_farm.accounts.append(acc)
-                    merged_count += 1
+                account_ids.add(acc.id)
+
+    # Step 2: Remove all these accounts from ALL farms (enforce 1:1)
+    if account_ids:
+        db.execute(
+            farm_accounts.delete().where(farm_accounts.c.account_id.in_(account_ids))
+        )
+        db.flush()
+
+    # Step 3: Assign all accounts to new farm
+    for acc_id in account_ids:
+        db.execute(farm_accounts.insert().values(farm_id=new_farm.id, account_id=acc_id))
 
     db.commit()
+    logger.info(f"Merged {len(account_ids)} accounts from farms {req.source_farm_ids} into '{req.target_name}'")
     return {
         "status": "merged",
         "new_farm_id": new_farm.id,
-        "accounts_merged": merged_count
+        "accounts_merged": len(account_ids),
+        "empty_farms": req.source_farm_ids,
     }
 
 
 @router.post("/split")
 async def split_farm(req: FarmSplit, db: Session = Depends(get_db)):
-    """Split a farm by provider, geo, or status."""
+    """Split a farm by provider, geo, or status. Enforces 1 account = 1 farm."""
     farm = db.query(Farm).filter(Farm.id == req.farm_id).first()
     if not farm:
         return {"error": "Farm not found"}
@@ -147,17 +159,90 @@ async def split_farm(req: FarmSplit, db: Session = Depends(get_db)):
             key = "all"
         groups.setdefault(key, []).append(acc)
 
+    # Collect all account IDs being split
+    all_ids = [acc.id for accs in groups.values() for acc in accs]
+
+    # Remove from source farm
+    if all_ids:
+        db.execute(
+            farm_accounts.delete().where(
+                farm_accounts.c.farm_id == req.farm_id,
+                farm_accounts.c.account_id.in_(all_ids)
+            )
+        )
+        db.flush()
+
+    # Create new farms and assign
     new_farms = []
     for key, accounts in groups.items():
-        nf = Farm(name=f"{req.new_farm_name_prefix}_{key}")
+        date_str = datetime.datetime.now().strftime('%Y.%m.%d')
+        nf = Farm(name=f"{req.new_farm_name_prefix} / {key} / {date_str}")
         db.add(nf)
         db.flush()
         for acc in accounts:
-            nf.accounts.append(acc)
+            db.execute(farm_accounts.insert().values(farm_id=nf.id, account_id=acc.id))
         new_farms.append({"id": nf.id, "name": nf.name, "count": len(accounts)})
 
     db.commit()
-    return {"status": "split", "new_farms": new_farms}
+    logger.info(f"Split farm {req.farm_id} into {len(new_farms)} farms by {req.split_by}")
+    return {"status": "split", "new_farms": new_farms, "source_empty": True}
+
+
+@router.post("/{farm_id}/move-accounts")
+async def move_accounts(farm_id: int, req: FarmMoveAccounts, db: Session = Depends(get_db)):
+    """Move accounts from this farm to another. Enforces 1 account = 1 farm."""
+    target = db.query(Farm).filter(Farm.id == req.target_farm_id).first()
+    if not target:
+        return {"error": "Target farm not found"}
+
+    # Remove these accounts from ALL farms (enforce 1:1)
+    db.execute(
+        farm_accounts.delete().where(farm_accounts.c.account_id.in_(req.account_ids))
+    )
+    db.flush()
+
+    # Assign to target farm
+    for acc_id in req.account_ids:
+        # Verify account exists
+        acc = db.query(Account).filter(Account.id == acc_id).first()
+        if acc:
+            db.execute(farm_accounts.insert().values(farm_id=req.target_farm_id, account_id=acc_id))
+
+    db.commit()
+
+    # Check if source farm is now empty
+    source_count = db.execute(
+        farm_accounts.select().where(farm_accounts.c.farm_id == farm_id)
+    ).fetchall()
+
+    logger.info(f"Moved {len(req.account_ids)} accounts from farm {farm_id} to farm {req.target_farm_id}")
+    return {
+        "moved": len(req.account_ids),
+        "source_empty": len(source_count) == 0,
+    }
+
+
+@router.post("/{farm_id}/remove-accounts")
+async def remove_accounts(farm_id: int, req: FarmRemoveAccounts, db: Session = Depends(get_db)):
+    """Remove accounts from this farm (unassign, accounts stay in DB)."""
+    db.execute(
+        farm_accounts.delete().where(
+            farm_accounts.c.farm_id == farm_id,
+            farm_accounts.c.account_id.in_(req.account_ids)
+        )
+    )
+    db.commit()
+
+    # Check if farm is now empty
+    remaining = db.execute(
+        farm_accounts.select().where(farm_accounts.c.farm_id == farm_id)
+    ).fetchall()
+
+    logger.info(f"Removed {len(req.account_ids)} accounts from farm {farm_id}")
+    return {
+        "removed": len(req.account_ids),
+        "source_empty": len(remaining) == 0,
+    }
 
 
 @router.get("/{farm_id}/export")
