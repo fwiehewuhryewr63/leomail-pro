@@ -22,7 +22,12 @@ CONCURRENT_CHECKS = 10
 
 
 async def check_single_proxy(proxy: Proxy) -> dict:
-    """Check one proxy. Works for SOCKS5, HTTP, and Mobile types."""
+    """Check one proxy. Works for SOCKS5, HTTP, and Mobile types.
+    Two-stage check:
+      1. HTTP to ip-api.com (get external IP + GEO)
+      2. HTTPS to httpbin.org (verify TLS works — expired proxies fail here)
+    Both must pass for proxy to be considered alive.
+    """
     proxy_type = (proxy.proxy_type or "http").lower()
 
     # Derive protocol for connection
@@ -40,10 +45,11 @@ async def check_single_proxy(proxy: Proxy) -> dict:
     is_socks = proto == "socks5"
     timeout = aiohttp.ClientTimeout(total=TIMEOUT_SEC)
 
+    # ── Stage 1: HTTP check (get IP + GEO) ──
+    ip_result = None
     for url, ip_key in CHECK_ENDPOINTS:
         try:
             if is_socks:
-                # SOCKS5: use aiohttp-socks ProxyConnector
                 try:
                     from aiohttp_socks import ProxyConnector
                     connector = ProxyConnector.from_url(proxy_url)
@@ -56,17 +62,17 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                             if resp.status == 200:
                                 data = await resp.json(content_type=None)
                                 ext_ip = data.get(ip_key, "unknown") if isinstance(data, dict) else "unknown"
-                                return {
+                                ip_result = {
                                     "alive": True,
                                     "response_time_ms": elapsed_ms,
                                     "external_ip": str(ext_ip),
                                     "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                                 }
+                                break
                 except ImportError:
                     logger.warning("aiohttp-socks not installed - cannot check SOCKS5 proxies")
                     return {"alive": False, "response_time_ms": None, "external_ip": None}
             else:
-                # HTTP / Mobile: standard aiohttp proxy
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     start = datetime.utcnow()
                     async with session.get(url, proxy=proxy_url, ssl=False) as resp:
@@ -74,17 +80,58 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                         if resp.status == 200:
                             data = await resp.json(content_type=None)
                             ext_ip = data.get(ip_key, "unknown") if isinstance(data, dict) else "unknown"
-                            return {
+                            ip_result = {
                                 "alive": True,
                                 "response_time_ms": elapsed_ms,
                                 "external_ip": str(ext_ip),
                                 "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                             }
+                            break
         except Exception as e:
             logger.debug(f"Proxy check {proxy.host}:{proxy.port} ({proxy_type}) via {url} failed: {type(e).__name__}: {e}")
             continue  # Try next endpoint
 
-    return {"alive": False, "response_time_ms": None, "external_ip": None, "geo": ""}
+    if not ip_result:
+        return {"alive": False, "response_time_ms": None, "external_ip": None, "geo": ""}
+
+    # ── Stage 2: HTTPS verification ──
+    # Expired proxies often pass HTTP but fail HTTPS (TLS handshake blocked)
+    https_timeout = aiohttp.ClientTimeout(total=15)
+    HTTPS_ENDPOINTS = [
+        "https://httpbin.org/get",
+        "https://www.google.com/generate_204",
+    ]
+    https_ok = False
+    for https_url in HTTPS_ENDPOINTS:
+        try:
+            if is_socks:
+                from aiohttp_socks import ProxyConnector
+                connector = ProxyConnector.from_url(proxy_url)
+                async with aiohttp.ClientSession(
+                    connector=connector, timeout=https_timeout
+                ) as session:
+                    async with session.get(https_url) as resp:
+                        if resp.status in (200, 204):
+                            https_ok = True
+                            break
+            else:
+                async with aiohttp.ClientSession(timeout=https_timeout) as session:
+                    async with session.get(https_url, proxy=proxy_url) as resp:
+                        if resp.status in (200, 204):
+                            https_ok = True
+                            break
+        except Exception as e:
+            logger.debug(f"Proxy HTTPS check {proxy.host}:{proxy.port} via {https_url} failed: {type(e).__name__}")
+            continue
+
+    if not https_ok:
+        logger.info(
+            f"Proxy HTTP-only: {proxy.host}:{proxy.port} ({proxy_type}) - "
+            f"IP check OK but HTTPS FAILED (likely expired rental)"
+        )
+        return {"alive": False, "response_time_ms": None, "external_ip": ip_result.get("external_ip"), "geo": ip_result.get("geo", "")}
+
+    return ip_result
 
 
 async def resolve_geo(ip: str) -> str:
