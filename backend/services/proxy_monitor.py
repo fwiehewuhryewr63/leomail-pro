@@ -23,10 +23,7 @@ CONCURRENT_CHECKS = 10
 
 async def check_single_proxy(proxy: Proxy) -> dict:
     """Check one proxy. Works for SOCKS5, HTTP, and Mobile types.
-    Two-stage check:
-      1. HTTP to ip-api.com (get external IP + GEO)
-      2. HTTPS to httpbin.org (verify TLS works — expired proxies fail here)
-    Both must pass for proxy to be considered alive.
+    Tests HTTP connectivity via ip-api.com to get external IP and GEO.
     """
     proxy_type = (proxy.proxy_type or "http").lower()
 
@@ -45,8 +42,6 @@ async def check_single_proxy(proxy: Proxy) -> dict:
     is_socks = proto == "socks5"
     timeout = aiohttp.ClientTimeout(total=TIMEOUT_SEC)
 
-    # ── Stage 1: HTTP check (get IP + GEO) ──
-    ip_result = None
     for url, ip_key in CHECK_ENDPOINTS:
         try:
             if is_socks:
@@ -62,13 +57,12 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                             if resp.status == 200:
                                 data = await resp.json(content_type=None)
                                 ext_ip = data.get(ip_key, "unknown") if isinstance(data, dict) else "unknown"
-                                ip_result = {
+                                return {
                                     "alive": True,
                                     "response_time_ms": elapsed_ms,
                                     "external_ip": str(ext_ip),
                                     "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                                 }
-                                break
                 except ImportError:
                     logger.warning("aiohttp-socks not installed - cannot check SOCKS5 proxies")
                     return {"alive": False, "response_time_ms": None, "external_ip": None}
@@ -80,58 +74,17 @@ async def check_single_proxy(proxy: Proxy) -> dict:
                         if resp.status == 200:
                             data = await resp.json(content_type=None)
                             ext_ip = data.get(ip_key, "unknown") if isinstance(data, dict) else "unknown"
-                            ip_result = {
+                            return {
                                 "alive": True,
                                 "response_time_ms": elapsed_ms,
                                 "external_ip": str(ext_ip),
                                 "geo": data.get("countryCode", "").upper() if isinstance(data, dict) else "",
                             }
-                            break
         except Exception as e:
             logger.debug(f"Proxy check {proxy.host}:{proxy.port} ({proxy_type}) via {url} failed: {type(e).__name__}: {e}")
             continue  # Try next endpoint
 
-    if not ip_result:
-        return {"alive": False, "response_time_ms": None, "external_ip": None, "geo": ""}
-
-    # ── Stage 2: HTTPS verification ──
-    # Expired proxies often pass HTTP but fail HTTPS (TLS handshake blocked)
-    https_timeout = aiohttp.ClientTimeout(total=15)
-    HTTPS_ENDPOINTS = [
-        "https://httpbin.org/get",
-        "https://www.google.com/generate_204",
-    ]
-    https_ok = False
-    for https_url in HTTPS_ENDPOINTS:
-        try:
-            if is_socks:
-                from aiohttp_socks import ProxyConnector
-                connector = ProxyConnector.from_url(proxy_url)
-                async with aiohttp.ClientSession(
-                    connector=connector, timeout=https_timeout
-                ) as session:
-                    async with session.get(https_url) as resp:
-                        if resp.status in (200, 204):
-                            https_ok = True
-                            break
-            else:
-                async with aiohttp.ClientSession(timeout=https_timeout) as session:
-                    async with session.get(https_url, proxy=proxy_url) as resp:
-                        if resp.status in (200, 204):
-                            https_ok = True
-                            break
-        except Exception as e:
-            logger.debug(f"Proxy HTTPS check {proxy.host}:{proxy.port} via {https_url} failed: {type(e).__name__}")
-            continue
-
-    if not https_ok:
-        logger.info(
-            f"Proxy HTTP-only: {proxy.host}:{proxy.port} ({proxy_type}) - "
-            f"IP check OK but HTTPS FAILED (likely expired rental)"
-        )
-        return {"alive": False, "response_time_ms": None, "external_ip": ip_result.get("external_ip"), "geo": ip_result.get("geo", "")}
-
-    return ip_result
+    return {"alive": False, "response_time_ms": None, "external_ip": None, "geo": ""}
 
 
 async def resolve_geo(ip: str) -> str:
@@ -154,16 +107,34 @@ async def monitor_all_proxies(max_fails: int = 3):
     """
     Check all non-dead proxies concurrently.
     Proxy that fails max_fails times total -> marked DEAD.
+    Also marks expired-rental proxies as DEAD and logs provider-specific availability.
     """
     db = SessionLocal()
     try:
+        # ── Stage 0: Expire overdue rentals ──
+        now = datetime.utcnow()
+        expired = db.query(Proxy).filter(
+            Proxy.expires_at.isnot(None),
+            Proxy.expires_at < now,
+            ~Proxy.status.in_([ProxyStatus.DEAD, "dead"]),
+        ).all()
+        expired_count = 0
+        for px in expired:
+            px.status = ProxyStatus.DEAD
+            px.fail_count = 99  # mark so auto-revive doesn't re-check
+            expired_count += 1
+            logger.warning(f"Proxy EXPIRED: {px.host}:{px.port} rental ended {px.expires_at}")
+        if expired_count > 0:
+            db.commit()
+            logger.info(f"Proxy monitor: {expired_count} proxies killed (rental expired)")
+
         # Check ALL non-dead proxies (active, free, etc.)
         proxies = db.query(Proxy).filter(
             ~Proxy.status.in_([ProxyStatus.DEAD, "dead"])
         ).all()
 
         if not proxies:
-            return {"checked": 0, "alive": 0, "dead": 0}
+            return {"checked": 0, "alive": 0, "dead": 0, "expired": expired_count}
 
         alive_count = 0
         dead_count = 0
@@ -274,11 +245,31 @@ async def monitor_all_proxies(max_fails: int = 3):
             except Exception as e:
                 logger.error(f"Auto-reassign error: {e}")
 
+        # ── Provider-aware availability summary ──
+        from .proxy_manager import ProxyManager as PM
+        alive_proxies = db.query(Proxy).filter(
+            Proxy.status.in_([ProxyStatus.ACTIVE, "active"])
+        ).all()
+        ya_avail = sum(1 for p in alive_proxies if (p.use_yahoo or 0) + (p.use_aol or 0) < PM.YA_LIMIT)
+        gm_avail = sum(1 for p in alive_proxies if (p.use_gmail or 0) < PM.GMAIL_LIMIT
+                       and (p.proxy_type or "").lower() == "mobile")
+        oh_avail = sum(1 for p in alive_proxies if (p.use_outlook or 0) + (p.use_hotmail or 0) < PM.OH_LIMIT)
+        pt_avail = sum(1 for p in alive_proxies if (p.use_protonmail or 0) < PM.PT_LIMIT)
+
         logger.info(
             f"Proxy monitor: {len(to_check)} checked ({alive_count} alive, {dead_count} dead)"
             + (f", {revived_count} revived" if revived_count > 0 else "")
+            + (f", {expired_count} expired" if expired_count > 0 else "")
         )
-        return {"checked": len(to_check), "alive": alive_count, "dead": dead_count, "revived": revived_count}
+        logger.info(
+            f"Available for autoreg: yahoo={ya_avail}, gmail={gm_avail}(mobile), "
+            f"outlook={oh_avail}, proton={pt_avail}"
+        )
+        return {
+            "checked": len(to_check), "alive": alive_count, "dead": dead_count,
+            "revived": revived_count, "expired": expired_count,
+            "available": {"yahoo": ya_avail, "gmail": gm_avail, "outlook": oh_avail, "proton": pt_avail},
+        }
 
     except Exception as e:
         logger.error(f"Proxy monitor error: {e}")
