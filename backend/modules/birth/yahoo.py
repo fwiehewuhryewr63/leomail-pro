@@ -17,6 +17,7 @@ from ..browser_manager import BrowserManager
 from ..human_behavior import (
     random_mouse_move, random_scroll, between_steps,
     pre_registration_warmup, human_click as hb_human_click, warmup_browsing,
+    idle_behavior, form_review_scan, focus_blur_field, reading_dwell,
 )
 from ._helpers import (
     human_delay as _human_delay,
@@ -80,27 +81,41 @@ async def _check_error_page(page, context_msg=""):
 
 
 async def step_0_warmup(page, ctx: RegContext):
-    """Step 0: Yahoo-specific warmup — visit yahoo.com to build cookies/consent."""
-    ctx._log("Session warmup (building Yahoo cookies)...")
+    """Step 0: Full pre-registration warmup — browse sites, build session, then Yahoo cookies."""
+    ctx._log("Full session warmup (browsing + Yahoo cookies)...")
+
+    # Phase 1: Browse 3-6 random sites to build realistic session history
+    try:
+        geo = ctx.proxy_geo or None
+        await warmup_browsing(page, duration_seconds=random.randint(20, 40), geo=geo)
+        ctx._log("[Warmup] Browsing warmup complete")
+    except Exception as e:
+        ctx._log(f"[Warmup] Browsing partial: {e}")
+
+    # Phase 2: Visit yahoo.com to build domain cookies
     try:
         await page.goto("https://www.yahoo.com", wait_until="domcontentloaded", timeout=20000)
         await _human_delay(2, 4)
+        # Accept consent/cookies popup
         try:
             consent_btn = page.locator(
                 "button:has-text('Accept'), button:has-text('Agree'), "
-                "button:has-text('OK'), button[name='agree']"
+                "button:has-text('OK'), button[name='agree'], "
+                "button:has-text('Akzeptieren'), button:has-text('Accepter'), "
+                "button:has-text('Aceptar')"
             ).first
             if await consent_btn.is_visible(timeout=3000):
                 await consent_btn.click()
                 await _human_delay(1, 2)
         except Exception:
             pass
+        # Read Yahoo homepage like a real user
+        await reading_dwell(page, min_seconds=3, max_seconds=6)
+        await random_scroll(page, direction="down")
+        await idle_behavior(page, duration_seconds=random.uniform(2, 4))
         await random_mouse_move(page, steps=3)
-        await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 400 + 200))")
+        await random_scroll(page, direction="down")
         await _human_delay(1, 3)
-        await random_mouse_move(page, steps=2)
-        await page.evaluate("window.scrollBy(0, Math.floor(Math.random() * 300 + 100))")
-        await _human_delay(1, 2)
     except Exception as warmup_err:
         ctx._log(f"Warmup partial: {warmup_err}")
         try:
@@ -180,8 +195,12 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
     if not fn_sel:
         raise RecoverableError("E101", "First name field not found")
 
+    await focus_blur_field(page, fn_sel)
     await _human_fill(page, fn_sel, ctx.first_name)
-    await _human_delay(1.0, 2.5)
+    await _human_delay(1.5, 3.5)
+
+    # Natural transition between fields
+    await between_steps(page)
 
     # Last name
     ln_sel = await _wait_for_any(page, [
@@ -191,11 +210,16 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         'input[autocomplete="family-name"]',
     ], timeout=5000)
     if ln_sel:
+        await focus_blur_field(page, ln_sel)
         await _human_fill(page, ln_sel, ctx.last_name)
-        await _human_delay(1.2, 2.8)
+        await _human_delay(1.5, 3.0)
 
+    # Human thinks about what to type next
+    await idle_behavior(page, duration_seconds=random.uniform(1.5, 3.0))
     await page.mouse.wheel(0, random.randint(50, 150))
     await _human_delay(0.5, 1.0)
+
+    await between_steps(page)
 
     # Email / Username
     email_sel = await _wait_for_any(page, [
@@ -205,8 +229,11 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         'input[placeholder*="email"]', 'input[placeholder*="user"]',
     ], timeout=5000)
     if email_sel:
+        await focus_blur_field(page, email_sel)
         await _human_fill(page, email_sel, ctx.username)
-        await _human_delay(1.5, 3.0)
+        await _human_delay(2.0, 4.0)
+
+    await between_steps(page)
 
     # Password
     pwd_sel = await _wait_for_any(page, [
@@ -216,12 +243,16 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         'input[placeholder*="assword"]',
     ], timeout=5000)
     if pwd_sel:
+        await focus_blur_field(page, pwd_sel)
         await _human_fill(page, pwd_sel, ctx.password)
-        await _human_delay(1.0, 2.0)
+        await _human_delay(1.5, 3.0)
 
     # Birthday
+    await idle_behavior(page, duration_seconds=random.uniform(1.0, 2.0))
     await page.mouse.wheel(0, random.randint(30, 80))
-    await _human_delay(0.5, 1.0)
+    await _human_delay(0.8, 1.5)
+
+    await between_steps(page)
 
     month_sel = await _wait_for_any(page, [
         'input[name="mm"]', 'input[placeholder="MM"]',
@@ -230,8 +261,9 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         'input[autocomplete="bday-month"]', '#usernamereg-month',
     ], timeout=5000)
     if month_sel:
+        await focus_blur_field(page, month_sel)
         await _human_fill(page, month_sel, str(birthday.month).zfill(2))
-        await _human_delay(0.5, 1.2)
+        await _human_delay(0.8, 1.5)
 
     day_sel = await _wait_for_any(page, [
         'input[name="dd"]', 'input[placeholder="DD"]',
@@ -239,8 +271,9 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         'input[id$="-dd"]', '#usernamereg-day',
     ], timeout=3000)
     if day_sel:
+        await focus_blur_field(page, day_sel)
         await _human_fill(page, day_sel, str(birthday.day))
-        await _human_delay(0.5, 1.0)
+        await _human_delay(0.8, 1.2)
 
     year_sel = await _wait_for_any(page, [
         'input[name="yyyy"]', 'input[placeholder="YYYY"]',
@@ -248,6 +281,7 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         'input[id$="-yyyy"]', '#usernamereg-year',
     ], timeout=3000)
     if year_sel:
+        await focus_blur_field(page, year_sel)
         await _human_fill(page, year_sel, str(birthday.year))
 
     # JS fallback for birthday fields
@@ -283,7 +317,9 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
         if bday_result:
             ctx._log(f"JS fallback filled: {bday_result}")
 
-    await _human_delay(1.5, 3.0)
+    # Human reviews filled form before submitting
+    await idle_behavior(page, duration_seconds=random.uniform(1.5, 3.0))
+    await _human_delay(2.0, 4.0)
 
 
 async def step_3_submit_form(page, ctx: RegContext, captcha_provider, vision=None):
@@ -316,12 +352,21 @@ async def step_3_submit_form(page, ctx: RegContext, captcha_provider, vision=Non
             except Exception:
                 pass
 
+    # Review form before submitting (human re-reads filled fields)
+    ctx._log("Reviewing form before submit...")
+    try:
+        await form_review_scan(page)
+    except Exception:
+        pass
+    await reading_dwell(page, min_seconds=2, max_seconds=4)
+
     # Submit
     ctx._log("Submitting form (Next)...")
     submit_btn = await _wait_for_any(page, [
         'button[name="signup"]', 'button:has-text("Next")',
         'button[type="submit"]', '#reg-submit-button',
         'button:has-text("Continue")', 'button:has-text("Продолжить")',
+        'button:has-text("Weiter")', 'button:has-text("Continuer")',
         '#usernamereg-submitBtn',
     ], timeout=5000)
     if submit_btn:
@@ -406,6 +451,10 @@ async def step_3_submit_form(page, ctx: RegContext, captcha_provider, vision=Non
 async def step_4_sms_verification(page, ctx: RegContext, sms_provider, proxy,
                                    captcha_provider, BIRTH_CANCEL_EVENT):
     """Step 4: Full SMS verification — detects Yahoo's country, orders SMS, phone retry loop."""
+    # Human reads the phone verification instructions before acting
+    await reading_dwell(page, min_seconds=3, max_seconds=6)
+    await idle_behavior(page, duration_seconds=random.uniform(1.5, 3.0))
+
     phone_page_input = await _wait_for_any(page, [
         'input#reg-phone', 'input[name="phone"]', 'input#phone-number',
         'input[placeholder*="hone"]', 'input[aria-label*="hone"]',
