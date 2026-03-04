@@ -262,6 +262,7 @@ SERVICE_ACCEPTS = {
     "outlook":    {"residential", "mobile", "datacenter"},  # Outlook: accepts all
     "hotmail":    {"residential", "mobile", "datacenter"},  # Hotmail: same as Outlook
     "protonmail": {"residential", "mobile", "datacenter"},  # Protonmail: accepts all
+    "tuta":       {"residential", "mobile", "datacenter"},  # Tuta: accepts all
 }
 
 
