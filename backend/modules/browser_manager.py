@@ -705,25 +705,62 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         }};
     }}
 
-    // 26. speechSynthesis.getVoices — return realistic voice list
+    // 26. speechSynthesis.getVoices — GEO-aware voice list
     (function() {{
         if (window.speechSynthesis) {{
-            const fakeVoices = [
-                {{ voiceURI: 'Microsoft David - English (United States)', name: 'Microsoft David - English (United States)', lang: 'en-US', localService: true, default: true }},
-                {{ voiceURI: 'Microsoft Zira - English (United States)', name: 'Microsoft Zira - English (United States)', lang: 'en-US', localService: true, default: false }},
-                {{ voiceURI: 'Microsoft Mark - English (United States)', name: 'Microsoft Mark - English (United States)', lang: 'en-US', localService: true, default: false }},
-                {{ voiceURI: 'Google US English', name: 'Google US English', lang: 'en-US', localService: false, default: false }},
-                {{ voiceURI: 'Google UK English Female', name: 'Google UK English Female', lang: 'en-GB', localService: false, default: false }},
-                {{ voiceURI: 'Google UK English Male', name: 'Google UK English Male', lang: 'en-GB', localService: false, default: false }},
-            ];
-            // Apply SpeechSynthesisVoice prototype if available
+            const primaryLang = {langs_js}[0] || 'en-US';
+            const langBase = primaryLang.split('-')[0];
+            // Build voice list based on GEO — real Chrome shows local + English voices
+            const voiceDB = {{
+                'en': [
+                    {{ voiceURI: 'Microsoft David - English (United States)', name: 'Microsoft David - English (United States)', lang: 'en-US', localService: true, default: true }},
+                    {{ voiceURI: 'Microsoft Zira - English (United States)', name: 'Microsoft Zira - English (United States)', lang: 'en-US', localService: true, default: false }},
+                    {{ voiceURI: 'Google US English', name: 'Google US English', lang: 'en-US', localService: false, default: false }},
+                ],
+                'de': [
+                    {{ voiceURI: 'Microsoft Hedda - German', name: 'Microsoft Hedda - German', lang: 'de-DE', localService: true, default: true }},
+                    {{ voiceURI: 'Microsoft Katja - German', name: 'Microsoft Katja - German', lang: 'de-DE', localService: true, default: false }},
+                    {{ voiceURI: 'Google Deutsch', name: 'Google Deutsch', lang: 'de-DE', localService: false, default: false }},
+                ],
+                'fr': [
+                    {{ voiceURI: 'Microsoft Hortense - French', name: 'Microsoft Hortense - French', lang: 'fr-FR', localService: true, default: true }},
+                    {{ voiceURI: 'Microsoft Julie - French', name: 'Microsoft Julie - French', lang: 'fr-FR', localService: true, default: false }},
+                    {{ voiceURI: 'Google français', name: 'Google français', lang: 'fr-FR', localService: false, default: false }},
+                ],
+                'es': [
+                    {{ voiceURI: 'Microsoft Helena - Spanish', name: 'Microsoft Helena - Spanish', lang: 'es-ES', localService: true, default: true }},
+                    {{ voiceURI: 'Microsoft Laura - Spanish', name: 'Microsoft Laura - Spanish', lang: 'es-ES', localService: true, default: false }},
+                    {{ voiceURI: 'Google español', name: 'Google español', lang: 'es-ES', localService: false, default: false }},
+                ],
+                'pt': [
+                    {{ voiceURI: 'Microsoft Maria - Portuguese', name: 'Microsoft Maria - Portuguese', lang: 'pt-BR', localService: true, default: true }},
+                    {{ voiceURI: 'Google português do Brasil', name: 'Google português do Brasil', lang: 'pt-BR', localService: false, default: false }},
+                ],
+                'it': [
+                    {{ voiceURI: 'Microsoft Elsa - Italian', name: 'Microsoft Elsa - Italian', lang: 'it-IT', localService: true, default: true }},
+                    {{ voiceURI: 'Google italiano', name: 'Google italiano', lang: 'it-IT', localService: false, default: false }},
+                ],
+                'tr': [
+                    {{ voiceURI: 'Microsoft Tolga - Turkish', name: 'Microsoft Tolga - Turkish', lang: 'tr-TR', localService: true, default: true }},
+                    {{ voiceURI: 'Google Türkçe', name: 'Google Türkçe', lang: 'tr-TR', localService: false, default: false }},
+                ],
+                'ru': [
+                    {{ voiceURI: 'Microsoft Irina - Russian', name: 'Microsoft Irina - Russian', lang: 'ru-RU', localService: true, default: true }},
+                    {{ voiceURI: 'Microsoft Pavel - Russian', name: 'Microsoft Pavel - Russian', lang: 'ru-RU', localService: true, default: false }},
+                    {{ voiceURI: 'Google русский', name: 'Google русский', lang: 'ru-RU', localService: false, default: false }},
+                ],
+            }};
+            const localVoices = voiceDB[langBase] || voiceDB['en'];
+            const enVoices = langBase !== 'en' ? voiceDB['en'] : [];
+            // Combine: local voices first, then English fallback
+            const fakeVoices = [...localVoices, ...enVoices.map(v => ({{...v, default: false}})) ];
+
             const origGetVoices = speechSynthesis.getVoices;
             const realVoices = origGetVoices.call(speechSynthesis);
             const proto = (realVoices && realVoices[0]) ? Object.getPrototypeOf(realVoices[0]) : null;
             if (proto) fakeVoices.forEach(v => Object.setPrototypeOf(v, proto));
 
             speechSynthesis.getVoices = function() {{ return fakeVoices; }};
-            // Also fire voiceschanged event on first access
             try {{
                 setTimeout(() => {{
                     speechSynthesis.dispatchEvent(new Event('voiceschanged'));
@@ -964,6 +1001,19 @@ class BrowserManager:
             timezone_id=timezone_id, viewport=ctx_viewport,
             device_scale=ctx_scale, is_mobile=is_mobile,
         )
+
+        # Set Accept-Language HTTP header to match navigator.languages
+        # Without this, Yahoo server sees default "en-US" header but German JS languages = bot
+        accept_lang_parts = []
+        for i, lang_tag in enumerate(ctx_langs):
+            q = round(1.0 - i * 0.1, 1)
+            if q >= 1.0:
+                accept_lang_parts.append(lang_tag)
+            else:
+                accept_lang_parts.append(f"{lang_tag};q={q}")
+        accept_lang_header = ", ".join(accept_lang_parts)
+        await context.set_extra_http_headers({"Accept-Language": accept_lang_header})
+        logger.debug(f"Accept-Language: {accept_lang_header}")
 
         # CDP-level webdriver evasion: Proxy on Navigator.prototype
         # This intercepts 'webdriver' in navigator → false, AND navigator.webdriver → undefined

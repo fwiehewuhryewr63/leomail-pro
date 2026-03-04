@@ -48,10 +48,11 @@ from ._helpers import (
 
 
 async def _check_error_page(page, context_msg=""):
-    """Quick check for Yahoo error/block pages. Returns error string or None."""
+    """Quick check for Yahoo error/block pages. Returns error string or None.
+    Requires 2+ keyword matches to avoid false positives from normal page text."""
     url = page.url or ""
     error_urls = ["/error", "challenge/fail", "challenge/recaptcha", "/blocked",
-                  "guce.yahoo", "consent.yahoo", "/sorry"]
+                  "guce.yahoo", "/sorry"]
     for pattern in error_urls:
         if pattern in url.lower():
             return f"Error URL detected: {url}"
@@ -63,11 +64,14 @@ async def _check_error_page(page, context_msg=""):
                 'something went wrong', 'try again later', 'suspicious activity',
                 'temporarily unavailable', 'too many attempts', 'access denied',
                 'unable to process', 'service unavailable', 'error 500',
-                'we are unable', 'blocked', 'not available in your region'
+                'we are unable', 'not available in your region'
             ];
+            let matchCount = 0;
             for (const e of errors) {
-                if (lc.includes(e)) return body.substring(0, 300);
+                if (lc.includes(e)) matchCount++;
             }
+            // Require 2+ matches to avoid false positives from normal page text
+            if (matchCount >= 2) return body.substring(0, 300);
             return null;
         }""")
         if error_text:
@@ -183,8 +187,22 @@ async def step_2_fill_form(page, ctx: RegContext, birthday):
     """Step 2: Fill all form fields (name, email, password, birthday). Yahoo has everything on one page."""
     error = await _check_error_page(page, "before firstname")
     if error:
-        ctx._err(f"[ERR] Yahoo error before form: {error}")
-        raise BannedIPError("E303", f"Yahoo error before form: {error[:100]}")
+        # E303 can be transient — try one reload before aborting
+        ctx._log(f"[WARN] Yahoo error before form, trying reload: {error[:80]}")
+        try:
+            await page.reload(wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(3, 5)
+            error2 = await _check_error_page(page, "after reload")
+            if error2:
+                ctx._err(f"[ERR] Yahoo error persists after reload: {error2}")
+                raise BannedIPError("E303", f"Yahoo error before form: {error2[:100]}")
+            else:
+                ctx._log("[OK] Error cleared after reload — continuing")
+        except BannedIPError:
+            raise
+        except Exception:
+            ctx._err(f"[ERR] Yahoo error before form: {error}")
+            raise BannedIPError("E303", f"Yahoo error before form: {error[:100]}")
 
     await block_check(page, ctx.provider, ctx, "fill_form")
 
