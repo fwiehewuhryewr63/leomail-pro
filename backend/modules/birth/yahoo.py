@@ -716,31 +716,70 @@ async def step_4_sms_verification(page, ctx: RegContext, sms_provider, proxy,
     await _human_delay(1.5, 3.0)
 
     # Click "Get code by text" — NEVER WhatsApp
+    # Multi-locale: Yahoo shows this page in user's proxy language
     await random_mouse_move(page, steps=2)
     await _human_delay(2.0, 4.0)
 
-    get_code_btn = await _wait_for_any(page, [
+    sms_button_texts = [
+        # English
         'button:has-text("Receive code by text")', 'button:has-text("Get code by text")',
-        'button:has-text("code by text")', 'button:has-text("Получить код по SMS")',
-        'button:has-text("Text me")', 'button:has-text("Send code")',
-        'button:has-text("Enviar código")',
-    ], timeout=5000)
+        'button:has-text("code by text")', 'button:has-text("Text me")',
+        'button:has-text("Send code")', 'button:has-text("Receive code")',
+        # German
+        'button:has-text("Code per SMS")', 'button:has-text("SMS erhalten")',
+        'button:has-text("Per SMS")',
+        # French
+        'button:has-text("par SMS")', 'button:has-text("Recevoir par SMS")',
+        'button:has-text("code par texto")',
+        # Spanish
+        'button:has-text("Enviar código")', 'button:has-text("código por SMS")',
+        'button:has-text("mensaje de texto")',
+        # Portuguese
+        'button:has-text("por SMS")', 'button:has-text("Enviar código por SMS")',
+        # Italian
+        'button:has-text("via SMS")', 'button:has-text("Ricevi codice")',
+        # Turkish
+        'button:has-text("SMS ile")', 'button:has-text("SMS gönder")',
+        # Dutch
+        'button:has-text("per sms")', 'button:has-text("Ontvang code")',
+        # Russian
+        'button:has-text("Получить код по SMS")', 'button:has-text("Отправить код")',
+        # Japanese
+        'button:has-text("SMSで")',
+        # Korean
+        'button:has-text("문자로")',
+    ]
+    get_code_btn = await _wait_for_any(page, sms_button_texts, timeout=5000)
     if not get_code_btn:
-        sms_link = await _wait_for_any(page, [
+        sms_link_selectors = [
             'a:has-text("Receive code by text")', 'a:has-text("code by text")',
-            'a:has-text("Text me")', 'button:has-text("Receive code")',
-        ], timeout=3000)
+            'a:has-text("Text me")', 'a:has-text("Code per SMS")',
+            'a:has-text("SMS erhalten")', 'a:has-text("par SMS")',
+            'a:has-text("por SMS")', 'a:has-text("via SMS")',
+            'a:has-text("SMS ile")', 'a:has-text("per sms")',
+        ]
+        sms_link = await _wait_for_any(page, sms_link_selectors, timeout=3000)
         if sms_link:
             get_code_btn = sms_link
             ctx._log("[OK] Found SMS as link")
     if not get_code_btn:
+        # Last resort: try generic submit button if no WhatsApp detected
         has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
         if has_whatsapp == 0:
             get_code_btn = await _wait_for_any(page, [
                 'button[type="submit"]', '#send-code-button', 'button[data-type="sms"]',
             ], timeout=3000)
         else:
-            raise FatalError("E503", "Only WhatsApp available — no SMS option")
+            # WhatsApp found but SMS not found by text — try the FIRST button (usually SMS)
+            first_btn = await _wait_for_any(page, [
+                'button[type="submit"]:not(:has-text("WhatsApp"))',
+                'button:not(:has-text("WhatsApp")):not(:has-text("whatsapp"))',
+            ], timeout=3000)
+            if first_btn:
+                get_code_btn = first_btn
+                ctx._log("[OK] Using first non-WhatsApp button (locale not matched)")
+            else:
+                raise FatalError("E503", "Only WhatsApp available — no SMS option")
 
     if not get_code_btn:
         await page.keyboard.press("Enter")
