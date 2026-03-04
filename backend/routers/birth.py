@@ -115,6 +115,27 @@ async def run_birth_task(request: BirthRequest):
                     pack_names = [p.name for p in name_packs_for_label]
                     geo_label = " + ".join(pack_names)[:30]
             farm_name = f"{geo_label} / {provider_label} / {date_str}"
+
+        # Derive country code for auto-buy from name pack
+        NAME_TO_GEO = {
+            "argentina": "ar", "bolivia": "bo", "brazil": "br", "canada": "ca",
+            "chile": "cl", "colombia": "co", "costa rica": "cr", "cuba": "cu",
+            "dominican": "do", "ecuador": "ec", "egypt": "eg", "el salvador": "sv",
+            "guatemala": "gt", "honduras": "hn", "mexico": "mx", "nicaragua": "ni",
+            "nigeria": "ng", "panama": "pa", "paraguay": "py", "peru": "pe",
+            "puerto rico": "pr", "south africa": "za", "uruguay": "uy",
+            "usa": "us", "venezuela": "ve", "turkey": "tr", "russia": "ru",
+            "germany": "de", "france": "fr", "spain": "es", "italy": "it",
+            "uk": "gb", "india": "in", "japan": "jp", "china": "cn",
+        }
+        auto_buy_geo = "us"  # fallback
+        if geo_label and geo_label != "MIX":
+            for name_key, code in NAME_TO_GEO.items():
+                if name_key in geo_label.lower():
+                    auto_buy_geo = code
+                    break
+        logger.info(f"[Birth] Auto-buy geo: {auto_buy_geo} (from name pack: {geo_label})")
+
         farm = Farm(name=farm_name, description=f"{request.quantity}x {request.provider}")
         db.add(farm)
         db.commit()
@@ -285,7 +306,7 @@ async def run_birth_task(request: BirthRequest):
                                         tiered_auto_buy,
                                         provider=request.provider,
                                         count=2,
-                                        country="us",
+                                        country=auto_buy_geo,
                                     )
                                     if new_proxies:
                                         for np in new_proxies:
@@ -439,9 +460,11 @@ async def run_birth_task(request: BirthRequest):
                             if not thread_log.error_message:
                                 thread_log.error_message = "Registration not completed"
 
-                            # Smart retry: blacklist proxy if E500/IP blocked
+                            # Smart retry: blacklist proxy if E500/IP/E303 blocked
                             err_msg = (thread_log.error_message or "").lower()
-                            if proxy and ("ip" in err_msg or "e500" in err_msg or "blocked" in err_msg):
+                            if proxy and ("ip" in err_msg or "e500" in err_msg or "blocked" in err_msg
+                                          or "e303" in err_msg or "something went wrong" in err_msg
+                                          or "e501" in err_msg):
                                 proxy_blacklist.add(proxy.id)
                                 logger.info(f"[Birth] Proxy {proxy.host} blacklisted for this task")
                                 # Increment usage counter by 1 (NOT max out)
@@ -452,7 +475,7 @@ async def run_birth_task(request: BirthRequest):
                                     current = getattr(proxy, attr) or 0
                                     setattr(proxy, attr, current + 1)
                                     db.commit()
-                                    logger.info(f"[Birth] Proxy {proxy.host}: {attr} incremented to {current + 1} (E500 for {request.provider})")
+                                    logger.info(f"[Birth] Proxy {proxy.host}: {attr} incremented to {current + 1} (proxy error for {request.provider})")
 
                             # Smart retry: blacklist country if SMS actually timed out
                             # (NOT for "no numbers" or user cancel - only real delivery failure)
@@ -479,7 +502,8 @@ async def run_birth_task(request: BirthRequest):
                                     if captcha_round_fails[0] >= CAPTCHA_MAX_ROUNDS:
                                         task.stop_reason = f"Process stopped — CAPTCHA exhausted ({CAPTCHA_MAX_ROUNDS} consecutive failures, all captcha providers failed)"
                                         return
-                                elif any(x in err_msg for x in ["e500", "ip", "blocked", "proxy", "datacenter", "asn"]):
+                                elif any(x in err_msg for x in ["e500", "ip", "blocked", "proxy", "datacenter", "asn",
+                                                                 "e303", "something went wrong", "e501", "e304"]):
                                     proxy_round_fails[0] += 1
                                     sms_round_fails[0] = 0
                                     captcha_round_fails[0] = 0
@@ -491,7 +515,7 @@ async def run_birth_task(request: BirthRequest):
                                                 tiered_auto_buy,
                                                 provider=request.provider,
                                                 count=3,
-                                                country="us",
+                                                country=auto_buy_geo,
                                             )
                                             if new_proxies:
                                                 for np in new_proxies:
