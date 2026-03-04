@@ -140,13 +140,9 @@ class ProxyManager:
         Marks fully exhausted proxies as EXHAUSTED.
         NO FALLBACK: returns None if no matching proxy found.
         """
-        now = datetime.utcnow()
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
-        ).filter(
-            # Belt-and-suspenders: skip expired rentals even if monitor hasn't run yet
-            (Proxy.expires_at == None) | (Proxy.expires_at > now)  # noqa: E711
         )
 
         # Gmail: FORCE mobile proxy type (IP-based trust)
@@ -177,13 +173,7 @@ class ProxyManager:
         Gmail: mobile proxy type forced.
         NO FALLBACK: returns empty list if no matching proxies.
         """
-        now = datetime.utcnow()
-        query = self.db.query(Proxy).filter(
-            Proxy.status == ProxyStatus.ACTIVE,
-        ).filter(
-            # Skip expired rentals even if monitor hasn't marked them dead yet
-            (Proxy.expires_at == None) | (Proxy.expires_at > now)  # noqa: E711
-        )
+        query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
 
         # Gmail: FORCE mobile proxy type (IP-based trust)
         if provider and provider.lower() == 'gmail':

@@ -107,34 +107,17 @@ async def monitor_all_proxies(max_fails: int = 3):
     """
     Check all non-dead proxies concurrently.
     Proxy that fails max_fails times total -> marked DEAD.
-    Also marks expired-rental proxies as DEAD and logs provider-specific availability.
+    Logs provider-specific availability after check.
     """
     db = SessionLocal()
     try:
-        # ── Stage 0: Expire overdue rentals ──
-        now = datetime.utcnow()
-        expired = db.query(Proxy).filter(
-            Proxy.expires_at.isnot(None),
-            Proxy.expires_at < now,
-            ~Proxy.status.in_([ProxyStatus.DEAD, "dead"]),
-        ).all()
-        expired_count = 0
-        for px in expired:
-            px.status = ProxyStatus.DEAD
-            px.fail_count = 99  # mark so auto-revive doesn't re-check
-            expired_count += 1
-            logger.warning(f"Proxy EXPIRED: {px.host}:{px.port} rental ended {px.expires_at}")
-        if expired_count > 0:
-            db.commit()
-            logger.info(f"Proxy monitor: {expired_count} proxies killed (rental expired)")
-
         # Check ALL non-dead proxies (active, free, etc.)
         proxies = db.query(Proxy).filter(
             ~Proxy.status.in_([ProxyStatus.DEAD, "dead"])
         ).all()
 
         if not proxies:
-            return {"checked": 0, "alive": 0, "dead": 0, "expired": expired_count}
+            return {"checked": 0, "alive": 0, "dead": 0}
 
         alive_count = 0
         dead_count = 0
@@ -259,7 +242,6 @@ async def monitor_all_proxies(max_fails: int = 3):
         logger.info(
             f"Proxy monitor: {len(to_check)} checked ({alive_count} alive, {dead_count} dead)"
             + (f", {revived_count} revived" if revived_count > 0 else "")
-            + (f", {expired_count} expired" if expired_count > 0 else "")
         )
         logger.info(
             f"Available for autoreg: yahoo={ya_avail}, gmail={gm_avail}(mobile), "
@@ -267,7 +249,7 @@ async def monitor_all_proxies(max_fails: int = 3):
         )
         return {
             "checked": len(to_check), "alive": alive_count, "dead": dead_count,
-            "revived": revived_count, "expired": expired_count,
+            "revived": revived_count,
             "available": {"yahoo": ya_avail, "gmail": gm_avail, "outlook": oh_avail, "proton": pt_avail},
         }
 
