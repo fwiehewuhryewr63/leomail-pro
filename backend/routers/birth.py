@@ -75,7 +75,24 @@ async def run_birth_task(request: BirthRequest):
         )
     except RuntimeError:
         logger.warning("[Birth] Autoreg engine already running")
+
     try:
+        # ── Clean up zombie tasks from previous crashes ──
+        stale_tasks = db.query(Task).filter(
+            Task.type == "birth", Task.status == TaskStatus.RUNNING
+        ).all()
+        for st in stale_tasks:
+            st.status = TaskStatus.FAILED
+            st.stop_reason = "Cleaned up (stale from previous run)"
+            logger.info(f"[Birth] Cleaned up stale task #{st.id}")
+        if stale_tasks:
+            db.commit()
+
+        # Validate provider
+        valid_providers = ['yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'gmail', 'tuta']
+        if request.provider.lower() not in valid_providers:
+            return {"status": "error", "message": f"Unknown provider: {request.provider}. Valid: {valid_providers}"}
+
         # Create task record
         task = Task(
             type="birth",
@@ -96,9 +113,49 @@ async def run_birth_task(request: BirthRequest):
         logger.info(f"[Birth] Proxy pool: {len(proxy_pool)} proxies for provider={request.provider}")
 
         if not proxy_pool:
-            task = Task(type="birth", status=TaskStatus.STOPPED, total_items=request.quantity,
-                        stop_reason=f"Process stopped - no suitable proxies for {request.provider}. Load proxies or reset counters.")
-            db.add(task); db.commit()
+            # ── Auto-recovery: reset counters for this provider and retry ──
+            logger.warning(f"[Birth] No proxies for {request.provider} — auto-resetting usage counters...")
+            proxy_manager.reset_all_counters()
+            proxy_pool = proxy_manager.get_proxy_pool(
+                request.quantity, provider=request.provider,
+            )
+            logger.info(f"[Birth] After counter reset: {len(proxy_pool)} proxies for {request.provider}")
+
+        if not proxy_pool:
+            # ── Still empty: try auto-buy from external services ──
+            logger.warning(f"[Birth] Still no proxies after reset — attempting auto-buy...")
+            try:
+                new_proxies = await asyncio.to_thread(
+                    tiered_auto_buy,
+                    provider=request.provider,
+                    count=3,
+                    country="us",
+                )
+                if new_proxies:
+                    for np_data in new_proxies:
+                        p = Proxy(
+                            host=np_data["host"], port=np_data["port"],
+                            username=np_data.get("username", ""),
+                            password=np_data.get("password", ""),
+                            protocol=np_data.get("protocol", "http"),
+                            geo=np_data.get("geo", "US"),
+                            status=ProxyStatus.ACTIVE,
+                            source=np_data.get("source", "auto-buy"),
+                        )
+                        db.add(p)
+                    db.commit()
+                    proxy_pool = proxy_manager.get_proxy_pool(
+                        request.quantity, provider=request.provider,
+                    )
+                    logger.info(f"[Birth] Auto-bought {len(new_proxies)} proxies, pool now: {len(proxy_pool)}")
+            except Exception as buy_err:
+                logger.warning(f"[Birth] Auto-buy failed: {buy_err}")
+
+        if not proxy_pool:
+            # ── All recovery failed — stop this task (same task, not a new one) ──
+            task.status = TaskStatus.STOPPED
+            task.stop_reason = f"No suitable proxies for {request.provider}. Counters were auto-reset. Load new proxies or check proxy health."
+            db.commit()
             return {"status": "error", "message": task.stop_reason}
 
         # Create farm - auto-generate descriptive name: Date - Provider - GEO(names) - Lvl0
