@@ -32,7 +32,7 @@ YAHOO_STAGES = {
     },
     "error_blocked": {
         "keywords": ["try again later", "unable to process", "blocked", "suspicious", "temporarily"],
-        "min_matches": 1,
+        "min_matches": 2,
         "description": "Registration blocked/rate limited",
     },
     "error_phone": {
@@ -103,7 +103,7 @@ GMAIL_STAGES = {
     },
     "error_blocked": {
         "keywords": ["couldn't create", "try again", "unusual activity", "abuse"],
-        "min_matches": 1,
+        "min_matches": 2,
         "description": "Blocked",
     },
 }
@@ -141,7 +141,7 @@ OUTLOOK_STAGES = {
     },
     "error_blocked": {
         "keywords": ["try again", "blocked", "suspicious", "limit"],
-        "min_matches": 1,
+        "min_matches": 2,
         "description": "Blocked",
     },
 }

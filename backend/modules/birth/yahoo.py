@@ -166,8 +166,13 @@ async def step_1_navigate(page, ctx: RegContext, proxy, db, vision=None):
             ctx._log(f"[Vision] Stage: {stage['stage']} ({stage['confidence']:.0%}) - {stage['description']}")
             err = await vision.is_error(page)
             if err:
-                ctx._err(f"[Vision] Error detected: {err['type']} - {err['text']}")
-                raise BannedIPError("E304", f"Vision: {err['type']}: {err['text']}")
+                # Only throw E304 if confidence is meaningful (>40%)
+                # Low confidence (20%) = likely false positive from single keyword like "blocked"
+                if stage['confidence'] > 0.40:
+                    ctx._err(f"[Vision] Error detected: {err['type']} - {err['text']} (confidence: {stage['confidence']:.0%})")
+                    raise BannedIPError("E304", f"Vision: {err['type']}: {err['text']}")
+                else:
+                    ctx._log(f"[Vision] Low-confidence error ({stage['confidence']:.0%}) - ignoring: {err['type']}")
         except (BannedIPError, RateLimitError, FatalError):
             raise
         except Exception as ve:
