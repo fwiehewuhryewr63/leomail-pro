@@ -817,23 +817,49 @@ async def step_4_sms_verification(page, ctx: RegContext, sms_provider, proxy,
             get_code_btn = sms_link
             ctx._log("[OK] Found SMS as link")
     if not get_code_btn:
-        # Last resort: try generic submit button if no WhatsApp detected
-        has_whatsapp = await page.locator('button:has-text("WhatsApp"), a:has-text("WhatsApp")').count()
-        if has_whatsapp == 0:
-            get_code_btn = await _wait_for_any(page, [
-                'button[type="submit"]', '#send-code-button', 'button[data-type="sms"]',
-            ], timeout=3000)
-        else:
-            # WhatsApp found but SMS not found by text — try the FIRST button (usually SMS)
-            first_btn = await _wait_for_any(page, [
-                'button[type="submit"]:not(:has-text("WhatsApp"))',
-                'button:not(:has-text("WhatsApp")):not(:has-text("whatsapp"))',
-            ], timeout=3000)
-            if first_btn:
-                get_code_btn = first_btn
-                ctx._log("[OK] Using first non-WhatsApp button (locale not matched)")
-            else:
-                raise FatalError("E503", "Only WhatsApp available — no SMS option")
+        # Fallback 2: universal SMS keyword on ANY clickable element (button, a, div, span)
+        ctx._log("[WARN] SMS button/link not found by locale — trying universal 'SMS' keyword...")
+        universal_sms = await _wait_for_any(page, [
+            'button:has-text("SMS")', 'a:has-text("SMS")',
+            '[role="button"]:has-text("SMS")', 'div:has-text("SMS") >> button',
+        ], timeout=3000)
+        if universal_sms:
+            get_code_btn = universal_sms
+            ctx._log("[OK] Found clickable element with 'SMS' text")
+
+    if not get_code_btn:
+        # Fallback 3: primary/submit button (SMS is ALWAYS the primary action, WhatsApp is secondary)
+        ctx._log("[WARN] No SMS element found — using primary button (SMS is always primary)...")
+        primary_btn = await _wait_for_any(page, [
+            'button[type="submit"]',
+            'button.primary', 'button[class*="primary"]', 'button[class*="Primary"]',
+            '#send-code-button', 'button[data-type="sms"]',
+            'button[class*="btn-primary"]', 'button[class*="cta"]',
+        ], timeout=3000)
+        if primary_btn:
+            get_code_btn = primary_btn
+            ctx._log("[OK] Using primary/submit button")
+
+    if not get_code_btn:
+        # Fallback 4: first visible button on page (excluding WhatsApp text)
+        ctx._log("[WARN] No primary button — trying first visible button...")
+        try:
+            all_buttons = page.locator('button:visible')
+            btn_count = await all_buttons.count()
+            for i in range(btn_count):
+                btn_text = (await all_buttons.nth(i).inner_text()).strip().lower()
+                if 'whatsapp' not in btn_text and len(btn_text) > 0:
+                    get_code_btn = all_buttons.nth(i)
+                    ctx._log(f"[OK] Using first non-WhatsApp visible button: '{btn_text[:40]}'")
+                    break
+        except Exception as e:
+            ctx._log(f"[WARN] Button scan failed: {e}")
+
+    if not get_code_btn:
+        # Absolute last resort: just press Enter
+        ctx._log("[WARN] No button found at all — pressing Enter as last resort")
+        await page.keyboard.press("Enter")
+        await _human_delay(4, 7)
 
     if not get_code_btn:
         await page.keyboard.press("Enter")
