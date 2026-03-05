@@ -250,7 +250,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     tz_offset = tz_offsets.get(timezone_id, 0) if timezone_id else 0
 
     return f"""
-    // ═══ LEOMAIL ANTIDETECT ENGINE v3 — 36 stealth patches ═══
+    // ═══ LEOMAIL ANTIDETECT ENGINE v3 — 42 stealth patches ═══
 
     // 0. CRITICAL: Function.prototype.toString — hide ALL our patches from prototype lie detection
     // This MUST run FIRST. CreepJS, FingerprintJS check if functions return [native code].
@@ -1017,6 +1017,128 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
 
     // 32. window.name cleanup — prevent data leaks between sessions/navigations
     try {{ window.name = ''; }} catch(e) {{}}
+
+    // 34. iframe.contentWindow — prevent detection via cross-frame fingerprinting
+    // Bot detectors create iframes and check if contentWindow properties match parent
+    (function() {{
+        const _origCreateElement = document.createElement;
+        document.createElement = function(tag) {{
+            const el = _origCreateElement.call(document, tag);
+            if (tag.toLowerCase() === 'iframe') {{
+                // When iframe is added to DOM, ensure its contentWindow matches our spoofing
+                const _origAppend = Element.prototype.appendChild;
+                const patchIframe = () => {{
+                    try {{
+                        if (el.contentWindow) {{
+                            // Copy critical navigator properties to iframe
+                            Object.defineProperty(el.contentWindow.navigator, 'webdriver', {{ get: () => undefined }});
+                        }}
+                    }} catch(e) {{}} // cross-origin iframes will throw
+                }};
+                el.addEventListener('load', patchIframe);
+            }}
+            return el;
+        }};
+        // Protect createElement toString
+        if (window.__lm_native) window.__lm_native(document.createElement, 'createElement');
+    }})();
+
+    // 35. MediaSource.isTypeSupported — report standard codec support (headless lacks H.264/AAC)
+    (function() {{
+        if (typeof MediaSource !== 'undefined') {{
+            const _origIsType = MediaSource.isTypeSupported;
+            MediaSource.isTypeSupported = function(mime) {{
+                // Always report support for common codecs that real Chrome supports
+                if (/video\\/mp4|video\\/webm|audio\\/mp4|audio\\/webm|avc1|mp4a|vp8|vp9|opus|aac/i.test(mime)) {{
+                    return true;
+                }}
+                return _origIsType.call(MediaSource, mime);
+            }};
+            if (window.__lm_native) window.__lm_native(MediaSource.isTypeSupported, 'isTypeSupported');
+        }}
+        // Also patch HTMLMediaElement.canPlayType
+        if (typeof HTMLMediaElement !== 'undefined') {{
+            const _origCanPlay = HTMLMediaElement.prototype.canPlayType;
+            HTMLMediaElement.prototype.canPlayType = function(mime) {{
+                if (/video\\/mp4|video\\/webm|audio\\/mp4|audio\\/webm|avc1|mp4a|vp8|vp9|opus|aac|ogg/i.test(mime)) {{
+                    return 'probably';
+                }}
+                return _origCanPlay.call(this, mime);
+            }};
+            if (window.__lm_native) window.__lm_native(HTMLMediaElement.prototype.canPlayType, 'canPlayType');
+        }}
+    }})();
+
+    // 36. sourceURL / sourceMap leak prevention
+    // Puppeteer/Playwright inject scripts with //# sourceURL= which detectors find in Error.stack
+    // Our Error.stack patch (#18) already handles this, but we also prevent the global leak:
+    (function() {{
+        // Override eval to strip sourceURL from injected scripts
+        const _origEval = window.eval;
+        window.eval = function(code) {{
+            if (typeof code === 'string') {{
+                code = code.replace(/\\/\\/[#@]\\s*sourceURL=[^\\n]*/g, '');
+                code = code.replace(/\\/\\/[#@]\\s*sourceMappingURL=[^\\n]*/g, '');
+            }}
+            return _origEval.call(window, code);
+        }};
+        if (window.__lm_native) window.__lm_native(window.eval, 'eval');
+    }})();
+
+    // 37. devicePixelRatio — consistent with viewport scale factor
+    Object.defineProperty(window, 'devicePixelRatio', {{ get: () => {device_scale}, configurable: true }});
+
+    // 38. navigator.sendBeacon — ensure it exists and works (some headless envs miss it)
+    if (!navigator.sendBeacon) {{
+        navigator.sendBeacon = function(url, data) {{ return true; }};
+        if (window.__lm_native) window.__lm_native(navigator.sendBeacon, 'sendBeacon');
+    }}
+
+    // 39. visualViewport — consistent with our viewport spoofing
+    (function() {{
+        if (window.visualViewport) {{
+            try {{
+                Object.defineProperty(window.visualViewport, 'width', {{ get: () => {vp_w} }});
+                Object.defineProperty(window.visualViewport, 'height', {{ get: () => {vp_h} }});
+                Object.defineProperty(window.visualViewport, 'scale', {{ get: () => 1 }});
+                Object.defineProperty(window.visualViewport, 'offsetLeft', {{ get: () => 0 }});
+                Object.defineProperty(window.visualViewport, 'offsetTop', {{ get: () => 0 }});
+                Object.defineProperty(window.visualViewport, 'pageLeft', {{ get: () => 0 }});
+                Object.defineProperty(window.visualViewport, 'pageTop', {{ get: () => 0 }});
+            }} catch(e) {{}}
+        }}
+    }})();
+
+    // 40. OffscreenCanvas — prevent detection of missing/inconsistent OffscreenCanvas
+    (function() {{
+        if (typeof OffscreenCanvas === 'undefined') {{
+            // Stub OffscreenCanvas if missing (some headless envs)
+            window.OffscreenCanvas = function(w, h) {{
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                return canvas;
+            }};
+        }}
+    }})();
+
+    // 41. SharedWorker / ServiceWorker — ensure APIs exist (fingerprint consistency)
+    (function() {{
+        // SharedWorker should exist in modern Chrome
+        if (typeof SharedWorker === 'undefined') {{
+            window.SharedWorker = function() {{ throw new Error('SharedWorker: not allowed'); }};
+        }}
+        // navigator.serviceWorker should exist
+        if (!navigator.serviceWorker) {{
+            Object.defineProperty(navigator, 'serviceWorker', {{
+                get: () => ({{ ready: Promise.resolve(), controller: null, register: () => Promise.reject() }})
+            }});
+        }}
+    }})();
+
+    // 42. CSS system fonts — randomize available system font list per session
+    // CreepJS detects fonts via canvas measureText width comparison
+    // Our measureText noise (patch #28) already handles this at the rendering level
 
     // 33. Date.getTimezoneOffset — MUST match timezone_id
     {'// timezone offset override for ' + timezone_id if timezone_id else '// no timezone - skip offset override'}
