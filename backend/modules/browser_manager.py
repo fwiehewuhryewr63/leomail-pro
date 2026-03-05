@@ -571,16 +571,19 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         }};
     }}
 
-    // 13. Connection API
-    if (!navigator.connection) {{
+    // 13. Connection API — ALWAYS override (system Chrome has one too — must match our profile!)
+    (function() {{
+        const _connObj = {{
+            effectiveType: '4g', rtt: {random.choice([50, 75, 100])},
+            downlink: {random.choice([5, 8, 10, 15])}, saveData: false,
+            type: 'wifi', onchange: null,
+            addEventListener: () => {{}}, removeEventListener: () => {{}},
+        }};
         Object.defineProperty(navigator, 'connection', {{
-            get: () => ({{
-                effectiveType: '4g', rtt: {random.choice([50, 75, 100])},
-                downlink: {random.choice([5, 8, 10, 15])}, saveData: false,
-                addEventListener: () => {{}}, removeEventListener: () => {{}},
-            }})
+            get: () => _connObj,
+            configurable: true,
         }});
-    }}
+    }})();
 
     // 14. Intl.DateTimeFormat timezone consistency (prevents tz mismatch detection)
     {'// timezone_id was provided - override Intl to match' if timezone_id else '// no timezone_id - skip Intl override'}
@@ -1150,10 +1153,10 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
                     const _origRequestAdapterInfo = adapter.requestAdapterInfo;
                     adapter.requestAdapterInfo = async function() {{
                         return {{
-                            vendor: '',
+                            vendor: '{gpu_vendor}',
                             architecture: '',
-                            device: '',
-                            description: '',
+                            device: '{gpu_renderer}',
+                            description: '{gpu_renderer}',
                         }};
                     }};
                     if (window.__lm_native) window.__lm_native(adapter.requestAdapterInfo, 'requestAdapterInfo');
@@ -1206,27 +1209,42 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
 
     // 47. Intl API consistency — Linken Sphere, Undetectable spoof these for GEO matching
     (function() {{
-        // Ensure Intl.DateTimeFormat resolvedOptions matches timezone (patch #14 handles via Proxy)
-        // Ensure Intl.NumberFormat uses locale-appropriate formats
-        // Intl.Collator — ensure locale-consistent sorting
-        try {{
-            const origCollator = Intl.Collator;
-            const origNumberFormat = Intl.NumberFormat;
-            const origListFormat = typeof Intl.ListFormat !== 'undefined' ? Intl.ListFormat : null;
-            // These are already locale-aware, but ensure .resolvedOptions() returns our locale
-        }} catch(e) {{}}
+        // Force Intl constructors to use our locale by default
+        const _targetLocale = {langs_js}[0] || 'en-US';
+        const _origCollator = Intl.Collator;
+        Intl.Collator = function(locales, options) {{
+            return new _origCollator(locales || _targetLocale, options);
+        }};
+        Intl.Collator.prototype = _origCollator.prototype;
+        Intl.Collator.supportedLocalesOf = _origCollator.supportedLocalesOf;
+        const _origNF = Intl.NumberFormat;
+        Intl.NumberFormat = function(locales, options) {{
+            return new _origNF(locales || _targetLocale, options);
+        }};
+        Intl.NumberFormat.prototype = _origNF.prototype;
+        Intl.NumberFormat.supportedLocalesOf = _origNF.supportedLocalesOf;
+        if (typeof Intl.ListFormat !== 'undefined') {{
+            const _origLF = Intl.ListFormat;
+            Intl.ListFormat = function(locales, options) {{
+                return new _origLF(locales || _targetLocale, options);
+            }};
+            Intl.ListFormat.prototype = _origLF.prototype;
+            Intl.ListFormat.supportedLocalesOf = _origLF.supportedLocalesOf;
+        }}
     }})();
 
     // 48. storage.estimate — prevent storage quota fingerprinting (Undetectable feature)
     (function() {{
         if (navigator.storage && navigator.storage.estimate) {{
             const _origEstimate = navigator.storage.estimate;
+            // Generate random quota at session start (consistent within session)
+            const _fakeQuota = 1073741824 * (100 + Math.floor(Math.random() * 200)); // 100-300 GB
+            const _fakeUsage = Math.floor(Math.random() * 50000000); // 0-50MB
             navigator.storage.estimate = async function() {{
                 const real = await _origEstimate.call(navigator.storage);
-                // Normalize to common values to prevent fingerprinting via quota size
                 return {{
-                    quota: 1073741824 * ({random.randint(100, 300)}), // 100-300 GB (common range)
-                    usage: Math.floor(Math.random() * 50000000), // 0-50MB used
+                    quota: _fakeQuota,
+                    usage: _fakeUsage,
                     usageDetails: real.usageDetails || {{}},
                 }};
             }};
