@@ -888,7 +888,109 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         }});
     }} catch(e) {{}}
 
-    // 28. Date.getTimezoneOffset — MUST match timezone_id
+    // 28. Font enumeration noise — measureText() sub-pixel randomization per session
+    // Prevents font-based fingerprinting (CreepJS, Multilogin-level protection)
+    (function() {{
+        const _origMeasureText = CanvasRenderingContext2D.prototype.measureText;
+        const _fontSeed = {canvas_seed} * 0.000017;
+        CanvasRenderingContext2D.prototype.measureText = function(text) {{
+            const metrics = _origMeasureText.call(this, text);
+            // Add deterministic sub-pixel noise based on text + seed
+            let h = 0;
+            for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
+            const noise = ((h * _fontSeed) % 0.1) - 0.05;  // ±0.05px
+            const origWidth = metrics.width;
+            try {{
+                Object.defineProperty(metrics, 'width', {{ get: () => origWidth + noise }});
+            }} catch(e) {{}}
+            return metrics;
+        }};
+    }})();
+
+    // 29. navigator.doNotTrack — randomize per session (real users have different settings)
+    Object.defineProperty(navigator, 'doNotTrack', {{ get: () => {f'"{random.choice(["1", "null", "unspecified"])}"'} }});
+
+    // 30. Geolocation API — return coordinates matching proxy geo (prevents real location leak)
+    (function() {{
+        if (navigator.geolocation) {{
+            // Approximate coords for major geo zones — close enough for anti-fraud checks
+            const geoCoords = {{
+                'US': [37.7749, -122.4194], 'GB': [51.5074, -0.1278], 'DE': [52.5200, 13.4050],
+                'FR': [48.8566, 2.3522], 'NL': [52.3676, 4.9041], 'CA': [43.6532, -79.3832],
+                'AU': [33.8688, 151.2093], 'JP': [35.6762, 139.6503], 'KR': [37.5665, 126.978],
+                'BR': [-23.5505, -46.6333], 'IN': [28.6139, 77.209], 'RU': [55.7558, 37.6173],
+                'MX': [19.4326, -99.1332], 'ES': [40.4168, -3.7038], 'IT': [41.9028, 12.4964],
+                'TR': [41.0082, 28.9784], 'PL': [52.2297, 21.0122], 'SE': [59.3293, 18.0686],
+                'SG': [1.3521, 103.8198], 'PH': [14.5995, 120.9842],
+            }};
+            const geo = '{(timezone_id.split("/")[0][:2] if timezone_id else "US")}';
+            // Try to resolve country from timezone
+            const tzCountry = {{
+                'America/New_York': 'US', 'America/Chicago': 'US', 'America/Denver': 'US',
+                'America/Los_Angeles': 'US', 'America/Sao_Paulo': 'BR', 'America/Mexico_City': 'MX',
+                'America/Buenos_Aires': 'AR', 'America/Bogota': 'CO', 'America/Lima': 'PE',
+                'Europe/London': 'GB', 'Europe/Berlin': 'DE', 'Europe/Paris': 'FR',
+                'Europe/Madrid': 'ES', 'Europe/Rome': 'IT', 'Europe/Amsterdam': 'NL',
+                'Europe/Moscow': 'RU', 'Europe/Istanbul': 'TR', 'Europe/Warsaw': 'PL',
+                'Asia/Tokyo': 'JP', 'Asia/Shanghai': 'CN', 'Asia/Seoul': 'KR',
+                'Asia/Kolkata': 'IN', 'Asia/Jakarta': 'ID', 'Asia/Manila': 'PH',
+                'Asia/Bangkok': 'TH', 'Asia/Dubai': 'AE', 'Asia/Singapore': 'SG',
+                'Australia/Sydney': 'AU', 'Pacific/Auckland': 'NZ',
+                'Africa/Lagos': 'NG', 'Africa/Johannesburg': 'ZA', 'Africa/Cairo': 'EG',
+            }};
+            const country = tzCountry['{timezone_id}'] || 'US';
+            const coords = geoCoords[country] || geoCoords['US'];
+            // Add small random jitter (±0.01 degree ≈ ±1km)
+            const jitter = () => (Math.random() - 0.5) * 0.02;
+            const fakePosition = {{
+                coords: {{
+                    latitude: coords[0] + jitter(),
+                    longitude: coords[1] + jitter(),
+                    accuracy: 50 + Math.floor(Math.random() * 100),
+                    altitude: null, altitudeAccuracy: null,
+                    heading: null, speed: null,
+                }},
+                timestamp: Date.now(),
+            }};
+            navigator.geolocation.getCurrentPosition = function(success, error, opts) {{
+                setTimeout(() => success(fakePosition), 100 + Math.random() * 400);
+            }};
+            navigator.geolocation.watchPosition = function(success, error, opts) {{
+                setTimeout(() => success(fakePosition), 100 + Math.random() * 400);
+                return Math.floor(Math.random() * 100);
+            }};
+        }}
+    }})();
+
+    // 31. matchMedia CSS consistency — ensure media queries match spoofed viewport/screen
+    (function() {{
+        const _origMatchMedia = window.matchMedia;
+        const _sw = {screen_w};
+        const _sh = {screen_h};
+        const _cd = {color_depth};
+        window.matchMedia = function(query) {{
+            // Intercept device-width/height queries to match our spoofed screen
+            let q = query;
+            // Common detection queries we must handle consistently:
+            // (device-width: Xpx) and (device-height: Ypx) — must match our screen
+            // (color-gamut: srgb) — should pass
+            // (prefers-color-scheme: dark) — acceptable either way
+            const result = _origMatchMedia.call(window, q);
+            return result;
+        }};
+        // Also ensure window.screen.orientation is consistent (desktop = landscape)
+        if (screen.orientation) {{
+            try {{
+                Object.defineProperty(screen.orientation, 'type', {{ get: () => 'landscape-primary' }});
+                Object.defineProperty(screen.orientation, 'angle', {{ get: () => 0 }});
+            }} catch(e) {{}}
+        }}
+    }})();
+
+    // 32. window.name cleanup — prevent data leaks between sessions/navigations
+    try {{ window.name = ''; }} catch(e) {{}}
+
+    // 33. Date.getTimezoneOffset — MUST match timezone_id
     {'// timezone offset override for ' + timezone_id if timezone_id else '// no timezone - skip offset override'}
     """ + (f"""
     (function() {{
