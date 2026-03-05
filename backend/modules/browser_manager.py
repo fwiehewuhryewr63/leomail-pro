@@ -250,7 +250,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     tz_offset = tz_offsets.get(timezone_id, 0) if timezone_id else 0
 
     return f"""
-    // ═══ LEOMAIL ANTIDETECT ENGINE v4 — 49 stealth patches ═══
+    // ═══ LEOMAIL ANTIDETECT ENGINE v5 — 52 stealth patches ═══
 
     // 0. CRITICAL: Function.prototype.toString — hide ALL our patches from prototype lie detection
     // This MUST run FIRST. CreepJS, FingerprintJS check if functions return [native code].
@@ -1261,6 +1261,40 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
             // Desktop: 'mouse', Mobile: 'touch'
             // Our maxTouchPoints patch (24) already handles this
         }}
+    }})();
+
+    // 50. document.hasFocus() — CRITICAL! Headless Chrome returns false, real Chrome returns true
+    // FingerprintJS BotD explicitly checks this as a headless signal
+    (function() {{
+        const _origHasFocus = Document.prototype.hasFocus;
+        Document.prototype.hasFocus = function() {{
+            return true;
+        }};
+        if (window.__lm_native) window.__lm_native(Document.prototype.hasFocus, 'hasFocus');
+    }})();
+
+    // 51. Notification.maxActions — headless = 0, real Chrome = 2
+    // NSTBrowser and BotD check this for headless detection
+    (function() {{
+        if (typeof Notification !== 'undefined') {{
+            try {{
+                Object.defineProperty(Notification, 'maxActions', {{
+                    get: () => 2,
+                    configurable: true,
+                }});
+            }} catch(e) {{}}
+        }}
+    }})();
+
+    // 52. screen.isExtended — must be false (single monitor desktop default)
+    // pixelscan/browserscan check this, headless may not have it defined
+    (function() {{
+        try {{
+            Object.defineProperty(screen, 'isExtended', {{
+                get: () => false,
+                configurable: true,
+            }});
+        }} catch(e) {{}}
     }})();
 
     // 33. Date.getTimezoneOffset — MUST match timezone_id
