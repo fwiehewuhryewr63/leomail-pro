@@ -716,7 +716,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
                         && !file.includes('pptr:');
                 }});
                 if (_origPrepare) return _origPrepare(err, filtered);
-                return filtered.map(f => '    at ' + f.toString()).join('\n');
+                return filtered.map(f => '    at ' + f.toString()).join(String.fromCharCode(10));
             }};
         }}
     }})();
@@ -784,9 +784,9 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     (function() {{
         if (!navigator.userAgentData) {{
             const brands = [
-                {'{{ brand: "' + ('Microsoft Edge' if is_edge else 'Google Chrome') + '", version: "' + ch_ver + '" }}'} ,
-                {{ brand: 'Chromium', version: '{ch_ver}' }},
-                {{ brand: 'Not_A Brand', version: '24' }},
+                {'{' + ' brand: "' + ('Microsoft Edge' if is_edge else 'Google Chrome') + '", version: "' + ch_ver + '" }'} ,
+                {'{' + " brand: 'Chromium', version: '" + ch_ver + "' }"} ,
+                {'{' + " brand: 'Not_A Brand', version: '24' }"} ,
             ];
             Object.defineProperty(navigator, 'userAgentData', {{
                 get: () => ({{
@@ -826,7 +826,7 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     }})();
 
     // 24. Desktop: maxTouchPoints = 0 (mobile sets it separately)
-    {'// mobile - skip desktop maxTouchPoints override' if is_mobile else "Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => 0 }});"}
+    {'// mobile - skip desktop maxTouchPoints override' if is_mobile else "Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });"}
 
     // 25. chrome.runtime.connect — return port-like object (real Chrome behavior)
     if (window.chrome && window.chrome.runtime) {{
