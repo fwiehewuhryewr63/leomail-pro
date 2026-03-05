@@ -252,17 +252,51 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     return f"""
     // ═══ LEOMAIL ANTIDETECT ENGINE v2 ═══
 
-    // 1. Hide webdriver flag (primary evasion is in CDP-level script, this is backup)
+    // 1. Hide webdriver flag — Proxy trap approach (handles 'in' operator!)
     (function() {{
+        // Phase 1: Try to delete from prototype chain
+        try {{ delete navigator.webdriver; }} catch(e) {{}}
         try {{
-            // Delete from prototype and instance
-            delete navigator.webdriver;
             const proto = Object.getPrototypeOf(navigator);
             if (proto) {{
                 const desc = Object.getOwnPropertyDescriptor(proto, 'webdriver');
                 if (desc && desc.configurable) delete proto.webdriver;
             }}
         }} catch(e) {{}}
+        try {{
+            const pDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
+            if (pDesc && pDesc.configurable) delete Navigator.prototype.webdriver;
+        }} catch(e) {{}}
+        // Phase 2: If still present, use Proxy trap on prototype
+        // This is the ONLY way to make 'webdriver' in navigator → false
+        if ('webdriver' in navigator) {{
+            try {{
+                const origProto = Object.getPrototypeOf(navigator);
+                const proxyProto = new Proxy(origProto, {{
+                    has: function(t, k) {{
+                        if (k === 'webdriver') return false;
+                        return k in t;
+                    }},
+                    get: function(t, k, r) {{
+                        if (k === 'webdriver') return undefined;
+                        const v = Reflect.get(t, k, r);
+                        return typeof v === 'function' ? v.bind(navigator) : v;
+                    }},
+                    getOwnPropertyDescriptor: function(t, k) {{
+                        if (k === 'webdriver') return undefined;
+                        return Object.getOwnPropertyDescriptor(t, k);
+                    }}
+                }});
+                Object.setPrototypeOf(navigator, proxyProto);
+            }} catch(e) {{
+                // Fallback: override value
+                try {{
+                    Object.defineProperty(navigator, 'webdriver', {{
+                        get: () => undefined, configurable: true,
+                    }});
+                }} catch(e2) {{}}
+            }}
+        }}
     }})();
 
     // 2. Chrome runtime object (full emulation — locked with defineProperty!)
@@ -494,16 +528,17 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         }};
     }})();
 
-    // 12. MediaDevices spoofing (consistent fake device count)
+    // 12. MediaDevices spoofing (randomized per session)
     if (navigator.mediaDevices) {{
         const _origEnum = navigator.mediaDevices.enumerateDevices;
+        // Generate random device IDs (unique per session, consistent within session)
+        const _rHex = () => Array.from({{length:16}},()=>Math.floor(Math.random()*16).toString(16)).join('');
+        const _devIds = {{ai: _rHex(), ao: _rHex(), vi: _rHex(), g1: _rHex(), g2: _rHex(), g3: _rHex()}};
         navigator.mediaDevices.enumerateDevices = async function() {{
             return [
-                {{ deviceId: 'default', kind: 'audioinput', label: '', groupId: 'default' }},
-                {{ deviceId: 'comms', kind: 'audioinput', label: '', groupId: 'comms' }},
-                {{ deviceId: 'default', kind: 'audiooutput', label: '', groupId: 'default' }},
-                {{ deviceId: 'comms', kind: 'audiooutput', label: '', groupId: 'comms' }},
-                {{ deviceId: 'webcam0', kind: 'videoinput', label: '', groupId: 'webcam' }},
+                {{ deviceId: _devIds.ai, kind: 'audioinput', label: '', groupId: _devIds.g1 }},
+                {{ deviceId: _devIds.ao, kind: 'audiooutput', label: '', groupId: _devIds.g1 }},
+                {{ deviceId: _devIds.vi, kind: 'videoinput', label: '', groupId: _devIds.g2 }},
             ];
         }};
     }}
@@ -522,17 +557,27 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
     // 14. Intl.DateTimeFormat timezone consistency (prevents tz mismatch detection)
     {'// timezone_id was provided - override Intl to match' if timezone_id else '// no timezone_id - skip Intl override'}
     """ + (f"""
+    // 14. Intl.DateTimeFormat timezone via Proxy (undetectable — preserves toString!)
     (function() {{
         const _origDTF = Intl.DateTimeFormat;
         const _targetTZ = '{timezone_id}';
-        Intl.DateTimeFormat = function(locales, options) {{
-            if (!options) options = {{}};
-            if (!options.timeZone) options.timeZone = _targetTZ;
-            return new _origDTF(locales, options);
-        }};
+        Intl.DateTimeFormat = new Proxy(_origDTF, {{
+            construct: function(target, args) {{
+                const [locales, options] = args;
+                const opts = Object.assign({{}}, options || {{}});
+                if (!opts.timeZone) opts.timeZone = _targetTZ;
+                return new target(locales, opts);
+            }},
+            apply: function(target, thisArg, args) {{
+                const [locales, options] = args;
+                const opts = Object.assign({{}}, options || {{}});
+                if (!opts.timeZone) opts.timeZone = _targetTZ;
+                return target(locales, opts);
+            }}
+        }});
+        // Preserve prototype chain and static methods
         Intl.DateTimeFormat.prototype = _origDTF.prototype;
         Intl.DateTimeFormat.supportedLocalesOf = _origDTF.supportedLocalesOf;
-        Object.defineProperty(Intl.DateTimeFormat, 'name', {{ value: 'DateTimeFormat' }});
     }})();
     """ if timezone_id else "") + f"""
 
@@ -558,38 +603,46 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = window.RTCPeerConnection;
     }})();
 
-    // 16. Window dimensions consistency (headless detection vector)
+    // 16. Window dimensions consistency (DYNAMIC — tracks innerWidth/Height!)
     (function() {{
-        const vw = window.innerWidth || {random.choice([1366, 1440, 1536, 1920])};
-        const vh = window.innerHeight || {random.choice([728, 860, 824, 1040])};
-        Object.defineProperty(window, 'outerWidth', {{ get: () => vw + {random.choice([0, 0, 14, 16])} }});
-        Object.defineProperty(window, 'outerHeight', {{ get: () => vh + {random.choice([74, 79, 85, 111])} }});
-        Object.defineProperty(window, 'screenX', {{ get: () => {random.choice([0, 0, 0, 50, 100])} }});
-        Object.defineProperty(window, 'screenY', {{ get: () => {random.choice([0, 0, 0, 25, 50])} }});
+        const _chromeOff = {random.choice([0, 0, 14, 16])};
+        const _toolbarH = {random.choice([74, 79, 85, 111])};
+        const _sx = {random.choice([0, 0, 0, 50, 100])};
+        const _sy = {random.choice([0, 0, 0, 25, 50])};
+        Object.defineProperty(window, 'outerWidth', {{ get: () => (window.innerWidth || 1920) + _chromeOff }});
+        Object.defineProperty(window, 'outerHeight', {{ get: () => (window.innerHeight || 1080) + _toolbarH }});
+        Object.defineProperty(window, 'screenX', {{ get: () => _sx }});
+        Object.defineProperty(window, 'screenY', {{ get: () => _sy }});
     }})();
 
-    // 17. Realistic chrome.csi and chrome.loadTimes (Google checks these!)
+    // 17. Realistic chrome.csi and chrome.loadTimes (DYNAMIC timestamps per call!)
     if (window.chrome) {{
+        // Session start time (set once, used as base for all calls)
+        const _sessionStart = Date.now();
+        const _pageStart = performance.timing ? performance.timing.navigationStart : _sessionStart;
         window.chrome.csi = function() {{
+            const now = Date.now();
             return {{
-                onloadT: Date.now() - {random.randint(300, 2000)},
-                startE: Date.now() - {random.randint(2000, 5000)},
-                pageT: {random.randint(200, 1500)},
+                onloadT: _pageStart + Math.floor(Math.random() * 500 + 200),
+                startE: _pageStart,
+                pageT: now - _pageStart,
                 tran: 15
             }};
         }};
         window.chrome.loadTimes = function() {{
+            const now = Date.now() / 1000;
+            const navStart = _pageStart / 1000;
             return {{
-                commitLoadTime: Date.now() / 1000 - {random.uniform(0.5, 2.0):.3f},
+                commitLoadTime: navStart + Math.random() * 0.3 + 0.1,
                 connectionInfo: 'h2',
-                finishDocumentLoadTime: Date.now() / 1000 - {random.uniform(0.1, 0.5):.3f},
-                finishLoadTime: Date.now() / 1000,
+                finishDocumentLoadTime: navStart + Math.random() * 0.5 + 0.3,
+                finishLoadTime: navStart + Math.random() * 0.8 + 0.5,
                 firstPaintAfterLoadTime: 0,
-                firstPaintTime: Date.now() / 1000 - {random.uniform(0.1, 0.3):.3f},
+                firstPaintTime: navStart + Math.random() * 0.2 + 0.05,
                 navigationType: 'Other',
                 npnNegotiatedProtocol: 'h2',
-                requestTime: Date.now() / 1000 - {random.uniform(1.0, 3.0):.3f},
-                startLoadTime: Date.now() / 1000 - {random.uniform(0.5, 2.0):.3f},
+                requestTime: navStart,
+                startLoadTime: navStart + Math.random() * 0.05,
                 wasAlternateProtocolAvailable: false,
                 wasFetchedViaSpdy: true,
                 wasNpnNegotiated: true,
@@ -597,9 +650,8 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
         }};
     }}
 
-    // 18. CDP Runtime leak fix (Playwright/Puppeteer detection via Error.stack)
+    // 18. CDP Runtime leak fix (comprehensive — catches all automation traces)
     (function() {{
-        const _origErr = Error;
         const _origStack = Object.getOwnPropertyDescriptor(Error.prototype, 'stack');
         if (_origStack && _origStack.get) {{
             Object.defineProperty(Error.prototype, 'stack', {{
@@ -609,11 +661,32 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
                         return stack
                             .replace(/pptr:eval/g, '<anonymous>')
                             .replace(/__puppeteer_evaluation_script__/g, '<anonymous>')
-                            .replace(/playwright_evaluation_script/g, '<anonymous>');
+                            .replace(/playwright_evaluation_script/g, '<anonymous>')
+                            .replace(/__playwright/g, '<anonymous>')
+                            .replace(/patchright/gi, '<anonymous>')
+                            .replace(/evaluate@chrome-extension/g, '<anonymous>')
+                            .replace(/cdp[A-Za-z]*\.js/g, '<anonymous>')
+                            .replace(/::(\d+):(\d+)/g, '');
                     }}
                     return stack;
                 }}
             }});
+        }}
+        // Override Error.prepareStackTrace (V8-specific, used by PerimeterX)
+        if (typeof Error.prepareStackTrace !== 'undefined' || true) {{
+            const _origPrepare = Error.prepareStackTrace;
+            Error.prepareStackTrace = function(err, stack) {{
+                // Filter out any CDP/automation frames
+                const filtered = stack.filter(frame => {{
+                    const fn = frame.getFunctionName() || '';
+                    const file = frame.getFileName() || '';
+                    return !fn.includes('playwright') && !fn.includes('patchright')
+                        && !file.includes('playwright') && !file.includes('patchright')
+                        && !file.includes('pptr:');
+                }});
+                if (_origPrepare) return _origPrepare(err, filtered);
+                return filtered.map(f => '    at ' + f.toString()).join('\n');
+            }};
         }}
     }})();
 
@@ -622,6 +695,44 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
 
     // 20. PDF viewer consistency
     Object.defineProperty(navigator, 'pdfViewerEnabled', {{ get: () => true }});
+
+    // 20b. Notification.permission (headless returns 'denied', should be 'default')
+    (function() {{
+        if (typeof Notification !== 'undefined') {{
+            try {{
+                Object.defineProperty(Notification, 'permission', {{
+                    get: () => 'default',
+                    configurable: true,
+                }});
+            }} catch(e) {{}}
+        }}
+    }})();
+
+    // 20c. performance.memory spoofing (headless has different limits)
+    (function() {{
+        if (performance && !performance.memory) {{
+            Object.defineProperty(performance, 'memory', {{
+                get: () => ({{
+                    jsHeapSizeLimit: {random.choice([2172649472, 2197815296, 4294705152])},
+                    totalJSHeapSize: {random.randint(20000000, 50000000)},
+                    usedJSHeapSize: {random.randint(15000000, 40000000)},
+                }}),
+                configurable: true,
+            }});
+        }} else if (performance && performance.memory) {{
+            // Override existing with realistic limits
+            try {{
+                Object.defineProperty(performance, 'memory', {{
+                    get: () => ({{
+                        jsHeapSizeLimit: {random.choice([2172649472, 2197815296, 4294705152])},
+                        totalJSHeapSize: {random.randint(20000000, 50000000)},
+                        usedJSHeapSize: {random.randint(15000000, 40000000)},
+                    }}),
+                    configurable: true,
+                }});
+            }} catch(e) {{}}
+        }}
+    }})();
 
     // ═══ NEW STEALTH BLOCKS v3 (pixelscan + browserscan fixes) ═══
 
@@ -1038,27 +1149,32 @@ class BrowserManager:
             if ('webdriver' in navigator) {
                 try {
                     Object.defineProperty(navigator, 'webdriver', {
-                        get: () => false,
-                        configurable: false,
+                        get: () => undefined,
+                        configurable: true,
                     });
                 } catch(e) {}
             }
         """
         # ─── Inject stealth scripts ─────────────────────────────────────
-        # Patchright's add_init_script is broken (causes navigation timeouts)
-        # and CDP Page.addScriptToEvaluateOnNewDocument triggers isAutomatedWithCDP.
-        # Solution: monkey-patch page.goto to auto-inject via page.evaluate after navigation.
-        # Patchright handles navigator.webdriver natively (no script needed).
+        # INJECTION STRATEGY (March 2026):
+        # Patchright's add_init_script causes navigation timeouts (verified broken).
+        # CDP Page.addScriptToEvaluateOnNewDocument also causes timeouts.
+        # Solution: TWO-LAYER injection via HTML route interception:
+        #   Layer 1 (PRE-PAGE): _anti_cdp_route injects FULL stealth JS into <head>
+        #           → runs BEFORE any page JS (anti-fraud can't see real fingerprint)
+        #   Layer 2 (POST-PAGE): _patched_goto runs page.evaluate as BACKUP
+        #           → catches SPA navigations, JS redirects, non-HTML pages
         all_stealth_scripts = [_webdriver_evasion_js, stealth_js]
         logger.debug(f"Stealth: GPU={ctx_gpu[1][:40]}..., platform from UA, hw={ctx_hw}, mem={ctx_mem}")
 
         combined_stealth = "\n".join(all_stealth_scripts)
 
         if _USING_PATCHRIGHT:
-            # Patchright: inject via page.evaluate after each navigation.
-            # Store script on context, monkey-patch new_page to auto-hook page.goto.
+            # Store full stealth for both layers
             context._leomail_stealth_js = combined_stealth
 
+            # ─── Layer 2: BACKUP post-navigation injection ─────────
+            # Catches SPA navigations and JS redirects that bypass the route
             _orig_new_page = context.new_page
 
             async def _patched_new_page(*args, **kwargs):
@@ -1068,6 +1184,8 @@ class BrowserManager:
                 async def _patched_goto(url, **kw):
                     response = await _orig_goto(url, **kw)
                     try:
+                        # Re-apply stealth as BACKUP (Layer 1 already ran for HTML pages)
+                        # This catches: about:blank, JS redirects, SPA navigations
                         await page.evaluate(context._leomail_stealth_js)
                     except Exception:
                         pass  # page may have navigated away
@@ -1078,14 +1196,24 @@ class BrowserManager:
 
             context.new_page = _patched_new_page
 
-            # ─── Anti-CDP detection via HTML route injection ─────────
-            # Bypasses Error.prepareStackTrace-based CDP detection
-            # (used by deviceandbrowserinfo.com and similar).
-            # Injects a <script> into HTML responses that:
-            # 1) Overrides console.log to stringify Error objects
-            # 2) Intercepts Blob constructor to fix WebWorker detection
-            _anti_cdp_script = '''<script>(function(){
-/* === 1. CDP detection bypass (Error.prepareStackTrace trap) === */
+            # ─── Layer 1: PRE-PAGE HTML route injection (CRITICAL) ─────────
+            # Injects FULL stealth engine into <head> of HTML responses.
+            # This runs BEFORE any page JavaScript, so anti-fraud scripts
+            # (Arkose Labs, Microsoft Account Protection, Google reCAPTCHA)
+            # see our PATCHED fingerprint, not the real one.
+            #
+            # Includes:
+            # 1) CDP detection bypass (Error.prepareStackTrace trap)
+            # 2) WebWorker CDP fix (Blob constructor intercept)
+            # 3) Webdriver Proxy trap (hides 'webdriver' from 'in' operator)
+            # 4) FULL 28-patch stealth engine (GPU, canvas, audio, etc.)
+            #
+            # The full stealth JS is stored as context._leomail_stealth_js
+            # and embedded as <script> in every HTML response.
+
+            # Build the pre-page script: CDP bypass + full stealth engine
+            _pre_page_cdp_bypass = '''(function(){
+/* CDP detection bypass (Error.prepareStackTrace trap) */
 var _oL=console.log;
 console.log=function(){var a=[];for(var i=0;i<arguments.length;i++){
 if(arguments[i] instanceof Error){a.push(arguments[i].message||'')}
@@ -1097,54 +1225,11 @@ window.Blob=function(p,o){if(o&&o.type&&o.type.indexOf("javascript")!==-1){
 var np=[wp];for(var i=0;i<p.length;i++){np.push(p[i])}return new OB(np,o)}
 return new OB(p,o)};window.Blob.prototype=OB.prototype;
 window.Blob.toString=function(){return'function Blob() { [native code] }'};
+})();'''
 
-/* === 2. Webdriver: Proxy trap on Navigator.prototype to hide 'webdriver' completely === */
-(function(){
-try{delete Navigator.prototype.webdriver}catch(e){}
-try{var p=Object.getPrototypeOf(navigator);if(p&&p.hasOwnProperty('webdriver'))delete p.webdriver}catch(e){}
-try{delete navigator.webdriver}catch(e){}
-/* Proxy trap: 'webdriver' in navigator → false, navigator.webdriver → undefined */
-if('webdriver' in navigator){
-try{
-var origProto=Object.getPrototypeOf(navigator);
-var proxyProto=new Proxy(origProto,{
-has:function(t,k){if(k==='webdriver')return false;return k in t},
-get:function(t,k,r){if(k==='webdriver')return undefined;var v=Reflect.get(t,k,r);return typeof v==='function'?v.bind(navigator):v},
-getOwnPropertyDescriptor:function(t,k){if(k==='webdriver')return undefined;return Object.getOwnPropertyDescriptor(t,k)}
-});
-Object.setPrototypeOf(navigator,proxyProto);
-}catch(e){
-try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined},configurable:true})}catch(e2){}
-}
-}
-})();
-
-/* === 3. Notification.permission → 'default' === */
-try{Object.defineProperty(Notification,'permission',{
-get:function(){return'default'},configurable:true})}catch(e){}
-
-/* === 4. speechSynthesis.getVoices() → return voices (async-safe) === */
-try{if(window.speechSynthesis){var _origGV=speechSynthesis.getVoices.bind(speechSynthesis);
-var _cachedVoices=null;
-speechSynthesis.getVoices=function(){var v=_origGV();if(v&&v.length>0){_cachedVoices=v;return v}
-if(_cachedVoices&&_cachedVoices.length>0)return _cachedVoices;
-return[{default:true,lang:'en-US',localService:true,name:'Microsoft David - English (United States)',
-voiceURI:'Microsoft David - English (United States)'},
-{default:false,lang:'en-US',localService:true,name:'Microsoft Zira - English (United States)',
-voiceURI:'Microsoft Zira - English (United States)'},
-{default:false,lang:'en-GB',localService:true,name:'Microsoft Hazel - English (United Kingdom)',
-voiceURI:'Microsoft Hazel - English (United Kingdom)'}];
-};
-speechSynthesis.getVoices.toString=function(){return'function getVoices() { [native code] }'};
-setTimeout(function(){_cachedVoices=_origGV()},200)}}catch(e){}
-
-/* === 5. chrome.runtime basic emulation (runs before page JS) === */
-try{if(!window.chrome)window.chrome={};
-if(!window.chrome.app)window.chrome.app={isInstalled:false,InstallState:{DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed'},RunningState:{CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running'},getDetails:function(){return null},getIsInstalled:function(){return false}};
-if(!window.chrome.csi)window.chrome.csi=function(){return{onloadT:Date.now(),startE:Date.now(),pageT:200,tran:15}};
-if(!window.chrome.loadTimes)window.chrome.loadTimes=function(){return{commitLoadTime:Date.now()/1000,connectionInfo:'h2',finishDocumentLoadTime:Date.now()/1000,finishLoadTime:Date.now()/1000,firstPaintAfterLoadTime:0,firstPaintTime:Date.now()/1000,navigationType:'Other',npnNegotiatedProtocol:'h2',requestTime:Date.now()/1000,startLoadTime:Date.now()/1000,wasAlternateProtocolAvailable:false,wasFetchedViaSpdy:true,wasNpnNegotiated:true}};
-}catch(e){}
-})();</script>'''
+            # Escape the stealth JS for embedding in HTML <script> tag
+            # No escaping needed — the JS is already valid, just wrap in <script>
+            _full_pre_page_script = '<script>' + _pre_page_cdp_bypass + '\n' + combined_stealth + '</script>'
 
             async def _anti_cdp_route(route):
                 try:
@@ -1153,11 +1238,20 @@ if(!window.chrome.loadTimes)window.chrome.loadTimes=function(){return{commitLoad
                     if "text/html" in ct:
                         body = await response.text()
                         if "<head>" in body:
-                            body = body.replace("<head>", "<head>" + _anti_cdp_script, 1)
+                            body = body.replace("<head>", "<head>" + _full_pre_page_script, 1)
                         elif "<HEAD>" in body:
-                            body = body.replace("<HEAD>", "<HEAD>" + _anti_cdp_script, 1)
+                            body = body.replace("<HEAD>", "<HEAD>" + _full_pre_page_script, 1)
+                        elif "<html" in body.lower():
+                            # Fallback: no <head> tag, inject after <html...>
+                            import re as _html_re
+                            body = _html_re.sub(
+                                r'(<html[^>]*>)',
+                                r'\1<head>' + _full_pre_page_script + '</head>',
+                                body, count=1, flags=_html_re.IGNORECASE
+                            )
                         await route.fulfill(response=response, body=body)
                     else:
+                        # Non-HTML: pass through without interception
                         await route.fulfill(response=response)
                 except Exception:
                     try:

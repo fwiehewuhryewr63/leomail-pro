@@ -80,12 +80,13 @@ async def _check_error_page(page, context_msg=""):
 
 
 async def step_0_warmup(page, ctx: RegContext):
-    """Step 0: Quick warmup — single Google visit."""
-    ctx._log("Quick session warmup...")
+    """Step 0: Full pre-registration warmup — builds natural browsing history.
+    AOL = Yahoo/Verizon family, uses same anti-fraud system.
+    """
+    ctx._log("Pre-registration warmup (15-30s browsing)...")
     try:
-        await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
-        await _human_delay(1, 2)
-        await random_mouse_move(page, steps=2)
+        geo = getattr(ctx, 'proxy_geo', None)
+        await pre_registration_warmup(page, geo=geo)
     except Exception:
         pass
 

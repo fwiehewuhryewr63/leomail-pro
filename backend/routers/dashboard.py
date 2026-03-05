@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import Proxy, Account, Task, TaskStatus, Farm, Template, RecipientDatabase, Link, ThreadLog
+from ..models import Proxy, Account, Task, TaskStatus, Farm, Template, RecipientDatabase, Link, ThreadLog, NamePack
 from ..config import load_config, get_api_key
 from loguru import logger
 
@@ -117,9 +117,10 @@ async def dashboard(db: Session = Depends(get_db)):
 
 
 @router.get("/dashboard/stats")
-async def dashboard_stats(db: Session = Depends(get_db)):
+async def dashboard_stats(db: Session = Depends(get_db), days: int = 7):
     """Flat stats for the frontend Dashboard.jsx."""
     from sqlalchemy import func
+    from datetime import datetime, timedelta
     from ..models import MailingStats
 
     total_accounts = db.query(Account).count()
@@ -140,6 +141,7 @@ async def dashboard_stats(db: Session = Depends(get_db)):
     running_tasks = db.query(Task).filter(Task.status == "running").count()
     databases_count = db.query(RecipientDatabase).count()
     links_count = db.query(Link).count()
+    names_count = db.query(NamePack).count()
 
     # Per-provider breakdown
     provider_rows = db.query(Account.provider, func.count()).group_by(Account.provider).all()
@@ -206,6 +208,59 @@ async def dashboard_stats(db: Session = Depends(get_db)):
     completed_tasks = db.query(Task).filter(Task.status.in_(["done", "completed"])).count()
     failed_tasks = db.query(Task).filter(Task.status == "failed").count()
 
+    # ─── ACTIVITY DATA (per-day for chart) ───
+    days = min(max(days, 1), 30)  # clamp 1-30
+    now = datetime.utcnow()
+    activity_data = []
+    for i in range(days - 1, -1, -1):
+        day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        day_label = day_start.strftime("%d %b")
+
+        accs_created = 0
+        emails_sent = 0
+        try:
+            accs_created = db.query(Account).filter(
+                Account.created_at >= day_start,
+                Account.created_at < day_end,
+            ).count()
+        except Exception:
+            pass
+        try:
+            emails_sent = db.query(MailingStats).filter(
+                MailingStats.sent_at >= day_start,
+                MailingStats.sent_at < day_end,
+                MailingStats.status == "sent",
+            ).count()
+        except Exception:
+            pass
+
+        activity_data.append({
+            "date": day_label,
+            "accounts": accs_created,
+            "emails": emails_sent,
+        })
+
+    # ─── RECENT ACTIVITY (last 10 events) ───
+    recent_activity = []
+    try:
+        recent_threads = db.query(ThreadLog).order_by(ThreadLog.id.desc()).limit(10).all()
+        for tl in recent_threads:
+            ts = ""
+            if tl.started_at:
+                ts = tl.started_at.strftime("%H:%M")
+            atype = "info"
+            if tl.status == "done":
+                atype = "success"
+            elif tl.status in ("error", "stopped"):
+                atype = "error"
+            msg = tl.current_action or tl.status or "—"
+            if tl.status == "done" and tl.account_email:
+                msg = f"Registered {tl.account_email}"
+            recent_activity.append({"time": ts, "type": atype, "message": msg})
+    except Exception:
+        pass
+
     return {
         "total_accounts": total_accounts,
         "total_farms": total_farms,
@@ -213,6 +268,7 @@ async def dashboard_stats(db: Session = Depends(get_db)):
         "total_templates": total_templates,
         "total_databases": databases_count,
         "total_links": links_count,
+        "total_names": names_count,
         "status_new": status_new,
         "status_warmup": status_warmup,
         "status_warmed": status_warmed,
@@ -244,6 +300,8 @@ async def dashboard_stats(db: Session = Depends(get_db)):
             "failed": failed_tasks,
             "running": running_tasks,
         },
+        "activity_data": activity_data,
+        "recent_activity": recent_activity,
     }
 
 

@@ -238,7 +238,6 @@ async def monitor_all_proxies(max_fails: int = 3):
                        and (p.proxy_type or "").lower() == "mobile")
         oh_avail = sum(1 for p in alive_proxies if (p.use_outlook or 0) + (p.use_hotmail or 0) < PM.OH_LIMIT)
         pt_avail = sum(1 for p in alive_proxies if (p.use_protonmail or 0) < PM.PT_LIMIT)
-        tu_avail = sum(1 for p in alive_proxies if (p.use_tuta or 0) < PM.TU_LIMIT)
 
         logger.info(
             f"Proxy monitor: {len(to_check)} checked ({alive_count} alive, {dead_count} dead)"
@@ -246,12 +245,12 @@ async def monitor_all_proxies(max_fails: int = 3):
         )
         logger.info(
             f"Available for autoreg: yahoo={ya_avail}, gmail={gm_avail}(mobile), "
-            f"outlook={oh_avail}, proton={pt_avail}, tuta={tu_avail}"
+            f"outlook={oh_avail}, proton={pt_avail}"
         )
         return {
             "checked": len(to_check), "alive": alive_count, "dead": dead_count,
             "revived": revived_count,
-            "available": {"yahoo": ya_avail, "gmail": gm_avail, "outlook": oh_avail, "proton": pt_avail, "tuta": tu_avail},
+            "available": {"yahoo": ya_avail, "gmail": gm_avail, "outlook": oh_avail, "proton": pt_avail},
         }
 
     except Exception as e:

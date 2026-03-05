@@ -212,16 +212,29 @@ def _lookup_asn_org(ip: str) -> str:
 # Classification
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def classify_ip(ip: str) -> str:
+def classify_ip(ip: str, db_proxy=None) -> str:
     """
     Classify an IP as 'datacenter', 'residential', 'mobile', or 'unknown'.
-    Uses cached results.
+    
+    3-tier cache:
+      1. In-memory dict (fastest, within same process lifetime)
+      2. Proxy.asn_type from DB (survives restarts, no API call)
+      3. ip-api.com HTTP lookup (slow, rate-limited at 45 req/min)
+    
+    On API hit, saves result back to DB so future calls skip the API.
     """
+    # Tier 1: in-memory cache
     if ip in _ip_type_cache:
         return _ip_type_cache[ip]
     
-    result = "unknown"
+    # Tier 2: DB cache (Proxy.asn_type field)
+    if db_proxy and getattr(db_proxy, 'asn_type', None):
+        result = db_proxy.asn_type
+        _ip_type_cache[ip] = result
+        return result
     
+    # Tier 3: API lookup
+    result = "unknown"
     asn = _lookup_asn(ip)
     if asn:
         if asn in DATACENTER_ASNS:
@@ -229,17 +242,26 @@ def classify_ip(ip: str) -> str:
         elif asn in MOBILE_ASNS:
             result = "mobile"
         else:
-            # Not in known datacenter or mobile lists → likely residential ISP
             result = "residential"
     
     _ip_type_cache[ip] = result
     logger.debug(f"[ASN] {ip} → {result} (ASN: {asn})")
+    
+    # Save back to DB if proxy object provided
+    if db_proxy and asn:
+        try:
+            db_proxy.asn = asn
+            db_proxy.asn_type = result
+            # Don't commit here — caller manages session
+        except Exception:
+            pass
+    
     return result
 
 
-def classify_ip_detailed(ip: str) -> dict:
+def classify_ip_detailed(ip: str, db_proxy=None) -> dict:
     """Classify IP and return full details for logging."""
-    ip_type = classify_ip(ip)
+    ip_type = classify_ip(ip, db_proxy=db_proxy)
     asn = _lookup_asn(ip)
     org = _lookup_asn_org(ip) if ip_type == "datacenter" else ""
     return {
@@ -262,20 +284,21 @@ SERVICE_ACCEPTS = {
     "outlook":    {"residential", "mobile", "datacenter"},  # Outlook: accepts all
     "hotmail":    {"residential", "mobile", "datacenter"},  # Hotmail: same as Outlook
     "protonmail": {"residential", "mobile", "datacenter"},  # Protonmail: accepts all
-    "tuta":       {"residential", "mobile", "datacenter"},  # Tuta: accepts all
 }
 
 
-def is_suitable_for(ip: str, service: str) -> bool:
+def is_suitable_for(ip: str, service: str, db_proxy=None) -> bool:
     """
     Check if an IP is suitable for a given email service.
     Returns True if the IP type is accepted by the service.
+    Pass db_proxy (ORM object with asn_type field) for DB-first cache.
     """
-    ip_type = classify_ip(ip)
+    ip_type = classify_ip(ip, db_proxy=db_proxy)
     
     if ip_type == "unknown":
-        # Unknown IPs: allow for lenient services, block for strict ones
-        return service not in ("gmail",)  # Only block unknown for Gmail
+        # Unknown IPs: block for strict services (Yahoo/AOL/Gmail check ASN)
+        # If we can't classify it, don't risk burning it on strict providers
+        return service not in ("gmail", "yahoo", "aol")
     
     accepted = SERVICE_ACCEPTS.get(service.lower(), {"residential", "mobile", "datacenter"})
     return ip_type in accepted

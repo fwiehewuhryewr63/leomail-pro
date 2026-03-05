@@ -273,24 +273,10 @@ export default function Warmup() {
 
                 {/* ── Buttons: START / STOP ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <button onClick={startWarmup} disabled={isRunning || loading}
-                        style={{
-                            padding: '14px 24px', fontSize: '1em', fontWeight: 800, cursor: isRunning ? 'not-allowed' : 'pointer',
-                            background: isRunning ? 'rgba(16,185,129,0.15)' : 'var(--accent)', color: isRunning ? 'var(--accent)' : '#000',
-                            border: 'none', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                            fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                    <button className="btn-start" onClick={startWarmup} disabled={isRunning || loading}>
                         <Play size={18} /> {loading ? 'Starting...' : 'START'}
                     </button>
-                    <button onClick={stopWarmup} disabled={!isRunning}
-                        style={{
-                            padding: '14px 24px', fontSize: '1em', fontWeight: 800, cursor: !isRunning ? 'not-allowed' : 'pointer',
-                            background: !isRunning ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.15)',
-                            color: !isRunning ? 'rgba(239,68,68,0.3)' : '#ef4444',
-                            border: `1px solid ${!isRunning ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.3)'}`,
-                            borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                            fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                    <button className={`btn-stop${isRunning ? ' active' : ''}`} onClick={stopWarmup} disabled={!isRunning}>
                         <Square size={16} /> STOP
                     </button>
                 </div>

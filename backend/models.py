@@ -98,10 +98,14 @@ class Proxy(Base):
     use_outlook = Column(Integer, default=0)
     use_hotmail = Column(Integer, default=0)
     use_protonmail = Column(Integer, default=0)
-    use_tuta = Column(Integer, default=0)
+    use_tuta = Column(Integer, default=0)  # DEPRECATED: Tuta provider removed, kept for DB schema compat
     
-    source = Column(String, default="manual")  # manual, asocks, proxy6, belurk, iproyal
+    source = Column(String, default="manual")  # manual, asocks, proxycheap
     external_id = Column(String, nullable=True)  # ID from proxy provider for dedup
+    
+    # ASN classification (cached from ip-api.com — survives restarts)
+    asn = Column(String, nullable=True)        # e.g. "AS49981"
+    asn_type = Column(String, nullable=True)    # datacenter, residential, mobile, unknown
     
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)  # cooldown: when proxy was last used for birth

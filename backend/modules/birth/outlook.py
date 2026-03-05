@@ -4,8 +4,10 @@ Registers outlook.com / hotmail.com accounts via signup.live.com.
 Flow: signup -> email/username -> password -> birthday (country+month+day+year) -> name -> FunCaptcha -> prompts -> done
 """
 import asyncio
+import json as _json
 import random
 import threading
+import urllib.parse as _urlparse
 from loguru import logger
 from sqlalchemy.orm import Session
 
@@ -47,12 +49,16 @@ _NEXT_SELECTORS = ['#iSignupAction', 'input[type="submit"]', 'button[type="submi
 
 
 async def step_0_warmup(page, ctx: RegContext):
-    """Step 0: Quick warmup — single Google visit to establish session."""
-    ctx._log("Quick session warmup...")
+    """Step 0: Full pre-registration warmup — builds natural browsing history.
+    
+    Visits Google, performs search, browses 3-6 sites with real scrolling and
+    mouse movement. Takes 15-30 seconds. This is CRITICAL for anti-fraud:
+    a session that goes directly to signup.live.com = obvious bot.
+    """
+    ctx._log("Pre-registration warmup (15-30s browsing)...")
     try:
-        await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=15000)
-        await _human_delay(1, 2)
-        await random_mouse_move(page, steps=2)
+        geo = getattr(ctx, 'proxy_geo', None)
+        await pre_registration_warmup(page, geo=geo)
     except Exception as warmup_e:
         logger.debug(f"Warmup error (proxy may be dead): {warmup_e}")
 
@@ -73,7 +79,11 @@ async def step_1_navigate(page, ctx: RegContext, proxy, db):
     except Exception as nav_e:
         logger.warning(f"[Outlook] Navigation error: {nav_e}")
 
-    await _human_delay(2, 4)
+    # Reading pause: real humans read the page before typing (3-6 seconds)
+    await _human_delay(3, 6)
+    await random_scroll(page, "down")
+    await _human_delay(1, 2)
+    await random_scroll(page, "up")
 
     # Pre-check: proxy alive?
     current_url = page.url or ""
@@ -151,7 +161,7 @@ async def step_3_enter_email(page, ctx: RegContext, domain: str):
     ctx._log(f"Entering: {text_to_enter}")
 
     await _human_fill(page, found, text_to_enter)
-    await _human_delay(0.8, 1.5)
+    await _human_delay(1.5, 3.5)
 
     # Select domain if needed
     if got_new_email_mode and domain != "outlook.com":
@@ -174,6 +184,15 @@ async def step_3_enter_email(page, ctx: RegContext, domain: str):
 
     # Email-taken retry (up to 3)
     for email_retry in range(3):
+        # Check if page advanced past email step (password field visible = success!)
+        pwd_check = await _wait_for_any(page, [
+            'input[name="Password"]', '#PasswordInput', 'input[type="password"]',
+        ], timeout=2000)
+        if pwd_check:
+            ctx._log(f"Email accepted: {ctx.email}")
+            break
+
+        # Still on email page — check for error
         err_text = await _check_error_on_page(page)
         if err_text:
             old_username = ctx.username
@@ -387,107 +406,203 @@ async def step_6_name(page, ctx: RegContext):
 
 
 async def step_7_captcha(page, ctx: RegContext, captcha_provider):
-    """Step 7: Handle FunCaptcha or reCAPTCHA. MS serves FunCaptcha primarily."""
+    """Step 7: Handle PerimeterX HUMAN challenge ('Press and hold') or FunCaptcha fallback.
+    MS Outlook uses hsprotect.net (PerimeterX/HUMAN Security) enforcement.
+    The challenge is usually 'press and hold the button', NOT classic FunCaptcha puzzles.
+    """
     ctx._log("Checking CAPTCHA...")
-    captcha_frame = page.locator(
-        'iframe[title*="captcha"], iframe[title*="Verification"], '
-        'iframe[title*="Human"], iframe[src*="funcaptcha"], '
-        'iframe[src*="hsprotect"], #enforcementFrame'
-    )
     await _human_delay(2, 4)
 
-    if await captcha_frame.count() > 0:
-        captcha_chain = get_captcha_chain()
-        if captcha_chain.providers:
-            ctx._log("[CAPTCHA] FunCaptcha detected! Solving via CaptchaChain...")
-            try:
-                # Extract site key
-                site_key = "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA"  # MS default
-                surl = "https://client-api.arkoselabs.com"
-                try:
-                    extracted_key = await page.evaluate("""(() => {
-                        const frames = document.querySelectorAll('iframe[src*="funcaptcha"], iframe[src*="arkoselabs"]');
-                        for (const f of frames) {
-                            const m = f.src.match(/pk=([A-F0-9-]+)/i);
-                            if (m) return m[1];
-                        }
-                        const el = document.querySelector('[data-pkey], [data-public-key]');
-                        if (el) return el.getAttribute('data-pkey') || el.getAttribute('data-public-key');
-                        if (window.enforcement && window.enforcement.publicKey) return window.enforcement.publicKey;
-                        return null;
-                    })()""")
-                    if extracted_key:
-                        site_key = extracted_key
-                        ctx._log(f"Extracted FunCaptcha key: {site_key[:20]}...")
-                except Exception:
-                    ctx._log("Using default MS FunCaptcha key")
+    # Detect enforcement iframe (hsprotect.net or legacy funcaptcha/arkose)
+    captcha_frame = page.locator(
+        'iframe[src*="hsprotect"], iframe[title*="captcha"], iframe[title*="Verification"], '
+        'iframe[title*="Human"], iframe[src*="funcaptcha"], #enforcementFrame'
+    )
 
-                # Solve via chain
-                token = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        captcha_chain.solve,
-                        "funcaptcha",
-                        public_key=site_key,
-                        page_url=page.url,
-                        surl=surl,
-                    ),
-                    timeout=180,
-                )
-                if token:
-                    ctx._log("[OK] FunCaptcha solved! Injecting token...")
-                    await page.evaluate(f"""(() => {{
-                        const token = "{token}";
-                        try {{
-                            var ef = document.getElementById("enforcementFrame");
-                            if (ef && ef.contentWindow) {{
-                                ef.contentWindow.postMessage(JSON.stringify({{token: token}}), "*");
-                            }}
-                        }} catch(e) {{}}
-                        try {{
-                            document.querySelectorAll('input[name*="fc-token"], input[name*="verification"], input[name*="FC"]')
-                                .forEach(i => {{ i.value = token; i.dispatchEvent(new Event('change', {{bubbles: true}})); }});
-                        }} catch(e) {{}}
-                        try {{ if (window.funcaptchaCallback) window.funcaptchaCallback(token); }} catch(e) {{}}
-                        try {{ if (window.ArkoseEnforcement) window.ArkoseEnforcement.setConfig({{onCompleted: token}}); }} catch(e) {{}}
-                        try {{
-                            var evt = new CustomEvent('arkose-completed', {{detail: {{token: token}}}});
-                            document.dispatchEvent(evt);
-                        }} catch(e) {{}}
-                    }})()""")
-                    await _human_delay(3, 6)
-                    ctx._log("Token injected, waiting...")
-
-                    post_captcha_btn = await _wait_for_any(page, _NEXT_SELECTORS, timeout=5000)
-                    if post_captcha_btn:
-                        await _human_click(page, post_captcha_btn)
-                        await _human_delay(3, 6)
-                else:
-                    raise CaptchaFailError("E401", "FunCaptcha: all providers failed to solve")
-            except CaptchaFailError:
-                raise
-            except asyncio.TimeoutError:
-                raise CaptchaFailError("E402", "FunCaptcha solve timeout (180s)")
-            except Exception as e:
-                ctx._err(f"CAPTCHA error: {str(e)[:200]}")
-                raise CaptchaFailError("E403", f"FunCaptcha error: {str(e)[:200]}")
-        else:
-            raise CaptchaFailError("E404", "FunCaptcha required but no CAPTCHA providers configured")
-    else:
-        # No FunCaptcha — check for reCAPTCHA fallback
-        ctx._log("No FunCaptcha iframe — checking for reCAPTCHA fallback...")
+    if await captcha_frame.count() == 0:
+        # No enforcement — check for reCAPTCHA fallback
+        ctx._log("No enforcement iframe — checking reCAPTCHA fallback...")
         recaptcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
         if recaptcha_solved:
             ctx._log("[OK] reCAPTCHA solved (MS fallback)")
             await _human_delay(3, 6)
-            post_captcha_btn = await _wait_for_any(page, _NEXT_SELECTORS, timeout=5000)
-            if post_captcha_btn:
-                await _human_click(page, post_captcha_btn)
+            post_btn = await _wait_for_any(page, _NEXT_SELECTORS, timeout=5000)
+            if post_btn:
+                await _human_click(page, post_btn)
                 await _human_delay(3, 6)
         else:
             ctx._log("No CAPTCHA detected - continuing")
+        await block_check(page, ctx.provider, ctx, "post_captcha")
+        return
 
-    # Post-check: block signals after CAPTCHA
+    # ── Enforcement iframe detected ──
+    await _debug_screenshot(page, f"{ctx.username}_captcha_check", ctx._log)
+
+    # Check main page text for challenge type
+    page_text = ""
+    try:
+        page_text = await page.inner_text("body")
+    except Exception:
+        pass
+    page_lower = page_text.lower()
+
+    # Check for BLOCK signals (not a challenge, just a ban)
+    block_keywords = [
+        "can't create", "cannot create", "unable to create",
+        "something went wrong", "try again later",
+        "we couldn't create", "account cannot be created",
+    ]
+    for kw in block_keywords:
+        if kw in page_lower:
+            ctx._err(f"[BLOCK] Microsoft BLOCKED: '{kw}'")
+            raise BannedIPError("E302", f"MS blocked: {kw}")
+
+    # ── Try PerimeterX "Press and hold" challenge ──
+    is_press_hold = "press and hold" in page_lower or "prove you're human" in page_lower
+    if is_press_hold:
+        ctx._log("[CAPTCHA] PerimeterX 'Press and hold' challenge detected")
+        solved = await _solve_perimeterx_hold(page, ctx)
+        if solved:
+            ctx._log("[OK] PerimeterX challenge passed!")
+            await _human_delay(3, 6)
+            await block_check(page, ctx.provider, ctx, "post_captcha")
+            return
+        else:
+            ctx._err("[CAPTCHA] PerimeterX press-and-hold FAILED after retries")
+            raise CaptchaFailError("E410", "PerimeterX press-and-hold failed")
+    else:
+        # Unknown enforcement type — log and try API captcha solving
+        ctx._log(f"[CAPTCHA] Unknown enforcement: {page_lower[:120]}")
+        ctx._err("[CAPTCHA] Unknown enforcement type — cannot solve")
+        raise CaptchaFailError("E411", "Unknown enforcement type (not press-and-hold)")
+
     await block_check(page, ctx.provider, ctx, "post_captcha")
+
+
+async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) -> bool:
+    """Solve PerimeterX 'Press and hold the button' challenge.
+    The button loads inside an hsprotect.net iframe. We need to find and hold it.
+    Returns True if challenge was passed, False otherwise.
+    """
+    for attempt in range(1, max_retries + 1):
+        ctx._log(f"[PX] Attempt {attempt}/{max_retries}: looking for hold button...")
+
+        # Wait for button to appear (it loads asynchronously)
+        hold_button = None
+        # Try multiple selectors — button can be in main page or iframe
+        button_selectors = [
+            '#px-captcha',                       # PerimeterX standard button ID
+            'div[id="px-captcha"]',             # div variant
+            'button[id*="captcha"]',
+            '[data-testid*="captcha"]',
+            'iframe[src*="hsprotect"]',          # might need to interact with iframe itself
+        ]
+
+        for sel in button_selectors:
+            try:
+                loc = page.locator(sel)
+                if await loc.count() > 0:
+                    hold_button = loc.first
+                    ctx._log(f"[PX] Found button: {sel}")
+                    break
+            except Exception:
+                continue
+
+        if not hold_button:
+            # Try to find ANY clickable element with captcha-like attributes
+            try:
+                hold_button_js = await page.evaluate(r"""() => {
+                    // Look for px-captcha div
+                    let el = document.getElementById('px-captcha');
+                    if (el) return {found: true, id: 'px-captcha'};
+                    // Look inside iframes
+                    const iframes = document.querySelectorAll('iframe[src*="hsprotect"]');
+                    for (const iframe of iframes) {
+                        try {
+                            const doc = iframe.contentDocument;
+                            if (doc) {
+                                el = doc.getElementById('px-captcha');
+                                if (el) return {found: true, id: 'px-captcha', iframe: true};
+                                // Any button or interactive element
+                                const btn = doc.querySelector('button, [role="button"], .captcha-button');
+                                if (btn) return {found: true, tag: btn.tagName, iframe: true};
+                            }
+                        } catch(e) {}
+                    }
+                    return {found: false};
+                }""")
+                if hold_button_js and hold_button_js.get("found"):
+                    ctx._log(f"[PX] Found via JS: {hold_button_js}")
+                    if hold_button_js.get("id") == "px-captcha":
+                        hold_button = page.locator("#px-captcha")
+            except Exception:
+                pass
+
+        if not hold_button:
+            ctx._log(f"[PX] No button found on attempt {attempt}")
+            await _human_delay(2, 4)
+            continue
+
+        # ── Simulate human press-and-hold ──
+        try:
+            # Move mouse to button area naturally
+            await random_mouse_move(page, steps=random.randint(2, 4))
+            await _human_delay(0.5, 1.5)
+
+            # Get button bounding box
+            bbox = await hold_button.bounding_box()
+            if not bbox:
+                ctx._log("[PX] Button has no bounding box — might be hidden")
+                await _human_delay(2, 4)
+                continue
+
+            # Click position: random offset within button
+            x = bbox['x'] + bbox['width'] * random.uniform(0.3, 0.7)
+            y = bbox['y'] + bbox['height'] * random.uniform(0.3, 0.7)
+
+            ctx._log(f"[PX] Pressing and holding at ({x:.0f}, {y:.0f})...")
+
+            # Mouse down (start press)
+            await page.mouse.move(x, y, steps=random.randint(5, 12))
+            await _human_delay(0.2, 0.5)
+            await page.mouse.down()
+
+            # Hold for 3-8 seconds (human-like duration)
+            hold_duration = random.uniform(4.0, 8.0)
+            ctx._log(f"[PX] Holding for {hold_duration:.1f}s...")
+            await asyncio.sleep(hold_duration)
+
+            # Mouse up (release)
+            await page.mouse.up()
+            ctx._log("[PX] Released button")
+
+            # Wait for response / page change
+            await _human_delay(3, 6)
+
+            # Check if challenge passed — page should change URL or content
+            current_url = page.url
+            current_text = ""
+            try:
+                current_text = await page.inner_text("body")
+            except Exception:
+                pass
+
+            # Success indicators: no more "prove you're human", or page advanced
+            if "prove you're human" not in current_text.lower() and "press and hold" not in current_text.lower():
+                ctx._log("[PX] Challenge text gone — appears solved!")
+                await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
+                return True
+
+            # Still on challenge page — take screenshot and retry
+            ctx._log(f"[PX] Still on challenge page after attempt {attempt}")
+            await _debug_screenshot(page, f"{ctx.username}_px_retry{attempt}", ctx._log)
+            await _human_delay(2, 4)
+
+        except Exception as e:
+            ctx._log(f"[PX] Error on attempt {attempt}: {str(e)[:100]}")
+            await _human_delay(2, 4)
+
+    return False
 
 
 async def step_8_post_prompts(page, ctx: RegContext):
@@ -640,6 +755,54 @@ async def register_single_outlook(
     try:
         page = await context.new_page()
         ACTIVE_PAGES[ctx.thread_id] = {"page": page, "context": context}
+
+        # ── Intercept Arkose Labs requests to capture blob ──
+        async def _intercept_arkose(route):
+            """Capture data[blob] from Arkose Labs API POST requests."""
+            try:
+                req = route.request
+                logger.debug(f"[ARKOSE-INTERCEPT] {req.method} {req.url[:120]}")
+                if req.method == "POST":
+                    body = req.post_data or ""
+                    blob = ""
+                    # Try JSON body first
+                    try:
+                        jdata = _json.loads(body)
+                        blob = jdata.get("blob", "")
+                    except Exception:
+                        pass
+                    # Try form-encoded body (data[blob]=xxx)
+                    if not blob and "blob" in body:
+                        try:
+                            parsed = _urlparse.parse_qs(body)
+                            blob = parsed.get("blob", parsed.get("data[blob]", [""]))[0]
+                        except Exception:
+                            pass
+                    if blob and len(blob) > 10:
+                        ctx._arkose_blob = blob
+                        ctx._log(f"[ARKOSE] Blob captured: {blob[:60]}...")
+            except Exception:
+                pass
+            await route.continue_()
+
+        # Route on ALL known Arkose Labs domains (context-level = covers iframes)
+        arkose_patterns = [
+            "**arkoselabs.com**",
+            "**funcaptcha.com**",
+            "**funcaptcha.co**",
+            "**arkoselabs.us**",
+            "**/fc/**",  # some configs use /fc/ path
+        ]
+        for pat in arkose_patterns:
+            await context.route(pat, _intercept_arkose)
+
+        # ALSO: Listen for ALL requests to log Arkose URLs (debug)
+        def _on_request(request):
+            url_lower = request.url.lower()
+            if any(k in url_lower for k in ["arkose", "funcaptcha", "enforcement", "hsprotect"]):
+                logger.info(f"[ARKOSE-URL] {request.method} {request.url[:200]}")
+
+        page.on("request", _on_request)
 
         # ── Execute Steps ──
         await step_0_warmup(page, ctx)

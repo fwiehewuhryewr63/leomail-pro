@@ -688,15 +688,15 @@ async def human_fill(page, selector, text, field_type="default"):
             cx = max(box['x'] + 3, min(box['x'] + box['width'] - 3, cx))
             cy = max(box['y'] + 2, min(box['y'] + box['height'] - 2, cy))
             await _move_mouse_to(page, cx, cy)
-            await asyncio.sleep(random.uniform(0.05, 0.15))
+            await asyncio.sleep(random.uniform(0.15, 0.40))
             await page.mouse.click(cx, cy)
         else:
             await el.click()
-        await asyncio.sleep(random.uniform(0.15, 0.35))
+        await asyncio.sleep(random.uniform(0.25, 0.55))
 
         # Clear field
         await el.fill("")
-        await asyncio.sleep(random.uniform(0.08, 0.2))
+        await asyncio.sleep(random.uniform(0.15, 0.35))
 
         # Get typing profile for speed context
         profile = TYPING_PROFILES.get(field_type, TYPING_PROFILES["default"])
@@ -704,16 +704,21 @@ async def human_fill(page, selector, text, field_type="default"):
         base_max = profile["base_max"]
         think_chance = profile["think_chance"]
 
+        skip_until = 0  # Track burst-typed chars to avoid double-typing
         for i, char in enumerate(text):
+            # Skip chars already typed by a previous burst
+            if i < skip_until:
+                continue
+
             # Thinking pause before special characters
-            if char in "@._-!#$%&" and random.random() < 0.35:
-                await asyncio.sleep(random.uniform(0.25, 0.65))
-            elif char.isdigit() and i > 0 and text[i-1].isalpha() and random.random() < 0.25:
-                await asyncio.sleep(random.uniform(0.2, 0.45))
+            if char in "@._-!#$%&" and random.random() < 0.45:
+                await asyncio.sleep(random.uniform(0.35, 0.85))
+            elif char.isdigit() and i > 0 and text[i-1].isalpha() and random.random() < 0.30:
+                await asyncio.sleep(random.uniform(0.3, 0.6))
 
             # Random thinking pause
             if random.random() < think_chance:
-                await asyncio.sleep(random.uniform(0.3, 0.7))
+                await asyncio.sleep(random.uniform(0.4, 0.9))
 
             delay_ms = random.randint(base_min, base_max)
 
@@ -722,9 +727,8 @@ async def human_fill(page, selector, text, field_type="default"):
                 burst_len = random.randint(2, 3)
                 for j in range(burst_len):
                     if i + j < len(text):
-                        await page.keyboard.type(text[i + j], delay=random.randint(25, 50))
-                # Note: this may type a few chars twice (current char + burst),
-                # but it's better than the old `break` which STOPPED ALL TYPING
+                        await page.keyboard.type(text[i + j], delay=random.randint(35, 65))
+                skip_until = i + burst_len  # Skip these chars in main loop
                 continue
 
             await page.keyboard.type(char, delay=delay_ms)
@@ -760,18 +764,73 @@ async def human_type(page, selector, text, thread_log=None, db=None):
 
 
 async def check_error_on_page(page) -> str | None:
-    """Check if Microsoft shows an error message."""
-    error_selectors = [
+    """Check if Microsoft shows an error message (supports both old and new Fluent UI).
+    
+    IMPORTANT: Must not false-positive on normal page headings like
+    'Create your password', 'Add some details', etc.
+    """
+    # Phase 1: Check known MS error element IDs (most reliable)
+    ms_error_ids = [
         '#MemberNameError', '#PasswordError', '#FirstNameError',
-        '#LastNameError', '#BirthDateError', '.alert-error',
-        '#error', '#ServerError',
+        '#LastNameError', '#BirthDateError', '#ServerError',
+        '#error', '#hipEnf498', '.alert-error',
     ]
-    for sel in error_selectors:
-        el = page.locator(sel)
-        if await el.count() > 0:
-            text = await el.text_content()
-            if text and text.strip():
-                return text.strip()
+    for sel in ms_error_ids:
+        try:
+            el = page.locator(sel)
+            if await el.count() > 0:
+                text = (await el.first.text_content() or "").strip()
+                if text and len(text) > 3:
+                    return text
+        except Exception:
+            continue
+
+    # Phase 2: JS scan for specific error text patterns (most accurate)
+    # Only matches text that actually indicates an error
+    try:
+        error_text = await page.evaluate(r"""() => {
+            const errorPatterns = [
+                'already taken', 'already exists', 'not available',
+                'try another', 'choose a different', 'username is taken',
+                'is not valid', 'too short', 'too long',
+                'use a different', 'can\'t be used',
+                'уже занят', 'недоступ', 'уже существует'
+            ];
+            // Only search near input fields (avoid matching page headings)
+            const containers = document.querySelectorAll(
+                'div[class*="error"], span[class*="error"], p[class*="error"], ' +
+                '.error-text, .field-error, .validation-error, ' +
+                '[aria-live="assertive"], [data-testid*="error"]'
+            );
+            for (const el of containers) {
+                const t = (el.textContent || '').trim().toLowerCase();
+                if (t.length > 5 && t.length < 200) {
+                    for (const pattern of errorPatterns) {
+                        if (t.includes(pattern)) return el.textContent.trim();
+                    }
+                }
+            }
+            // Broader scan but ONLY for error keywords
+            const allEls = document.querySelectorAll('div, span, p');
+            for (const el of allEls) {
+                const t = (el.textContent || '').trim().toLowerCase();
+                if (t.length > 10 && t.length < 150) {
+                    for (const pattern of errorPatterns) {
+                        if (t.includes(pattern)) {
+                            // Double-check: must NOT be a heading/title
+                            const tag = el.tagName.toLowerCase();
+                            if (tag === 'h1' || tag === 'h2' || tag === 'h3') continue;
+                            return el.textContent.trim();
+                        }
+                    }
+                }
+            }
+            return null;
+        }""")
+        if error_text:
+            return error_text
+    except Exception:
+        pass
     return None
 
 
@@ -1095,10 +1154,36 @@ async def detect_and_solve_funcaptcha(page, captcha_provider, log_fn=None):
             
             if (!publicKey) return null;
             
+            // Extract blob data for MS-specific FunCaptcha
+            let blob = null;
+            try {
+                // Method 1: From enforcement frame data attribute
+                const enfFrame = document.querySelector('iframe[data-e2e="enforcement-frame"]');
+                if (enfFrame) {
+                    const src = enfFrame.getAttribute('src') || '';
+                    const blobMatch = src.match(/[?&]blob=([^&]+)/i);
+                    if (blobMatch) blob = decodeURIComponent(blobMatch[1]);
+                }
+                // Method 2: From script/config data
+                if (!blob) {
+                    const scripts = document.querySelectorAll('script');
+                    for (const s of scripts) {
+                        const txt = s.textContent || '';
+                        const m = txt.match(/"blob"\s*:\s*"([^"]+)"/);
+                        if (m) { blob = m[1]; break; }
+                    }
+                }
+                // Method 3: From window globals
+                if (!blob && window.__arkose_config) {
+                    blob = window.__arkose_config.blob || window.__arkose_config.data?.blob;
+                }
+            } catch(e) {}
+            
             return {
                 publicKey: publicKey,
                 surl: surl || 'https://client-api.arkoselabs.com',
                 hasIframe: frames.length > 0,
+                blob: blob,
             };
         }""")
 
@@ -1107,7 +1192,8 @@ async def detect_and_solve_funcaptcha(page, captcha_provider, log_fn=None):
 
         public_key = fc_data.get("publicKey")
         surl = fc_data.get("surl", "https://client-api.arkoselabs.com")
-        _log(f"[FUNCAPTCHA] Detected! publicKey={public_key[:20]}... surl={surl}")
+        blob = fc_data.get("blob") or ""
+        _log(f"[FUNCAPTCHA] Detected! publicKey={public_key[:20]}... surl={surl}" + (f" blob={blob[:30]}..." if blob else ""))
 
         page_url = page.url
 
@@ -1116,11 +1202,11 @@ async def detect_and_solve_funcaptcha(page, captcha_provider, log_fn=None):
             _log(f"[CHAIN] Solving FunCaptcha via CaptchaChain ({len(captcha_provider.providers)} providers)")
             token = await asyncio.to_thread(
                 captcha_provider.solve, "funcaptcha",
-                public_key=public_key, page_url=page_url, surl=surl
+                public_key=public_key, page_url=page_url, surl=surl, data_blob=blob
             )
         elif hasattr(captcha_provider, 'solve_funcaptcha'):
             token = await asyncio.to_thread(
-                captcha_provider.solve_funcaptcha, public_key, page_url, surl
+                captcha_provider.solve_funcaptcha, public_key, page_url, surl, blob
             )
         else:
             _log("[WARN] Captcha provider doesn't support FunCaptcha")
@@ -1306,6 +1392,7 @@ class RegContext:
     max_retries: int = 3
     _log: object = None     # Logging function
     _err: object = None     # Error logging function
+    _arkose_blob: str = ""  # FunCaptcha blob captured from Arkose Labs API
 
 
 # ── Defensive Coding Template Helpers ──────────────────────────────────────────

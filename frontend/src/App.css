@@ -1430,6 +1430,99 @@ textarea {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   GLOBAL CHECKBOX — Larger, accent-colored
+   ═══════════════════════════════════════════════════════════ */
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UNIFIED START / STOP BUTTONS
+   ═══════════════════════════════════════════════════════════ */
+.btn-start {
+  padding: 14px 24px;
+  font-size: 1em;
+  font-weight: 800;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.btn-start:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 20px rgba(16, 185, 129, 0.3), var(--shadow-glow);
+  filter: brightness(1.08);
+}
+
+.btn-start:disabled {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent);
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+.btn-stop {
+  padding: 14px 24px;
+  font-size: 1em;
+  font-weight: 800;
+  background: transparent;
+  color: var(--text-muted);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  transition: all 0.2s;
+  cursor: not-allowed;
+}
+
+.btn-stop.active {
+  color: var(--danger);
+  border-color: var(--danger);
+  cursor: pointer;
+}
+
+.btn-stop.active:hover {
+  background: rgba(239, 68, 68, 0.08);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TABLE ROW TEXT — Larger for readability
+   ═══════════════════════════════════════════════════════════ */
+.data-table th {
+  font-size: 0.78em;
+  padding: 9px 14px;
+}
+
+.data-table td {
+  font-size: 0.92em;
+  padding: 9px 14px;
+}
+
+/* Grid table rows (inline-styled tables in Proxies, Names, etc.) */
+.card div[style*="gridTemplateColumns"] {
+  font-size: inherit;
+}
+
 @media (max-width: 1200px) {
 
   /* Campaign stats: 5 cols → 3 cols on medium screens */

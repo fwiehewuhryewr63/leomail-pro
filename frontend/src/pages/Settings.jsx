@@ -28,10 +28,8 @@ const PROXY_PROVIDERS = [
 ];
 
 const PROXY_API_SERVICES = [
-    { key: 'asocks_key', configPath: ['proxy_providers', 'asocks', 'api_key'], name: 'ASocks', service: 'asocks', desc: 'Mobile 4G - Gmail', color: '#06B6D4' },
-    { key: 'proxy6_key', configPath: ['proxy_providers', 'proxy6', 'api_key'], name: 'Proxy6', service: 'proxy6', desc: 'IPv4 - Tier 1', color: '#F59E0B' },
-    { key: 'belurk_key', configPath: ['proxy_providers', 'belurk', 'api_key'], name: 'Belurk', service: 'belurk', desc: 'IPv4 - Fallback', color: '#A855F7' },
-    { key: 'proxycheap_key', configPath: ['proxy_providers', 'proxycheap', 'api_key'], name: 'Proxy-Cheap', service: 'proxycheap', desc: 'Residential - Tier 4', color: '#10B981' },
+    { key: 'asocks_key', configPath: ['proxy_providers', 'asocks', 'api_key'], name: 'ASocks', service: 'asocks', desc: 'Residential + Mobile 4G', color: '#06B6D4' },
+    { key: 'proxycheap_key', configPath: ['proxy_providers', 'proxycheap', 'api_key'], name: 'Proxy-Cheap', service: 'proxycheap', desc: 'Residential - Fallback', color: '#10B981' },
 ];
 
 export default function Settings() {

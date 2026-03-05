@@ -230,26 +230,10 @@ export default function Validator() {
 
                 {/* Buttons */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <button onClick={startValidation} disabled={running || !uploadResult}
-                        style={{
-                            padding: '14px 24px', fontSize: '1em', fontWeight: 800,
-                            cursor: (running || !uploadResult) ? 'not-allowed' : 'pointer',
-                            background: (running || !uploadResult) ? 'rgba(6,182,212,0.15)' : 'var(--teal)',
-                            color: (running || !uploadResult) ? 'var(--teal)' : '#000',
-                            border: 'none', borderRadius: 8, display: 'flex', alignItems: 'center',
-                            justifyContent: 'center', gap: 8, fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                    <button className="btn-start" onClick={startValidation} disabled={running || !uploadResult}>
                         <Play size={16} /> START
                     </button>
-                    <button onClick={() => running ? setStopModal(true) : null} disabled={!running}
-                        style={{
-                            padding: '14px 24px', fontSize: '1em', fontWeight: 800,
-                            cursor: !running ? 'not-allowed' : 'pointer',
-                            background: 'transparent', color: !running ? 'var(--text-muted)' : 'var(--danger)',
-                            border: `2px solid ${!running ? 'rgba(255,255,255,0.08)' : 'var(--danger)'}`,
-                            borderRadius: 8, display: 'flex', alignItems: 'center',
-                            justifyContent: 'center', gap: 8, fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                    <button className={`btn-stop${running ? ' active' : ''}`} onClick={() => running ? setStopModal(true) : null} disabled={!running}>
                         <StopCircle size={16} /> STOP
                     </button>
                 </div>

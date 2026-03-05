@@ -89,7 +89,7 @@ async def run_birth_task(request: BirthRequest):
             db.commit()
 
         # Validate provider
-        valid_providers = ['yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'gmail', 'tuta']
+        valid_providers = ['yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'gmail']
         if request.provider.lower() not in valid_providers:
             return {"status": "error", "message": f"Unknown provider: {request.provider}. Valid: {valid_providers}"}
 

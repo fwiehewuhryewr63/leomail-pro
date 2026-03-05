@@ -132,7 +132,6 @@ class ProxyManager:
     YA_LIMIT = 3      # Yahoo+AOL combined limit
     OH_LIMIT = 3      # Outlook+Hotmail combined limit
     PT_LIMIT = 3      # ProtonMail limit
-    TU_LIMIT = 3      # Tuta limit
 
     def get_unbound_proxy(self, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
@@ -192,10 +191,12 @@ class ProxyManager:
             try:
                 from .asn_checker import is_suitable_for
                 before = len(proxies)
-                proxies = [p for p in proxies if is_suitable_for(p.host, provider.lower())]
+                proxies = [p for p in proxies if is_suitable_for(p.host, provider.lower(), db_proxy=p)]
                 skipped = before - len(proxies)
                 if skipped > 0:
                     logger.info(f"[ProxyPool] ASN filter: skipped {skipped}/{before} unsuitable proxies for {provider}")
+                # Persist any newly-classified ASN types to DB
+                self.db.commit()
             except Exception as e:
                 logger.debug(f"[ProxyPool] ASN check skipped: {e}")
 
@@ -233,7 +234,6 @@ class ProxyManager:
             'outlook': Proxy.use_outlook,
             'hotmail': Proxy.use_hotmail,
             'protonmail': Proxy.use_protonmail,
-            'tuta': Proxy.use_tuta,
         }
         return mapping.get(provider.lower())
 
@@ -241,7 +241,7 @@ class ProxyManager:
     def _provider_group_filter(provider: str):
         """Get SQLAlchemy filter for provider GROUP limit.
         Groups: Yahoo+AOL (YA, limit 3), Outlook+Hotmail (OH, limit 3), Gmail (G, limit 1),
-        ProtonMail (PT, limit 3), Tuta (TU, limit 3).
+        ProtonMail (PT, limit 3).
         """
         provider = provider.lower()
         if provider in ('yahoo', 'aol'):
@@ -252,22 +252,19 @@ class ProxyManager:
             return Proxy.use_gmail < ProxyManager.GMAIL_LIMIT
         elif provider == 'protonmail':
             return Proxy.use_protonmail < ProxyManager.PT_LIMIT
-        elif provider == 'tuta':
-            return Proxy.use_tuta < ProxyManager.TU_LIMIT
         return None
 
     @staticmethod
     def _is_exhausted(proxy: Proxy) -> bool:
         """Check if ALL provider groups are at their limit.
-        Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3), Tuta (3).
+        Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3).
         Returns True only if ALL groups are exhausted.
         """
         g_exhausted = (proxy.use_gmail or 0) >= ProxyManager.GMAIL_LIMIT
         ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= ProxyManager.YA_LIMIT
         oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= ProxyManager.OH_LIMIT
         pt_exhausted = (proxy.use_protonmail or 0) >= ProxyManager.PT_LIMIT
-        tu_exhausted = (proxy.use_tuta or 0) >= ProxyManager.TU_LIMIT
-        return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted and tu_exhausted
+        return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
         """Increment the per-provider usage counter and total use_count."""
@@ -316,7 +313,7 @@ class ProxyManager:
         def _usage_key(p):
             total = sum(getattr(p, f, 0) or 0 for f in (
                 'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
-                'use_hotmail', 'use_protonmail', 'use_tuta'))
+                'use_hotmail', 'use_protonmail'))
             return (total, random.random())
         candidates.sort(key=_usage_key)
 
@@ -373,20 +370,31 @@ class ProxyManager:
             try:
                 from .asn_checker import is_suitable_for
                 before = len(candidates)
-                candidates = [p for p in candidates if is_suitable_for(p.host, provider.lower())]
+                candidates = [p for p in candidates if is_suitable_for(p.host, provider.lower(), db_proxy=p)]
                 skipped = before - len(candidates)
                 if skipped > 0:
                     logger.info(f"[ProxyManager] ASN filter: skipped {skipped}/{before} datacenter proxies for {provider}")
+                # Persist any newly-classified ASN types to DB
+                self.db.commit()
             except Exception as e:
                 logger.debug(f"[ProxyManager] ASN check skipped: {e}")
 
         # If no non-blacklisted proxies, try ANY unbound active proxy
         # but ONLY if there's no blacklist (first run) - never ignore blacklist
+        # IMPORTANT: still apply ASN filter to fallback candidates!
         if not candidates and not exclude_ids:
-            candidates = self.db.query(Proxy).filter(
+            fallback = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
             ).all()
+            if provider and provider.lower() in ('yahoo', 'aol', 'gmail'):
+                try:
+                    from .asn_checker import is_suitable_for
+                    fallback = [p for p in fallback if is_suitable_for(p.host, provider.lower(), db_proxy=p)]
+                    self.db.commit()
+                except Exception:
+                    pass
+            candidates = fallback
 
         if not candidates:
             if exclude_ids:
@@ -397,7 +405,7 @@ class ProxyManager:
         def _usage_key(p):
             total = sum(getattr(p, f, 0) or 0 for f in (
                 'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
-                'use_hotmail', 'use_protonmail', 'use_tuta'))
+                'use_hotmail', 'use_protonmail'))
             return (total, random.random())
         candidates.sort(key=_usage_key)
 
@@ -497,7 +505,6 @@ class ProxyManager:
             p.use_outlook = 0
             p.use_hotmail = 0
             p.use_protonmail = 0
-            p.use_tuta = 0
             p.use_count = 0
             p.last_used_at = None
             if p.status == ProxyStatus.EXHAUSTED:
@@ -520,7 +527,6 @@ class ProxyManager:
         proxy.use_outlook = 0
         proxy.use_hotmail = 0
         proxy.use_protonmail = 0
-        proxy.use_tuta = 0
         proxy.use_count = 0
         proxy.last_used_at = None
         if proxy.status == ProxyStatus.EXHAUSTED:

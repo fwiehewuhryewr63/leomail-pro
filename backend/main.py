@@ -182,12 +182,14 @@ async def _startup():
                 "use_outlook": "INTEGER DEFAULT 0",
                 "use_hotmail": "INTEGER DEFAULT 0",
                 "use_protonmail": "INTEGER DEFAULT 0",
-                "use_tuta": "INTEGER DEFAULT 0",
+                "use_tuta": "INTEGER DEFAULT 0",  # DEPRECATED: kept for DB schema compat
                 "total_births": "INTEGER DEFAULT 0",
                 "total_fails": "INTEGER DEFAULT 0",
                 "last_used_at": "DATETIME",
                 "source": "VARCHAR DEFAULT 'manual'",
                 "external_id": "VARCHAR",
+                "asn": "VARCHAR",
+                "asn_type": "VARCHAR",
             }
             for col, col_type in proxy_extra.items():
                 if col not in proxy_cols2:

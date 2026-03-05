@@ -320,14 +320,14 @@ async def human_click(page, selector: str, timeout: int = 5000):
 
 # Typing speed profiles (ms per keystroke)
 TYPING_PROFILES = {
-    "name":     {"base_min": 40, "base_max": 85, "think_chance": 0.03},
-    "email":    {"base_min": 55, "base_max": 115, "think_chance": 0.06},
-    "username": {"base_min": 60, "base_max": 120, "think_chance": 0.08},
-    "password": {"base_min": 65, "base_max": 145, "think_chance": 0.05},
-    "phone":    {"base_min": 45, "base_max": 95, "think_chance": 0.04},
-    "code":     {"base_min": 80, "base_max": 160, "think_chance": 0.10},
-    "search":   {"base_min": 50, "base_max": 110, "think_chance": 0.07},
-    "default":  {"base_min": 45, "base_max": 120, "think_chance": 0.06},
+    "name":     {"base_min": 65, "base_max": 130, "think_chance": 0.05},
+    "email":    {"base_min": 75, "base_max": 150, "think_chance": 0.09},
+    "username": {"base_min": 80, "base_max": 160, "think_chance": 0.12},
+    "password": {"base_min": 85, "base_max": 170, "think_chance": 0.08},
+    "phone":    {"base_min": 60, "base_max": 115, "think_chance": 0.06},
+    "code":     {"base_min": 95, "base_max": 185, "think_chance": 0.14},
+    "search":   {"base_min": 65, "base_max": 130, "think_chance": 0.10},
+    "default":  {"base_min": 70, "base_max": 140, "think_chance": 0.09},
 }
 
 
@@ -656,29 +656,48 @@ async def warmup_browsing(page, duration_seconds: int = None, geo: str = None):
 
     # Always start with Google (most natural entry point)
     try:
-        await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=20000)
-        await human_delay(1, 3)
+        await page.goto("https://www.google.com", wait_until="load", timeout=25000)
+        await human_delay(2, 5)
         await random_mouse_move(page, steps=random.randint(2, 3))
 
-        # Google search
+        # Google search — handle autocomplete dropdown interception
         query = random.choice(queries)
         search_input = page.locator('textarea[name="q"], input[name="q"]')
         if await search_input.count() > 0:
-            await search_input.first.click()
-            await human_delay(0.3, 0.8)
+            # Dismiss any consent/autocomplete overlays first
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+            except Exception:
+                pass
+            # Click search input with force to bypass overlay
+            try:
+                await search_input.first.click(force=True)
+            except Exception:
+                try:
+                    await search_input.first.focus()
+                except Exception:
+                    pass
+            await human_delay(0.5, 1.5)
             # Type search query with realistic speed
             for char in query:
-                await search_input.first.type(char, delay=random.randint(40, 100))
-            await human_delay(0.5, 1.5)
+                await page.keyboard.type(char, delay=random.randint(40, 100))
+            await human_delay(1.0, 2.5)
+            # Dismiss autocomplete suggestions before hitting Enter
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+            except Exception:
+                pass
             await page.keyboard.press("Enter")
-            await human_delay(2, 4)
+            await human_delay(3, 7)
 
             # Read search results
             await random_scroll(page, "down")
-            await human_delay(1, 2)
+            await human_delay(2, 4)
             await random_mouse_move(page, steps=random.randint(2, 4))
             await random_scroll(page, "down")
-            await human_delay(0.5, 1.5)
+            await human_delay(1.5, 3.5)
 
             # Maybe click a result (30%)
             if random.random() < 0.3:
@@ -688,41 +707,57 @@ async def warmup_browsing(page, duration_seconds: int = None, geo: str = None):
                     if count > 0:
                         idx = random.randint(0, min(4, count - 1))
                         await links.nth(idx).click()
-                        await human_delay(2, 4)
+                        await human_delay(3, 6)
                         await random_scroll(page, "down")
-                        await human_delay(1, 2)
+                        await human_delay(2, 4)
                 except Exception:
                     pass
 
         visited += 1
+        google_ok = True
     except Exception as e:
         logger.debug(f"Warmup Google error: {e}")
+        google_ok = False
+
+    # If Google didn't load, proxy is dead — skip all other sites
+    if not google_ok:
+        logger.info("[WARN] Proxy not working, warmup failed")
+        elapsed = asyncio.get_event_loop().time() - start
+        logger.debug(f"Warmup complete: {elapsed:.1f}s, 0 sites visited")
+        return
 
     # Visit random sites from the pool
     random.shuffle(sites)
+    consecutive_errors = 0  # Track failures for dead proxy detection
     for url, name in sites:
         elapsed = asyncio.get_event_loop().time() - start
         if elapsed > duration_seconds or visited >= max_visits:
             break
 
+        # Dead proxy detection: 2 consecutive fails = stop warmup
+        if consecutive_errors >= 2:
+            logger.debug(f"Warmup: {consecutive_errors} consecutive errors — proxy likely dead, stopping")
+            break
+
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            await human_delay(1, 3)
+            await page.goto(url, wait_until="load", timeout=15000)
+            consecutive_errors = 0  # Reset on success
+            await human_delay(3, 6)
 
             # Read the page (bezier mouse + scrolling)
             await random_mouse_move(page, steps=random.randint(2, 5))
             await random_scroll(page, "down")
-            await human_delay(1, 3)
+            await human_delay(2, 5)
 
             # More scrolling
             for _ in range(random.randint(1, 3)):
                 await random_scroll(page, "down")
-                await human_delay(0.5, 2)
+                await human_delay(1, 4)
 
             # Maybe scroll back up (40%)
             if random.random() < 0.4:
                 await random_scroll(page, "up")
-                await human_delay(0.5, 1)
+                await human_delay(1, 2.5)
 
             # Idle browsing behavior
             if random.random() < 0.3:
@@ -730,7 +765,7 @@ async def warmup_browsing(page, duration_seconds: int = None, geo: str = None):
 
             # Mouse reading movements
             await random_mouse_move(page, steps=random.randint(1, 4))
-            await human_delay(0.5, 2)
+            await human_delay(1.5, 3.5)
 
             # Maybe click a link (20%)
             if random.random() < 0.2:
@@ -740,17 +775,19 @@ async def warmup_browsing(page, duration_seconds: int = None, geo: str = None):
                     if count > 5:
                         idx = random.randint(0, min(10, count - 1))
                         await links.nth(idx).click()
-                        await human_delay(1, 3)
+                        await human_delay(3, 6)
                         await random_scroll(page, "down")
-                        await human_delay(0.5, 1.5)
+                        await human_delay(1.5, 3.5)
                 except Exception:
                     pass
 
             visited += 1
 
         except Exception as e:
-            logger.debug(f"Warmup site {name} error: {e}")
-            continue
+            consecutive_errors += 1
+            logger.debug(f"Warmup site {name} error ({consecutive_errors}/2): {e}")
+            # Don't hammer the proxy — wait before trying next site
+            await asyncio.sleep(random.uniform(2, 4))
 
     elapsed = asyncio.get_event_loop().time() - start
     logger.debug(f"Warmup complete: {elapsed:.1f}s, {visited} sites visited")
@@ -765,7 +802,7 @@ async def pre_registration_warmup(page, geo: str = None):
     Full pre-registration warmup sequence with GEO awareness.
     Makes the session look like a real user before hitting signup page.
     """
-    await warmup_browsing(page, duration_seconds=random.randint(15, 30), geo=geo)
+    await warmup_browsing(page, duration_seconds=random.randint(45, 90), geo=geo)
 
 
 async def post_registration_warmup(page, provider: str = "yahoo", duration_seconds: int = None):

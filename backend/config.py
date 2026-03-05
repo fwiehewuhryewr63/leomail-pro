@@ -28,14 +28,13 @@ DEFAULT_CONFIG = {
 
     "proxy_providers": {
         "asocks": {"api_key": "", "enabled": True},
-        "proxy6": {"api_key": "", "enabled": True},
-        "belurk": {"api_key": "", "enabled": True}
+        "proxycheap": {"api_key": "", "enabled": True}
     },
     "auto_buy": {
         "enabled": False,
         "max_spend_usd": 10.0,
         "mobile_provider": "asocks",
-        "residential_provider": "proxy6"
+        "residential_provider": "asocks"
     },
 
     "proxies": [],
@@ -119,9 +118,6 @@ _API_KEY_PATHS = {
     "twocaptcha": ("captcha", "twocaptcha"),
     "capsolver":  ("captcha", "capsolver"),
     "asocks":     ("proxy_providers", "asocks"),
-    "proxy6":     ("proxy_providers", "proxy6"),
-    "belurk":     ("proxy_providers", "belurk"),
-    "iproyal":    ("proxy_providers", "iproyal"),
     "proxycheap": ("proxy_providers", "proxycheap"),
 }
 

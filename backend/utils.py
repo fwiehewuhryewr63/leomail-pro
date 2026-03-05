@@ -154,15 +154,22 @@ def generate_password(length: int = 14) -> str:
     return ''.join(password)
 
 
-def generate_username(first_name: str, last_name: str) -> str:
-    """Generate email username: firstname+lastname with random suffix in varied positions.
+def generate_username(first_name: str, last_name: str, provider: str = "outlook") -> str:
+    """Generate unique-looking email username for registration.
     
-    Examples: aaronsmith4k, aaron7ksmith, 4kaaron, a4ksmith, aaronsmith2m9
-    - Only lowercase letters + digits
-    - NO dots, underscores, hyphens, or special chars
+    Strategy:
+    - Min 8 chars total (avoids "already taken" for short names)
+    - Numeric suffix 2-4 digits for uniqueness (year-like: 94, 2001, 847)
+    - 12 natural-looking pattern variants
+    - Provider-specific separator rules
+    - Always starts with a letter (Yahoo/AOL requirement)
+    
+    Examples: aaronsmith847, aaron.smith94, smithaaron2001, aaron_smith23
     """
     import unicodedata
     import re
+
+    MIN_LENGTH = 10
 
     def to_ascii(s):
         normalized = unicodedata.normalize('NFKD', s)
@@ -177,24 +184,60 @@ def generate_username(first_name: str, last_name: str) -> str:
     if not last:
         last = "mail"
 
-    # Random suffix: 2-5 chars, only lowercase + digits
-    suffix_chars = string.ascii_lowercase + string.digits
-    suffix_len = random.randint(2, 5)
-    suffix = ''.join(random.choice(suffix_chars) for _ in range(suffix_len))
+    # Numeric suffix: 2-4 digits, weighted toward longer for uniqueness
+    # 30% chance: 2 digits (like birth year suffix: 94, 01, 87)
+    # 45% chance: 3 digits (like 847, 203, 519)
+    # 25% chance: 4 digits (like birth year: 1994, 2001)
+    r = random.random()
+    if r < 0.30:
+        digits = str(random.randint(10, 99))       # 2 digits
+    elif r < 0.75:
+        digits = str(random.randint(100, 999))      # 3 digits
+    else:
+        digits = str(random.randint(1985, 2005))    # 4 digits (birth year)
 
-    # Randomize position of suffix - MUST start with a letter (Yahoo requirement)
+    # Provider-specific separator chars
+    prov = provider.lower() if provider else "outlook"
+    if prov in ("yahoo", "aol"):
+        # Yahoo/AOL: letters, digits, dots, underscores (no hyphens)
+        seps = [".", "_"]
+    elif prov == "gmail":
+        # Gmail: letters, digits, dots only
+        seps = ["."]
+    else:
+        # Outlook/Hotmail/Proton: letters, digits, dots, underscores, hyphens
+        seps = [".", "_", "-"]
+
+    sep = random.choice(seps) if random.random() < 0.4 else ""
+
+    # 12 pattern variants — all look like natural real usernames
     patterns = [
-        f"{first}{last}{suffix}",       # aaronsmith4k
-        f"{first}{suffix}{last}",       # aaron4ksmith
-        f"{first}{suffix}",            # aaron4k
-        f"{first[0]}{suffix}{last}",    # a4ksmith
-        f"{last}{suffix}",             # smith4k
-        f"{first}{last[0]}{suffix}",    # aarons4k
-        f"{last}{first}{suffix}",       # smithaaron4k
-        f"{first}{last}{suffix[0]}",    # aaronsmith4
+        f"{first}{last}{digits}",               # aaronsmith847
+        f"{first}{sep}{last}{digits}",          # aaron.smith94
+        f"{first}{last[0]}{digits}",            # aarons2001
+        f"{first}{sep}{last[0]}{digits}",       # aaron.s94  (may need padding)
+        f"{last}{first}{digits}",               # smithaaron847
+        f"{first}{digits}{last}",               # aaron94smith
+        f"{first[0]}{last}{digits}",            # asmith847
+        f"{last}{first[0]}{digits}",            # smitha2001
+        f"{first}{sep}{last}{sep}{digits}",     # aaron.smith.23
+        f"{last}{sep}{first}{digits}",          # smith.aaron94
+        f"{first}{last}{digits}{random.choice(string.ascii_lowercase)}",  # aaronsmith847k
+        f"{last}{sep}{first[0]}{sep}{digits}",  # smith.a.847
     ]
+
     result = random.choice(patterns)
-    # Safety: ensure it starts with a letter (not a digit)
+
+    # Remove consecutive/leading/trailing separators
+    result = re.sub(r'[._-]{2,}', '.', result)   # no double dots
+    result = result.strip('._-')                   # no leading/trailing separators
+
+    # Ensure starts with a letter (Yahoo/AOL requirement)
     if result and not result[0].isalpha():
         result = random.choice(string.ascii_lowercase) + result
+
+    # Pad to MIN_LENGTH with digits if too short
+    while len(result) < MIN_LENGTH:
+        result += str(random.randint(0, 9))
+
     return result

@@ -1,6 +1,6 @@
 """
 Leomail v4 - Proxy Provider API Clients
-Supports: ASocks, Proxy6, Belurk, IPRoyal
+Supports: ASocks, Proxy-Cheap
 Each provider: fetch balance, list active proxies, buy new proxies.
 """
 import requests
@@ -139,236 +139,6 @@ class ASocksProvider(ProxyProviderBase):
             logger.error(f"[ASocks] Buy proxies error: {e}")
             return []
 
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Proxy6.net - IPv4/IPv6 proxies (datacenter, but user confirmed they work)
-# API: https://px6.link/api/{key}/
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class Proxy6Provider(ProxyProviderBase):
-    """Proxy6.net - IPv4/IPv6 proxies with full buy/list/prolong API."""
-    name = "proxy6"
-    BASE_URL = "https://px6.link/api"
-
-    def _url(self, method: str) -> str:
-        return f"{self.BASE_URL}/{self.api_key}/{method}"
-
-    def get_balance(self) -> float:
-        try:
-            r = requests.get(self._url("getproxy"), timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            if data.get("status") == "yes":
-                return float(data.get("balance", 0))
-            return -1
-        except Exception as e:
-            logger.error(f"[Proxy6] Balance error: {e}")
-            return -1
-
-    def list_proxies(self) -> list[dict]:
-        """List all active proxies from Proxy6 account."""
-        try:
-            r = requests.get(self._url("getproxy"), timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            if data.get("status") != "yes":
-                logger.warning(f"[Proxy6] API error: {data.get('error', 'unknown')}")
-                return []
-
-            proxies = []
-            proxy_list = data.get("list", {})
-            for pid, p in proxy_list.items():
-                if str(p.get("active")) != "1":
-                    continue
-                proxies.append({
-                    "host": p.get("host", ""),
-                    "port": int(p.get("port", 0)),
-                    "username": p.get("user", ""),
-                    "password": p.get("pass", ""),
-                    "protocol": "socks5" if p.get("type") == "socks" else "http",
-                    "geo": (p.get("country", "") or "").upper(),
-                    "expires_at": p.get("date_end"),
-                    "proxy_type": "residential",
-                    "external_id": str(p.get("id", pid)),
-                })
-            return proxies
-        except Exception as e:
-            logger.error(f"[Proxy6] List proxies error: {e}")
-            return []
-
-    def buy_proxies(self, count: int, country: str = "ru", period_days: int = 7,
-                    proxy_type: str = "residential") -> list[dict]:
-        """Buy IPv4 proxies from Proxy6."""
-        try:
-            r = requests.get(
-                self._url("buy"),
-                params={
-                    "count": count,
-                    "period": period_days,
-                    "country": country.lower(),
-                    "version": 4,  # IPv4
-                    "type": "http",
-                },
-                timeout=20,
-            )
-            r.raise_for_status()
-            data = r.json()
-            if data.get("status") != "yes":
-                logger.error(f"[Proxy6] Buy error: {data.get('error', 'unknown')}")
-                return []
-
-            proxies = []
-            for pid, p in data.get("list", {}).items():
-                proxies.append({
-                    "host": p.get("host", ""),
-                    "port": int(p.get("port", 0)),
-                    "username": p.get("user", ""),
-                    "password": p.get("pass", ""),
-                    "protocol": "socks5" if p.get("type") == "socks" else "http",
-                    "geo": country.upper(),
-                    "expires_at": p.get("date_end"),
-                    "proxy_type": "residential",
-                    "external_id": str(p.get("id", pid)),
-                })
-            logger.info(f"[Proxy6] Bought {len(proxies)} proxies for {data.get('price')} {data.get('currency', 'RUB')}")
-            return proxies
-        except Exception as e:
-            logger.error(f"[Proxy6] Buy error: {e}")
-            return []
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Belurk.ru - IPv4/IPv6 proxies
-# API docs: https://dev.belurk.ru/
-# Auth: x-api-token header
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class BelurkProvider(ProxyProviderBase):
-    """Belurk.ru - IPv4/IPv6 proxies via dev.belurk.ru API."""
-    name = "belurk"
-    BASE_URL = "https://api.belurk.ru"
-
-    def _headers(self):
-        return {"x-api-token": self.api_key, "Content-Type": "application/json"}
-
-    def get_balance(self) -> float:
-        """GET /accounts/get-balance → {"data": {"balance": "123.45"}}"""
-        try:
-            r = requests.get(
-                f"{self.BASE_URL}/accounts/get-balance",
-                headers=self._headers(),
-                timeout=10,
-            )
-            r.raise_for_status()
-            data = r.json()
-            return float(data.get("data", {}).get("balance", 0))
-        except Exception as e:
-            logger.error(f"[Belurk] Balance error: {e}")
-            return -1
-
-    def list_proxies(self) -> list[dict]:
-        """GET /proxy/get-all → {"data": {"items": {"ipv4": [...], "ipv6": [...]}}}"""
-        try:
-            r = requests.get(
-                f"{self.BASE_URL}/proxy/get-all",
-                headers=self._headers(),
-                timeout=15,
-            )
-            r.raise_for_status()
-            data = r.json()
-            items = data.get("data", {}).get("items", {})
-
-            proxies = []
-            # Iterate all proxy types: ipv4, ipv6, ipv4_shared
-            for proxy_type, proxy_list in items.items():
-                if not isinstance(proxy_list, list):
-                    continue
-                for p in proxy_list:
-                    if p.get("is_expired"):
-                        continue
-                    ports = p.get("ports", {})
-                    http_port = ports.get("http", 0)
-                    socks_port = ports.get("socks", 0)
-                    country = p.get("country", {})
-                    geo = country.get("code", "") if isinstance(country, dict) else str(country)
-
-                    proxies.append({
-                        "host": p.get("ip_address", ""),
-                        "port": int(http_port) if http_port else int(socks_port),
-                        "username": p.get("login", ""),
-                        "password": p.get("password", ""),
-                        "protocol": "socks5" if not http_port and socks_port else "http",
-                        "geo": geo.upper(),
-                        "expires_at": p.get("expired_at"),
-                        "proxy_type": proxy_type,
-                        "external_id": str(p.get("credential_id", "")),
-                    })
-            return proxies
-        except Exception as e:
-            logger.error(f"[Belurk] List proxies error: {e}")
-            return []
-
-    def buy_proxies(self, count: int, country: str = "ru", period_days: int = 7,
-                    proxy_type: str = "residential") -> list[dict]:
-        """
-        1. GET /products/get-all → find matching product variant_id
-        2. POST /orders/create {"product_id": variant_id, "quantity": count}
-        """
-        try:
-            # Get available products
-            r = requests.get(
-                f"{self.BASE_URL}/products/get-all",
-                headers=self._headers(),
-                timeout=10,
-            )
-            r.raise_for_status()
-            products = r.json().get("data", {})
-
-            # Find IPv4 product with matching country
-            variant_id = None
-            country_upper = country.upper()
-            # Prefer ipv4, then ipv4_shared, then ipv6
-            for ptype in ("ipv4", "ipv4_shared", "ipv6"):
-                cat = products.get(ptype, {})
-                variants = cat.get("variants", [])
-                for v in variants:
-                    if v.get("country_code", "").upper() == country_upper:
-                        variant_id = v.get("variant_id")
-                        break
-                if variant_id:
-                    break
-
-            # Fallback: first available ipv4 variant
-            if not variant_id:
-                for ptype in ("ipv4", "ipv4_shared"):
-                    cat = products.get(ptype, {})
-                    variants = cat.get("variants", [])
-                    if variants:
-                        variant_id = variants[0].get("variant_id")
-                        break
-
-            if not variant_id:
-                logger.error("[Belurk] No products available")
-                return []
-
-            # Create order
-            r = requests.post(
-                f"{self.BASE_URL}/orders/create",
-                headers=self._headers(),
-                json={"product_id": variant_id, "quantity": count},
-                timeout=20,
-            )
-            r.raise_for_status()
-            order = r.json()
-            order_id = order.get("data", {}).get("order_id")
-            logger.info(f"[Belurk] Order created: {order_id}")
-
-            # Fetch the new proxies
-            return self.list_proxies()
-        except Exception as e:
-            logger.error(f"[Belurk] Buy error: {e}")
-            return []
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Proxy-Cheap - Residential proxies (Tier 4, ~$3.49/GB)
@@ -556,24 +326,25 @@ class ProxyCheapProvider(ProxyProviderBase):
 
 PROVIDERS = {
     "asocks": ASocksProvider,
-    "proxy6": Proxy6Provider,
-    "belurk": BelurkProvider,
     "proxycheap": ProxyCheapProvider,
 }
 
-# ── 4-Tier proxy chain (cheapest → most expensive) ──
+# ── 2-Tier proxy chain ──
 # Tier 1: Uploaded proxies (handled in proxy_manager, not here)
-# Tier 2: Belurk + Proxy6 (cheap datacenter IPv4, ~$1-2/proxy/week)
-# Tier 3: ASocks (residential/mobile, pay-per-GB, ~$3-5/GB)
-# Tier 4: Proxy-Cheap (residential backconnect, ~$3.49/GB, last resort)
+# Tier 2: ASocks (residential/mobile, pay-per-GB, ~$3-5/GB)
+# Tier 3: Proxy-Cheap (residential backconnect, ~$3.49/GB, fallback)
 #
-# Gmail = mobile ONLY → ASocks mobile, then uploaded mobile
-# Yahoo/AOL = residential ONLY → skip datacenter tiers
-# Outlook/Proton = any → use cheapest first
+# Gmail = validator only (no autoreg)
+# All autoreg providers = residential: ASocks → Proxy-Cheap
 
 AUTO_BUY_TIERS = {
-    "gmail": [
-        ("asocks", "mobile"),
+    "outlook": [
+        ("asocks", "residential"),
+        ("proxycheap", "residential"),
+    ],
+    "hotmail": [
+        ("asocks", "residential"),
+        ("proxycheap", "residential"),
     ],
     "yahoo": [
         ("asocks", "residential"),
@@ -583,27 +354,11 @@ AUTO_BUY_TIERS = {
         ("asocks", "residential"),
         ("proxycheap", "residential"),
     ],
-    "outlook": [
-        ("belurk", "residential"),
-        ("proxy6", "residential"),
-        ("asocks", "residential"),
-        ("proxycheap", "residential"),
-    ],
-    "hotmail": [
-        ("belurk", "residential"),
-        ("proxy6", "residential"),
-        ("asocks", "residential"),
-        ("proxycheap", "residential"),
-    ],
     "protonmail": [
-        ("belurk", "residential"),
-        ("proxy6", "residential"),
         ("asocks", "residential"),
         ("proxycheap", "residential"),
     ],
     "default": [
-        ("belurk", "residential"),
-        ("proxy6", "residential"),
         ("asocks", "residential"),
         ("proxycheap", "residential"),
     ],
@@ -634,9 +389,7 @@ def get_all_providers() -> list[ProxyProviderBase]:
 def tiered_auto_buy(provider: str, count: int, country: str = "us") -> list[dict]:
     """
     Tiered auto-buy:
-      Gmail -> ASocks (mobile 4G)
-      Yahoo/AOL -> ASocks residential -> Proxy-Cheap (skip datacenter tiers)
-      Desktop -> Belurk -> Proxy6 -> ASocks -> Proxy-Cheap
+      All providers -> ASocks residential -> Proxy-Cheap residential
     
     Tries each provider in order until count proxies are acquired.
     """

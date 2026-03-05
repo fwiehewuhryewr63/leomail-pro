@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, CheckCircle, Users, Shield, Mail, Database, FileText, Link2, Package, Layers
 } from 'lucide-react';
@@ -9,7 +10,8 @@ import { ProviderLogo } from '../components/ProviderLogos';
 function Sparkline({ data = [], color = '#10B981', height = 30 }) {
     if (!data.length) data = [0, 0, 0, 0, 0, 0, 0];
     const max = Math.max(...data, 1);
-    const pts = data.map((v, i) => `${(i / (data.length - 1)) * 100},${100 - (v / max) * 80}`).join(' ');
+    const len = Math.max(data.length - 1, 1);
+    const pts = data.map((v, i) => `${(i / len) * 100},${100 - (v / max) * 80}`).join(' ');
     return (
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height, opacity: 0.7 }}>
             <polyline fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={pts} />
@@ -39,20 +41,23 @@ function CircleProgress({ value = 0, max = 100, size = 52, color = '#10B981' }) 
     );
 }
 
-/* ── 7-Day Activity Area Chart ── */
+/* ── Activity Area Chart ── */
 function AreaChart({ data = [], labels = [], height = 180 }) {
-    if (!data.length) data = [0, 0, 0, 0, 0, 0, 0];
-    if (!labels.length) labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    if (!data.length) data = [0];
+    if (!labels.length) labels = ['—'];
     const max = Math.max(...data, 1);
     const w = 600, h = 180, pad = 36;
     const pts = data.map((v, i) => ({
-        x: pad + (i / (data.length - 1)) * (w - pad * 2),
+        x: pad + (data.length > 1 ? (i / (data.length - 1)) * (w - pad * 2) : (w - pad * 2) / 2),
         y: pad + (1 - v / max) * (h - pad * 2),
     }));
     const line = pts.map(p => `${p.x},${p.y}`).join(' ');
     const area = `${pad},${h - pad} ${line} ${w - pad},${h - pad}`;
     const gridFracs = [1, 0.75, 0.5, 0.25, 0];
     const gridLines = gridFracs.map(f => pad + (1 - f) * (h - pad * 2));
+
+    // Show max ~10 labels to avoid clutter
+    const labelStep = Math.max(1, Math.ceil(labels.length / 10));
 
     return (
         <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height }}>
@@ -71,9 +76,11 @@ function AreaChart({ data = [], labels = [], height = 180 }) {
                 </g>
             ))}
             {pts.map((p, i) => (
-                <text key={i} x={p.x} y={h - 8} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="10" fontFamily="Inter" fontWeight="600">
-                    {labels[i]}
-                </text>
+                i % labelStep === 0 || i === pts.length - 1 ? (
+                    <text key={i} x={p.x} y={h - 8} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="9" fontFamily="Inter" fontWeight="600">
+                        {labels[i]}
+                    </text>
+                ) : null
             ))}
             <polygon points={area} fill="url(#areaFill)" />
             <polyline fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={line} />
@@ -84,20 +91,36 @@ function AreaChart({ data = [], labels = [], height = 180 }) {
     );
 }
 
+/* ── Period selector pill ── */
+const PERIODS = [
+    { label: '1D', days: 1 },
+    { label: '7D', days: 7 },
+    { label: '14D', days: 14 },
+    { label: '30D', days: 30 },
+];
+
 export default function Dashboard() {
+    const navigate = useNavigate();
     const [s, setS] = useState({});
     const [health, setHealth] = useState(null);
     const [lastUpdate, setLastUpdate] = useState(null);
+    const [period, setPeriod] = useState(7);
 
-    const load = () => {
-        fetch(`${API}/dashboard/stats`)
+    const load = (days) => {
+        const d = days || period;
+        fetch(`${API}/dashboard/stats?days=${d}`)
             .then(r => r.json())
-            .then(d => { setS(d); setLastUpdate(new Date()); })
+            .then(data => { setS(data); setLastUpdate(new Date()); })
             .catch(() => { });
         fetch(`${API}/health/resources`)
             .then(r => r.ok ? r.json() : null)
-            .then(d => d && setHealth(d))
+            .then(data => data && setHealth(data))
             .catch(() => { });
+    };
+
+    const changePeriod = (days) => {
+        setPeriod(days);
+        load(days);
     };
 
     useEffect(() => {
@@ -127,18 +150,23 @@ export default function Dashboard() {
         pct: totalAccs > 0 ? Math.round(((byProvider[p.id] || 0) / totalAccs) * 100) : 0,
     })).filter(p => p.count > 0).sort((a, b) => b.count - a.count);
 
-    const weekData = s.week_activity || [120, 280, 340, 180, 420, 310, 250];
-    const weekLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const sparkAccounts = s.accounts_spark || [3, 5, 8, 12, 10, 14, 18];
-    const sparkSent = s.sent_spark || [100, 150, 200, 180, 220, 300, 250];
+    /* Activity data from API */
+    const activityData = s.activity_data || [];
+    const chartLabels = activityData.map(d => d.date);
+    const chartAccounts = activityData.map(d => d.accounts);
+    const chartEmails = activityData.map(d => d.emails);
+    const chartData = chartAccounts.map((a, i) => a + (chartEmails[i] || 0)); // combined
+
+    const sparkAccounts = chartAccounts.length > 0 ? chartAccounts.slice(-7) : [0];
+    const sparkSent = chartEmails.length > 0 ? chartEmails.slice(-7) : [0];
 
     /* Resource status */
     const resources = [
-        { name: 'Names', icon: <Users size={13} />, count: health?.names?.total || s.total_names || 0, color: '#10B981' },
-        { name: 'Links', icon: <Link2 size={13} />, count: health?.links?.total || s.total_links || 0, color: '#3B82F6' },
-        { name: 'Templates', icon: <FileText size={13} />, count: health?.templates?.total || s.total_templates || 0, color: '#F59E0B' },
-        { name: 'Databases', icon: <Database size={13} />, count: health?.databases?.total || s.total_databases || 0, color: '#8B5CF6' },
-        { name: 'Farms', icon: <Layers size={13} />, count: health?.farms?.total || s.total_farms || 0, color: '#06B6D4' },
+        { name: 'Names', icon: <Users size={14} />, count: s.total_names || 0, color: '#10B981', path: '/names' },
+        { name: 'Links', icon: <Link2 size={14} />, count: s.total_links || 0, color: '#3B82F6', path: '/links' },
+        { name: 'Templates', icon: <FileText size={14} />, count: s.total_templates || 0, color: '#F59E0B', path: '/templates' },
+        { name: 'Databases', icon: <Database size={14} />, count: s.total_databases || 0, color: '#8B5CF6', path: '/databases' },
+        { name: 'Farms', icon: <Layers size={14} />, count: s.total_farms || 0, color: '#06B6D4', path: '/farms' },
     ];
 
     const timeAgo = lastUpdate ? (() => {
@@ -148,10 +176,20 @@ export default function Dashboard() {
         return `${Math.floor(diff / 60)}m ago`;
     })() : '—';
 
+    /* Clickable card wrapper */
+    const ClickCard = ({ to, children, style = {}, ...rest }) => (
+        <div className="card" onClick={() => navigate(to)} style={{
+            ...style, cursor: 'pointer', transition: 'all 0.2s',
+        }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = ''} {...rest}>
+            {children}
+        </div>
+    );
+
     return (
         <div className="page">
             {/* ═══ HEADER ═══ */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OVERVIEW / DASHBOARD</div>
+            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OVERVIEW / DASHBOARD</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <LayoutDashboard size={22} /> Dashboard
@@ -165,44 +203,44 @@ export default function Dashboard() {
             {/* ═══ 5 STAT CARDS ═══ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
                 {/* ACCOUNTS */}
-                <div className="card" style={{ padding: '14px 16px', borderLeft: '3px solid #10B981' }}>
+                <ClickCard to="/accounts" style={{ padding: '14px 16px', borderLeft: '3px solid #10B981' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                             <div style={{ fontSize: '1.8em', fontWeight: 900, color: '#10B981', lineHeight: 1 }}>
                                 {(totalAccs || 0).toLocaleString()}
                             </div>
-                            <div style={{ fontSize: '0.62em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>ACCOUNTS</div>
+                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>ACCOUNTS</div>
                         </div>
                         <div style={{ width: 50 }}><Sparkline data={sparkAccounts} color="#10B981" /></div>
                     </div>
-                </div>
+                </ClickCard>
 
                 {/* PROXIES */}
-                <div className="card" style={{ padding: '14px 16px', borderLeft: '3px solid #10B981' }}>
+                <ClickCard to="/proxies" style={{ padding: '14px 16px', borderLeft: '3px solid #10B981' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                             <div style={{ lineHeight: 1 }}>
                                 <span style={{ fontSize: '1.8em', fontWeight: 900, color: '#10B981' }}>{proxyAlive}</span>
                                 <span style={{ fontSize: '0.9em', fontWeight: 500, color: 'var(--text-muted)' }}>/{proxyTotal}</span>
                             </div>
-                            <div style={{ fontSize: '0.62em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>PROXIES</div>
+                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>PROXIES</div>
                         </div>
                         <CircleProgress value={proxyAlive} max={proxyTotal} size={48} />
                     </div>
-                </div>
+                </ClickCard>
 
                 {/* SENT TODAY */}
-                <div className="card" style={{ padding: '14px 16px', borderLeft: '3px solid #06B6D4' }}>
+                <ClickCard to="/campaigns" style={{ padding: '14px 16px', borderLeft: '3px solid #06B6D4' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                             <div style={{ fontSize: '1.8em', fontWeight: 900, color: '#06B6D4', lineHeight: 1 }}>
                                 {(ms.total_sent || 0).toLocaleString()}
                             </div>
-                            <div style={{ fontSize: '0.62em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>SENT TODAY</div>
+                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>SENT TODAY</div>
                         </div>
                         <div style={{ width: 50 }}><Sparkline data={sparkSent} color="#06B6D4" /></div>
                     </div>
-                </div>
+                </ClickCard>
 
                 {/* INBOX RATE */}
                 <div className="card" style={{ padding: '14px 16px', borderLeft: '3px solid #22C55E' }}>
@@ -211,36 +249,49 @@ export default function Dashboard() {
                             <div style={{ fontSize: '1.8em', fontWeight: 900, color: '#22C55E', lineHeight: 1 }}>
                                 {ms.inbox_rate || 0}%
                             </div>
-                            <div style={{ fontSize: '0.62em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>INBOX RATE</div>
+                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>INBOX RATE</div>
                         </div>
                         <CheckCircle size={24} style={{ color: '#22C55E', opacity: 0.5, flexShrink: 0 }} />
                     </div>
                 </div>
 
                 {/* ACTIVE TASKS */}
-                <div className="card" style={{ padding: '14px 16px', borderLeft: '3px solid #8B5CF6' }}>
+                <ClickCard to="/threads" style={{ padding: '14px 16px', borderLeft: '3px solid #8B5CF6' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                             <div style={{ fontSize: '1.8em', fontWeight: 900, color: '#8B5CF6', lineHeight: 1 }}>
                                 {s.active_tasks || 0}
                             </div>
-                            <div style={{ fontSize: '0.62em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>ACTIVE TASKS</div>
+                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>ACTIVE TASKS</div>
                         </div>
                         <div style={{ width: 50 }}><Sparkline data={[1, 2, 3, 2, 3, 4, 3]} color="#8B5CF6" /></div>
                     </div>
-                </div>
+                </ClickCard>
             </div>
 
             {/* ═══ MIDDLE ROW: Chart + Providers ═══ */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                {/* 7-Day Activity */}
+                {/* Activity Chart with Period Selector */}
                 <div className="card" style={{ padding: '16px 18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                         <Mail size={14} style={{ color: 'var(--accent)' }} />
-                        <span style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--text-primary)' }}>7-Day Activity</span>
-                        <span style={{ fontSize: '0.68em', color: 'var(--text-muted)', marginLeft: 'auto' }}>emails sent</span>
+                        <span style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--text-primary)' }}>Activity</span>
+                        <span style={{ fontSize: '0.7em', color: 'var(--text-muted)' }}>accounts + emails</span>
+                        {/* Period selector */}
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: 2 }}>
+                            {PERIODS.map(p => (
+                                <button key={p.days} onClick={() => changePeriod(p.days)} style={{
+                                    padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                                    fontSize: '0.72em', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.2s',
+                                    background: period === p.days ? 'var(--accent)' : 'transparent',
+                                    color: period === p.days ? '#000' : 'var(--text-muted)',
+                                }}>
+                                    {p.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    <AreaChart data={weekData} labels={weekLabels} height={180} />
+                    <AreaChart data={chartData} labels={chartLabels} height={180} />
                 </div>
 
                 {/* Provider Distribution */}
@@ -248,13 +299,13 @@ export default function Dashboard() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                         <Package size={14} style={{ color: 'var(--accent)' }} />
                         <span style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--text-primary)' }}>Provider Distribution</span>
-                        <span style={{ fontSize: '0.68em', color: 'var(--text-muted)', marginLeft: 'auto' }}>{totalAccs} total</span>
+                        <span style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginLeft: 'auto' }}>{totalAccs} total</span>
                     </div>
                     {providerDist.length > 0 ? (
                         providerDist.map(p => (
                             <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                                 <ProviderLogo provider={p.id} size={22} />
-                                <span style={{ fontSize: '0.82em', fontWeight: 600, width: 90, color: 'var(--text-primary)' }}>{p.name}</span>
+                                <span style={{ fontSize: '0.85em', fontWeight: 600, width: 90, color: 'var(--text-primary)' }}>{p.name}</span>
                                 <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
                                     <div style={{
                                         height: '100%', borderRadius: 3, width: `${p.pct}%`,
@@ -262,12 +313,12 @@ export default function Dashboard() {
                                         transition: 'width 0.8s cubic-bezier(0.16,1,0.3,1)',
                                     }} />
                                 </div>
-                                <span style={{ fontSize: '0.78em', fontWeight: 700, width: 44, textAlign: 'right', color: p.color }}>{p.count}</span>
-                                <span style={{ fontSize: '0.72em', fontWeight: 600, width: 30, textAlign: 'right', color: 'var(--text-muted)' }}>{p.pct}%</span>
+                                <span style={{ fontSize: '0.82em', fontWeight: 700, width: 44, textAlign: 'right', color: p.color }}>{p.count}</span>
+                                <span style={{ fontSize: '0.75em', fontWeight: 600, width: 30, textAlign: 'right', color: 'var(--text-muted)' }}>{p.pct}%</span>
                             </div>
                         ))
                     ) : (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82em', padding: '24px 0', textAlign: 'center' }}>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.85em', padding: '24px 0', textAlign: 'center' }}>
                             No accounts registered
                         </div>
                     )}
@@ -283,16 +334,18 @@ export default function Dashboard() {
                         <span style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--text-primary)' }}>Resource Status</span>
                     </div>
                     {resources.map(r => (
-                        <div key={r.name} style={{
+                        <div key={r.name} onClick={() => navigate(r.path)} style={{
                             display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
-                            borderBottom: '1px solid rgba(255,255,255,0.03)',
-                        }}>
+                            borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer',
+                            transition: 'all 0.15s',
+                        }} onMouseEnter={e => e.currentTarget.style.paddingLeft = '6px'}
+                            onMouseLeave={e => e.currentTarget.style.paddingLeft = '0'}>
                             <div style={{
                                 width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: `${r.color}12`, color: r.color,
                             }}>{r.icon}</div>
-                            <span style={{ fontSize: '0.85em', fontWeight: 600, flex: 1, color: 'var(--text-primary)' }}>{r.name}</span>
-                            <span style={{ fontSize: '0.9em', fontWeight: 800, color: r.color }}>{r.count.toLocaleString()}</span>
+                            <span style={{ fontSize: '0.88em', fontWeight: 600, flex: 1, color: 'var(--text-primary)' }}>{r.name}</span>
+                            <span style={{ fontSize: '0.95em', fontWeight: 800, color: r.color }}>{r.count.toLocaleString()}</span>
                             <div style={{
                                 width: 7, height: 7, borderRadius: '50%',
                                 background: r.count > 0 ? '#22C55E' : 'rgba(255,255,255,0.15)',
@@ -311,7 +364,7 @@ export default function Dashboard() {
                     {s.recent_activity && s.recent_activity.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {s.recent_activity.slice(0, 8).map((a, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.78em' }}>
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82em' }}>
                                     <span style={{
                                         width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
                                         background: a.type === 'success' ? '#22C55E' : a.type === 'error' ? '#EF4444' : '#3B82F6',
@@ -326,7 +379,7 @@ export default function Dashboard() {
                             ))}
                         </div>
                     ) : (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82em', padding: '24px 0', textAlign: 'center' }}>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.85em', padding: '24px 0', textAlign: 'center' }}>
                             No recent activity
                         </div>
                     )}

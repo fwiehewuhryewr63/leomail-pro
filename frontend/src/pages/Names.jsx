@@ -193,10 +193,10 @@ export default function Names() {
                     <div style={{
                         display: 'grid', gridTemplateColumns: '36px 1fr 120px 100px 100px 80px',
                         padding: '10px 16px', borderBottom: '1px solid var(--border)',
-                        fontSize: '0.68em', fontWeight: 700, color: 'var(--text-muted)',
+                        fontSize: '0.78em', fontWeight: 700, color: 'var(--text-muted)',
                         textTransform: 'uppercase', letterSpacing: 0.5, alignItems: 'center',
                     }}>
-                        <div><input type="checkbox" checked={selected.size === packs.length && packs.length > 0} onChange={toggleAll} style={{ accentColor: 'var(--accent)' }} /></div>
+                        <div><input type="checkbox" checked={selected.size === packs.length && packs.length > 0} onChange={toggleAll} /></div>
                         <div>Pack Name</div>
                         <div style={{ textAlign: 'center' }}>Names</div>
                         <div style={{ textAlign: 'center' }}>Format</div>
@@ -232,8 +232,7 @@ export default function Names() {
                                 onClick={() => togglePreview(p.id)}
                             >
                                 <div onClick={e => e.stopPropagation()}>
-                                    <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)}
-                                        style={{ accentColor: selected.has(p.id) ? 'var(--danger)' : 'var(--accent)' }} />
+                                    <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} />
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -243,24 +242,31 @@ export default function Names() {
                                     }}>
                                         <UserCircle size={16} />
                                     </div>
-                                    <span style={{ fontWeight: 700, fontSize: '0.9em' }}>{p.name}</span>
-                                </div>
-
-                                <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.88em', color: '#10B981' }}>
-                                    {(p.total_count || 0).toLocaleString()}
+                                    <span style={{ fontWeight: 700, fontSize: '0.95em' }}>{p.name}</span>
                                 </div>
 
                                 <div style={{ textAlign: 'center' }}>
                                     <span style={{
-                                        padding: '2px 8px', borderRadius: 4, fontSize: '0.68em', fontWeight: 700,
-                                        background: 'rgba(59,130,246,0.12)', color: '#60A5FA',
+                                        padding: '3px 10px', borderRadius: 12, fontSize: '0.82em', fontWeight: 700,
+                                        background: 'rgba(16,185,129,0.1)', color: '#10B981',
+                                        border: '1px solid rgba(16,185,129,0.15)',
+                                    }}>
+                                        {(p.total_count || 0).toLocaleString()}
+                                    </span>
+                                </div>
+
+                                <div style={{ textAlign: 'center' }}>
+                                    <span style={{
+                                        padding: '3px 10px', borderRadius: 12, fontSize: '0.78em', fontWeight: 700,
+                                        background: 'rgba(59,130,246,0.1)', color: '#60A5FA',
+                                        border: '1px solid rgba(59,130,246,0.12)',
                                     }}>
                                         First,Last
                                     </span>
                                 </div>
 
-                                <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <Calendar size={10} /> {formatDate(p.created_at)}
+                                <div style={{ fontSize: '0.85em', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <Calendar size={12} /> {formatDate(p.created_at)}
                                 </div>
 
                                 <div style={{ display: 'flex', gap: 3, justifyContent: 'center' }} onClick={e => e.stopPropagation()}>

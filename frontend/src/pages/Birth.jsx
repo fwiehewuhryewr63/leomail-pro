@@ -246,23 +246,10 @@ export default function Birth() {
                 {/* ── Buttons: START / STOP ── */}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <button onClick={startBirth} disabled={running}
-                        style={{
-                            padding: '14px 24px', fontSize: '1em', fontWeight: 800, cursor: running ? 'not-allowed' : 'pointer',
-                            background: running ? 'rgba(16,185,129,0.15)' : 'var(--accent)', color: running ? 'var(--accent)' : '#000',
-                            border: 'none', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                            fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                    <button className="btn-start" onClick={startBirth} disabled={running}>
                         <Play size={16} /> START
                     </button>
-                    <button onClick={() => running ? setStopModal(true) : null} disabled={!running}
-                        style={{
-                            padding: '14px 24px', fontSize: '1em', fontWeight: 800, cursor: !running ? 'not-allowed' : 'pointer',
-                            background: 'transparent', color: !running ? 'var(--text-muted)' : 'var(--danger)',
-                            border: `2px solid ${!running ? 'rgba(255,255,255,0.08)' : 'var(--danger)'}`,
-                            borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                            fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                    <button className={`btn-stop${running ? ' active' : ''}`} onClick={() => running ? setStopModal(true) : null} disabled={!running}>
                         <StopCircle size={16} /> STOP
                     </button>
                 </div>

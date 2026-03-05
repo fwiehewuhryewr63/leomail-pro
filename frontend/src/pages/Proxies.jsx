@@ -360,9 +360,6 @@ export default function Proxies() {
                                             const srcMap = {
                                                 manual: { color: '#9CA3AF', bg: 'rgba(156,163,175,0.15)', label: '📄' },
                                                 asocks: { color: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', label: '📱 AS' },
-                                                proxy6: { color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', label: '6️⃣ P6' },
-                                                belurk: { color: '#EF4444', bg: 'rgba(239,68,68,0.15)', label: '🛡 BL' },
-                                                iproyal: { color: '#EC4899', bg: 'rgba(236,72,153,0.15)', label: '👑 IR' },
                                                 proxycheap: { color: '#10B981', bg: 'rgba(16,185,129,0.15)', label: '💰 PC' },
                                             };
                                             const s = srcMap[src] || srcMap.manual;

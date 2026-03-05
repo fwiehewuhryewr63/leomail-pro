@@ -78,7 +78,7 @@ class CaptchaProvider:
             logger.error(f"CapGuru Error: {e}")
             return None
 
-    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "") -> str | None:
+    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "", data_blob: str = "") -> str | None:
         """Solve FunCaptcha / Arkose Labs via CapGuru (2Captcha-compatible API)."""
         logger.info(f"CapGuru: solving FunCaptcha for {page_url}")
         params = {
@@ -90,6 +90,8 @@ class CaptchaProvider:
         }
         if surl:
             params["surl"] = surl
+        if data_blob:
+            params["data[blob]"] = data_blob
         try:
             resp = requests.post(f"{self.base_url}/in.php", data=params, timeout=30)
             data = resp.json()
@@ -195,12 +197,13 @@ class TwoCaptchaProvider:
         self.api_key = api_key
         self.base_url = "http://2captcha.com"
 
-    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "") -> str | None:
+    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "", data_blob: str = "") -> str | None:
         """
         Solve Arkose Labs / FunCaptcha.
         public_key: FC public key (e.g. 'B7D8911C-5CC8-A9A3-35B0-554ACEE604DA')
         page_url: the page URL where captcha appears
         surl: optional service URL (Arkose API endpoint)
+        data_blob: optional blob data for MS-specific FunCaptcha
         """
         logger.info(f"2Captcha: solving FunCaptcha for {page_url}")
         params = {
@@ -212,6 +215,8 @@ class TwoCaptchaProvider:
         }
         if surl:
             params["surl"] = surl
+        if data_blob:
+            params["data[blob]"] = data_blob
 
         try:
             resp = requests.post(f"{self.base_url}/in.php", data=params, timeout=30)
@@ -354,7 +359,7 @@ class CapSolverProvider:
             "websiteKey": sitekey,
         })
 
-    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "") -> str | None:
+    def solve_funcaptcha(self, public_key: str, page_url: str, surl: str = "", data_blob: str = "") -> str | None:
         task = {
             "type": "FunCaptchaTaskProxyLess",
             "websiteURL": page_url,
@@ -362,6 +367,9 @@ class CapSolverProvider:
         }
         if surl:
             task["funcaptchaApiJSSubdomain"] = surl
+            task["websiteSubdomain"] = surl  # Alternative param name some versions need
+        if data_blob:
+            task["data"] = '{"blob": "' + data_blob + '"}'
         return self._create_and_poll(task, max_attempts=80)
 
     def solve_captcha(self, website_url: str, website_key: str) -> str | None:
@@ -430,10 +438,12 @@ class CaptchaChain:
             logger.error(f"CaptchaChain: unknown type '{captcha_type}'")
             return None
 
-        # Smart provider ordering: FunCaptcha → 2Captcha first (CapSolver doesn't support Outlook FC)
+        # Smart provider ordering: FunCaptcha → 2Captcha first (most reliable for Arkose)
         providers_ordered = list(self.providers)
         if captcha_type == "funcaptcha":
-            providers_ordered.sort(key=lambda p: 0 if p[0] == "twocaptcha" else 1)
+            # 2Captcha best for FunCaptcha, then CapSolver, CapGuru last
+            priority = {"twocaptcha": 0, "capsolver": 1, "capguru": 2}
+            providers_ordered.sort(key=lambda p: priority.get(p[0], 3))
             logger.info(f"CaptchaChain: FunCaptcha mode - order: {[p[0] for p in providers_ordered]}")
 
         for name, provider in providers_ordered:
