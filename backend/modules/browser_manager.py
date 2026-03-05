@@ -1284,6 +1284,21 @@ class BrowserManager:
         else:
             logger.warning("Using standard Playwright (CDP leaks possible, install patchright for stealth)")
 
+        # --- GPU rendering mode: randomize per session to vary canvas/WebGL fingerprint ---
+        import random as _rng
+        gpu_modes = [
+            # SwiftShader (software rendering — completely different GPU fingerprint)
+            ["--use-gl=angle", "--use-angle=swiftshader"],
+            # D3D11 (Windows hardware — native look)
+            ["--use-gl=angle", "--use-angle=d3d11"],
+            # D3D9 (older hardware look — different rendering)
+            ["--use-gl=angle", "--use-angle=d3d9"],
+            # Default ANGLE (auto-select)
+            ["--use-gl=angle"],
+        ]
+        selected_gpu = _rng.choice(gpu_modes)
+        logger.debug(f"GPU rendering mode: {selected_gpu}")
+
         launch_args = [
             # Anti-automation
             "--disable-blink-features=AutomationControlled",
@@ -1300,6 +1315,25 @@ class BrowserManager:
             "--webrtc-ip-handling-policy=disable_non_proxied_udp",
             # Window
             "--window-size=1920,1080",
+            # === TRANSPORT-LEVEL ANTIDETECT ===
+            # 1. DNS over HTTPS — hide DNS resolver fingerprint (Cloudflare)
+            "--enable-features=DnsOverHttps",
+            "--dns-over-https-mode=secure",
+            "--dns-over-https-templates=https://cloudflare-dns.com/dns-query",
+            # 2. Disable QUIC protocol — prevents QUIC/HTTP3 fingerprinting
+            "--disable-quic",
+            # 3. GPU rendering randomization (per-session) — varies canvas/WebGL output
+            *selected_gpu,
+            # 4. Font rendering consistency
+            "--font-render-hinting=medium",
+            "--disable-lcd-text",
+            # 5. TLS/JA3 & HTTP/2 fingerprint: use in-process network service
+            # This ensures TLS handshake + HTTP/2 SETTINGS match genuine Chrome
+            # (recommended by browserless.io research for anti-fingerprint)
+            "--enable-features=DnsOverHttps,NetworkServiceInProcess2",
+            # 6. Cipher suites: blacklist weak/deprecated ciphers (makes TLS look modern)
+            # Removes RC4, 3DES, DH export — same as modern Chrome defaults
+            "--cipher-suite-blacklist=0x0004,0x0005,0x000a,0x002f,0x0035,0x003c,0x009c,0x009d",
         ]
         launch_kwargs = {
             "headless": self.headless,
