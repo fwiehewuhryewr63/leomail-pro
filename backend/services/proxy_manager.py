@@ -3,6 +3,7 @@ Leomail v4 - Proxy Manager
 1 proxy = 1 account (hard binding). Auto-reassign on proxy death.
 """
 import random
+import asyncio
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from loguru import logger
@@ -643,4 +644,78 @@ class ProxyManager:
             "bound": bound,
             "by_type": by_type,
         }
+
+    async def check_all_proxies_health(self) -> dict:
+        """
+        Batch health check: TCP test all ACTIVE proxies.
+        Returns stats: checked, alive, dead_marked, avg_latency_ms.
+        """
+        from .proxy_monitor import check_single_proxy
+
+        active = self.db.query(Proxy).filter(
+            Proxy.status == ProxyStatus.ACTIVE
+        ).all()
+
+        if not active:
+            return {"checked": 0, "alive": 0, "dead_marked": 0}
+
+        checked = 0
+        alive_count = 0
+        dead_marked = 0
+        latencies = []
+
+        for proxy in active:
+            try:
+                result = await check_single_proxy(proxy)
+                checked += 1
+                if result.get("alive"):
+                    alive_count += 1
+                    proxy.fail_count = 0
+                    ms = result.get("response_time_ms", 0)
+                    proxy.response_time_ms = ms
+                    if ms > 0:
+                        latencies.append(ms)
+                    if result.get("external_ip") and result["external_ip"] != "unknown":
+                        proxy.external_ip = result["external_ip"]
+                else:
+                    proxy.fail_count = (proxy.fail_count or 0) + 1
+                    if proxy.fail_count >= 3:
+                        proxy.status = ProxyStatus.DEAD
+                        dead_marked += 1
+                        logger.warning(f"[Health] Proxy DEAD: {proxy.host}:{proxy.port} (3+ fails)")
+            except Exception as e:
+                logger.debug(f"[Health] Check error {proxy.host}:{proxy.port}: {e}")
+
+        self.db.commit()
+        avg_latency = round(sum(latencies) / len(latencies)) if latencies else 0
+
+        logger.info(f"[Health] Checked {checked} proxies: {alive_count} alive, {dead_marked} → DEAD, avg {avg_latency}ms")
+        return {
+            "checked": checked,
+            "alive": alive_count,
+            "dead_marked": dead_marked,
+            "avg_latency_ms": avg_latency,
+        }
+
+    async def auto_deactivate_slow_proxies(self, max_latency_ms: int = 10000) -> dict:
+        """
+        Mark proxies with latency > max_latency_ms as DEAD.
+        Call after check_all_proxies_health() to have fresh latency data.
+        """
+        slow = self.db.query(Proxy).filter(
+            Proxy.status == ProxyStatus.ACTIVE,
+            Proxy.response_time_ms > max_latency_ms,
+        ).all()
+
+        count = 0
+        for proxy in slow:
+            proxy.status = ProxyStatus.DEAD
+            count += 1
+            logger.warning(f"[Health] Slow proxy DEAD: {proxy.host}:{proxy.port} ({proxy.response_time_ms}ms > {max_latency_ms}ms)")
+
+        if count:
+            self.db.commit()
+            logger.info(f"[Health] Deactivated {count} slow proxies (>{max_latency_ms}ms)")
+
+        return {"deactivated": count, "threshold_ms": max_latency_ms}
 

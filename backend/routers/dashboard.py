@@ -419,3 +419,400 @@ async def dashboard_analytics(db: Session = Depends(get_db)):
             "success_rate": birth_success_rate,
         },
     }
+
+
+@router.get("/dashboard/autoreg-analytics")
+async def autoreg_analytics(db: Session = Depends(get_db)):
+    """
+    Advanced autoreg analytics:
+    - Per-provider success rates (1d, 7d, 30d, all-time)
+    - Top failure reasons aggregated
+    - Account lifetime metrics (avg age, survival rates)
+    """
+    from sqlalchemy import func, case
+    from datetime import datetime, timedelta
+    from collections import Counter
+
+    now = datetime.utcnow()
+    periods = {
+        "1d": now - timedelta(days=1),
+        "7d": now - timedelta(days=7),
+        "30d": now - timedelta(days=30),
+        "all": datetime(2020, 1, 1),  # effectively all-time
+    }
+
+    # ── Per-provider autoreg success rates ──
+    provider_rates = {}
+    # Extract provider from account_email domain
+    all_threads = db.query(
+        ThreadLog.account_email,
+        ThreadLog.status,
+        ThreadLog.error_message,
+        ThreadLog.started_at,
+    ).filter(
+        ThreadLog.thread_type.in_(["birth", "autoreg"]),
+    ).all()
+
+    # Map email domains to provider names
+    domain_to_provider = {
+        "gmail.com": "gmail", "yahoo.com": "yahoo", "aol.com": "aol",
+        "outlook.com": "outlook", "hotmail.com": "hotmail",
+        "proton.me": "proton", "protonmail.com": "proton",
+    }
+
+    for period_name, period_start in periods.items():
+        period_threads = [t for t in all_threads if t.started_at and t.started_at >= period_start]
+        by_provider = {}
+
+        for t in period_threads:
+            # Determine provider from email
+            provider = "unknown"
+            if t.account_email and "@" in t.account_email:
+                domain = t.account_email.split("@")[1].lower()
+                provider = domain_to_provider.get(domain, domain.split(".")[0])
+
+            if provider not in by_provider:
+                by_provider[provider] = {"success": 0, "failed": 0, "total": 0}
+
+            by_provider[provider]["total"] += 1
+            if t.status == "done":
+                by_provider[provider]["success"] += 1
+            elif t.status in ("error", "stopped"):
+                by_provider[provider]["failed"] += 1
+
+        # Calculate rates
+        for prov, stats in by_provider.items():
+            stats["rate"] = round(
+                (stats["success"] / stats["total"] * 100), 1
+            ) if stats["total"] > 0 else 0
+
+        provider_rates[period_name] = by_provider
+
+    # ── Top failure reasons ──
+    error_threads = [t for t in all_threads if t.status in ("error", "stopped") and t.error_message]
+    failure_reasons = Counter()
+
+    # Categorize error messages into readable reasons
+    for t in error_threads:
+        msg = (t.error_message or "").lower()
+        if "captcha" in msg:
+            failure_reasons["CAPTCHA failed"] += 1
+        elif "sms" in msg or "phone" in msg or "number" in msg:
+            failure_reasons["SMS/phone verification failed"] += 1
+        elif "proxy" in msg:
+            failure_reasons["Proxy error"] += 1
+        elif "ban" in msg or "block" in msg or "suspended" in msg:
+            failure_reasons["Account blocked/banned"] += 1
+        elif "rate" in msg or "limit" in msg or "too many" in msg:
+            failure_reasons["Rate limited"] += 1
+        elif "timeout" in msg or "timed out" in msg:
+            failure_reasons["Timeout"] += 1
+        elif "selector" in msg or "element" in msg or "locator" in msg:
+            failure_reasons["UI selector changed"] += 1
+        elif "network" in msg or "connection" in msg or "dns" in msg:
+            failure_reasons["Network error"] += 1
+        elif "username" in msg or "email" in msg and "taken" in msg:
+            failure_reasons["Username/email taken"] += 1
+        else:
+            failure_reasons["Other"] += 1
+
+    top_failures = [
+        {"reason": reason, "count": count}
+        for reason, count in failure_reasons.most_common(10)
+    ]
+
+    # Per-provider failure breakdown
+    provider_failures = {}
+    for t in error_threads:
+        provider = "unknown"
+        if t.account_email and "@" in t.account_email:
+            domain = t.account_email.split("@")[1].lower()
+            provider = domain_to_provider.get(domain, domain.split(".")[0])
+
+        if provider not in provider_failures:
+            provider_failures[provider] = Counter()
+
+        msg = (t.error_message or "").lower()
+        if "captcha" in msg:
+            provider_failures[provider]["CAPTCHA"] += 1
+        elif "sms" in msg or "phone" in msg:
+            provider_failures[provider]["SMS"] += 1
+        elif "proxy" in msg:
+            provider_failures[provider]["Proxy"] += 1
+        elif "ban" in msg or "block" in msg:
+            provider_failures[provider]["Blocked"] += 1
+        elif "rate" in msg or "limit" in msg:
+            provider_failures[provider]["Rate limit"] += 1
+        else:
+            provider_failures[provider]["Other"] += 1
+
+    provider_failures_dict = {
+        prov: dict(counter.most_common(5))
+        for prov, counter in provider_failures.items()
+    }
+
+    # ── Account lifetime metrics ──
+    all_accounts = db.query(
+        Account.created_at, Account.status, Account.provider
+    ).filter(Account.created_at != None).all()  # noqa: E711
+
+    # Average age of dead/banned accounts
+    dead_ages = []
+    alive_ages = []
+    for acc in all_accounts:
+        if not acc.created_at:
+            continue
+        age_days = (now - acc.created_at).days
+
+        if acc.status in ("dead", "banned"):
+            dead_ages.append(age_days)
+        elif acc.status not in ("dead", "banned"):
+            alive_ages.append(age_days)
+
+    avg_dead_age = round(sum(dead_ages) / len(dead_ages), 1) if dead_ages else 0
+    avg_alive_age = round(sum(alive_ages) / len(alive_ages), 1) if alive_ages else 0
+
+    # Survival rates (% of accounts created N+ days ago that are still alive)
+    survival = {}
+    for days_threshold in [7, 30, 90]:
+        cutoff = now - timedelta(days=days_threshold)
+        old_accounts = [a for a in all_accounts if a.created_at and a.created_at <= cutoff]
+        if old_accounts:
+            alive = sum(1 for a in old_accounts if a.status not in ("dead", "banned"))
+            survival[f"{days_threshold}d"] = round(alive / len(old_accounts) * 100, 1)
+        else:
+            survival[f"{days_threshold}d"] = 0
+
+    # Per-provider lifetime
+    provider_lifetime = {}
+    for acc in all_accounts:
+        prov = acc.provider or "unknown"
+        if prov not in provider_lifetime:
+            provider_lifetime[prov] = {"alive": 0, "dead": 0, "dead_ages": []}
+        if acc.status in ("dead", "banned"):
+            provider_lifetime[prov]["dead"] += 1
+            if acc.created_at:
+                provider_lifetime[prov]["dead_ages"].append((now - acc.created_at).days)
+        else:
+            provider_lifetime[prov]["alive"] += 1
+
+    provider_lifetime_clean = {}
+    for prov, data in provider_lifetime.items():
+        avg_age = round(sum(data["dead_ages"]) / len(data["dead_ages"]), 1) if data["dead_ages"] else 0
+        total = data["alive"] + data["dead"]
+        provider_lifetime_clean[prov] = {
+            "alive": data["alive"],
+            "dead": data["dead"],
+            "total": total,
+            "survival_rate": round(data["alive"] / total * 100, 1) if total > 0 else 0,
+            "avg_dead_age_days": avg_age,
+        }
+
+    return {
+        "provider_success_rates": provider_rates,
+        "top_failures": top_failures,
+        "provider_failures": provider_failures_dict,
+        "lifetime": {
+            "avg_dead_age_days": avg_dead_age,
+            "avg_alive_age_days": avg_alive_age,
+            "survival_rates": survival,
+            "by_provider": provider_lifetime_clean,
+        },
+    }
+
+
+# ─── Warmup Analytics ────────────────────────────────────────────────────────
+
+@router.get("/dashboard/warmup-analytics")
+async def warmup_analytics(db: Session = Depends(get_db)):
+    """
+    Warmup-specific analytics:
+    - Phase distribution with health scores
+    - Daily send/reply/star stats
+    - Per-provider warmup progress
+    - Peer-to-peer delivery tracking
+    """
+    from sqlalchemy import func
+    from datetime import datetime, timedelta
+    from ..models import Account, AccountStatus, WarmupEmail
+
+    warming_statuses = [
+        AccountStatus.PHASE_1, AccountStatus.PHASE_2,
+        AccountStatus.PHASE_3, AccountStatus.PHASE_4, AccountStatus.PHASE_5,
+    ]
+
+    # ── Phase distribution with health ──
+    phase_data = {}
+    for status in warming_statuses + [AccountStatus.WARMED, AccountStatus.NEW]:
+        accs = db.query(Account).filter(Account.status == status).all()
+        if accs:
+            avg_health = sum(a.health_score or 100 for a in accs) / len(accs)
+            avg_day = sum(a.warmup_day or 0 for a in accs) / len(accs)
+            total_sent = sum(a.total_emails_sent or 0 for a in accs)
+            phase_data[status.value] = {
+                "count": len(accs),
+                "avg_health": round(avg_health, 1),
+                "avg_day": round(avg_day, 1),
+                "total_sent": total_sent,
+            }
+
+    # ── Overall warmup stats ──
+    all_warming = db.query(Account).filter(Account.status.in_(warming_statuses)).all()
+    overall_avg_health = 0
+    overall_avg_day = 0
+    if all_warming:
+        overall_avg_health = round(sum(a.health_score or 100 for a in all_warming) / len(all_warming), 1)
+        overall_avg_day = round(sum(a.warmup_day or 0 for a in all_warming) / len(all_warming), 1)
+
+    # ── Per-provider warmup progress ──
+    provider_progress = {}
+    for row in db.query(
+        Account.provider, Account.status, func.count()
+    ).filter(
+        Account.status.in_(warming_statuses + [AccountStatus.WARMED])
+    ).group_by(Account.provider, Account.status).all():
+        prov = row[0] or "unknown"
+        if prov not in provider_progress:
+            provider_progress[prov] = {}
+        provider_progress[prov][row[1] or "unknown"] = row[2]
+
+    # ── Peer-to-peer delivery stats (from WarmupEmail) ──
+    try:
+        total_warmup_emails = db.query(WarmupEmail).count()
+        inbox_count = db.query(WarmupEmail).filter(WarmupEmail.delivery_status == "inbox").count()
+        spam_count = db.query(WarmupEmail).filter(WarmupEmail.delivery_status == "spam").count()
+        replied_count = db.query(WarmupEmail).filter(WarmupEmail.replied == True).count()  # noqa: E712
+        warmup_email_stats = {
+            "total": total_warmup_emails,
+            "inbox": inbox_count,
+            "spam": spam_count,
+            "replied": replied_count,
+            "inbox_rate": round(inbox_count / total_warmup_emails * 100, 1) if total_warmup_emails > 0 else 0,
+            "reply_rate": round(replied_count / total_warmup_emails * 100, 1) if total_warmup_emails > 0 else 0,
+        }
+    except Exception:
+        warmup_email_stats = {"total": 0, "inbox": 0, "spam": 0, "replied": 0, "inbox_rate": 0, "reply_rate": 0}
+
+    # ── Health score distribution (histogram) ──
+    health_buckets = {"0-20": 0, "21-40": 0, "41-60": 0, "61-80": 0, "81-100": 0}
+    for acc in all_warming:
+        h = acc.health_score or 100
+        if h <= 20:
+            health_buckets["0-20"] += 1
+        elif h <= 40:
+            health_buckets["21-40"] += 1
+        elif h <= 60:
+            health_buckets["41-60"] += 1
+        elif h <= 80:
+            health_buckets["61-80"] += 1
+        else:
+            health_buckets["81-100"] += 1
+
+    return {
+        "phases": phase_data,
+        "overall": {
+            "warming_count": len(all_warming),
+            "warmed_count": db.query(Account).filter(Account.status == AccountStatus.WARMED).count(),
+            "avg_health": overall_avg_health,
+            "avg_day": overall_avg_day,
+        },
+        "provider_progress": provider_progress,
+        "warmup_emails": warmup_email_stats,
+        "health_distribution": health_buckets,
+    }
+
+
+# ─── System Alerts ────────────────────────────────────────────────────────────
+
+@router.get("/dashboard/alerts")
+async def system_alerts(db: Session = Depends(get_db)):
+    """
+    Threshold-based system health alerts.
+    Returns active alerts sorted by severity.
+    """
+    from ..services.alert_monitor import alert_monitor
+    alerts = alert_monitor.check_all(db)
+    # Sort: critical first, then warning, then info
+    level_order = {"critical": 0, "warning": 1, "info": 2}
+    alerts.sort(key=lambda a: level_order.get(a.level, 3))
+    return {
+        "alerts": [a.to_dict() for a in alerts],
+        "counts": {
+            "critical": sum(1 for a in alerts if a.level == "critical"),
+            "warning": sum(1 for a in alerts if a.level == "warning"),
+            "info": sum(1 for a in alerts if a.level == "info"),
+        },
+    }
+
+
+# ─── Per-Campaign Stats ──────────────────────────────────────────────────────
+
+@router.get("/dashboard/campaign-stats")
+async def campaign_delivery_stats(db: Session = Depends(get_db)):
+    """
+    Per-campaign delivery breakdown: sent, errors, bounced, inbox rate.
+    """
+    from sqlalchemy import func
+    from ..models import Campaign, MailingStats
+
+    results = []
+    campaigns = db.query(Campaign).all()
+    for c in campaigns:
+        sent = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id, MailingStats.status == "sent"
+        ).count()
+        errors = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id, MailingStats.status == "error"
+        ).count()
+        bounced = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id, MailingStats.status == "bounce"
+        ).count()
+        limited = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id, MailingStats.status == "limit"
+        ).count()
+        total = sent + errors + bounced + limited
+        inbox_rate = round(sent / total * 100, 1) if total > 0 else 0
+
+        results.append({
+            "id": c.id,
+            "name": c.name,
+            "status": c.status,
+            "sent": sent,
+            "errors": errors,
+            "bounced": bounced,
+            "limited": limited,
+            "inbox_rate": inbox_rate,
+            "total_recipients": len(c.recipients) if c.recipients else 0,
+        })
+
+    return {"campaigns": results}
+
+
+# ─── Cost Analytics ───────────────────────────────────────────────────────────
+
+@router.get("/dashboard/costs")
+async def cost_analytics():
+    """
+    Cost analytics: session totals + today's spending + 7-day daily breakdown.
+    """
+    from ..services.cost_tracker import cost_tracker
+
+    return {
+        "session": cost_tracker.get_session_totals(),
+        "today": cost_tracker.get_today_summary(),
+        "daily": cost_tracker.get_daily_breakdown(7),
+    }
+
+
+# ─── Task Report ─────────────────────────────────────────────────────────────
+
+@router.get("/dashboard/task-report/{task_id}")
+async def task_completion_report(task_id: int):
+    """
+    Post-task resource consumption report.
+    SMS ordered/cancelled, captcha solved, proxies used, cost per account.
+    """
+    from ..services.task_report import task_report
+
+    report = task_report.generate(task_id)
+    return report

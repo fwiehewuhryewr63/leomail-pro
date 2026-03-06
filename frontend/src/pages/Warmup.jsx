@@ -32,6 +32,10 @@ export default function Warmup() {
     const [links, setLinks] = useState([]);
     const [selectedLinks, setSelectedLinks] = useState([]);
     const [linksOpen, setLinksOpen] = useState(false);
+    const [enableReplies, setEnableReplies] = useState(true);
+    const [enableStarring, setEnableStarring] = useState(true);
+    const [enableSpamRescue, setEnableSpamRescue] = useState(true);
+    const [emailsPerDay, setEmailsPerDay] = useState(0);
 
     /* ── Runtime state ── */
     const [status, setStatus] = useState(null);
@@ -88,6 +92,11 @@ export default function Warmup() {
                     days,
                     template_ids: selectedTemplates,
                     link_ids: selectedLinks,
+                    warmup_days: days,
+                    emails_per_day: emailsPerDay,
+                    enable_replies: enableReplies,
+                    enable_starring: enableStarring,
+                    enable_spam_rescue: enableSpamRescue,
                 }),
             });
             setTimeout(fetchAll, 1000);
@@ -259,6 +268,50 @@ export default function Warmup() {
                     </div>
                 </div>
 
+                {/* ── Row 3: Warmup Features ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+                    <div>
+                        <label style={labelStyle}>Emails / Day <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none' }}>(0 = auto)</span></label>
+                        <input className="form-input" type="text" inputMode="numeric" value={emailsPerDay}
+                            style={{ fontSize: '1.05em', padding: '10px 14px' }}
+                            onFocus={e => e.target.select()}
+                            onChange={e => { const v = e.target.value.replace(/\D/g, ''); setEmailsPerDay(v === '' ? '' : v); }}
+                            onBlur={e => setEmailsPerDay(Math.max(0, parseInt(e.target.value) || 0))}
+                            disabled={isRunning} />
+                    </div>
+                    {[{ label: 'Replies', state: enableReplies, setter: setEnableReplies, color: '#10B981' },
+                    { label: 'Star / Important', state: enableStarring, setter: setEnableStarring, color: '#F59E0B' },
+                    { label: 'Spam Rescue', state: enableSpamRescue, setter: setEnableSpamRescue, color: '#EF4444' },
+                    ].map(({ label, state, setter, color }) => (
+                        <div key={label}>
+                            <label style={labelStyle}>{label}</label>
+                            <div className="form-input" onClick={() => !isRunning && setter(!state)}
+                                style={{
+                                    cursor: isRunning ? 'default' : 'pointer', display: 'flex', alignItems: 'center',
+                                    gap: 10, padding: '10px 14px', fontSize: '1.05em',
+                                    background: state ? `${color}08` : 'transparent',
+                                    borderColor: state ? `${color}40` : undefined,
+                                }}>
+                                <span style={{
+                                    width: 34, height: 18, borderRadius: 10,
+                                    background: state ? color : 'rgba(255,255,255,0.1)',
+                                    position: 'relative', transition: 'background 0.2s',
+                                    display: 'inline-block', flexShrink: 0,
+                                }}>
+                                    <span style={{
+                                        width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                                        position: 'absolute', top: 2, left: state ? 18 : 2,
+                                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                                    }} />
+                                </span>
+                                <span style={{ color: state ? color : 'var(--text-muted)', fontWeight: 600, fontSize: '0.9em' }}>
+                                    {state ? 'ON' : 'OFF'}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
                 {/* ── Phase info ── */}
                 {selectedPhase && (
                     <div style={{
@@ -295,7 +348,7 @@ export default function Warmup() {
                         }} />
                         <span style={{ fontWeight: 700, color: 'var(--accent)' }}>Warming...</span>
                         <span style={{ color: 'var(--text-secondary)', fontSize: '0.88em' }}>
-                            Sent: {stats.total_sent || 0} | Received: {stats.total_received || 0} | Errors: {stats.total_errors || 0} | Processed: {stats.accounts_processed || 0}
+                            Sent: {stats.total_sent || 0} | Replied: {stats.total_replied || 0} | Starred: {stats.total_starred || 0} | Spam Rescued: {stats.total_spam_rescued || 0} | Errors: {stats.total_errors || 0} | Accounts: {stats.accounts_processed || 0}
                         </span>
                         <button onClick={fetchAll} style={{
                             marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-muted)',

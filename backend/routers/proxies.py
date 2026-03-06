@@ -522,3 +522,17 @@ async def check_all_proxies():
     from ..services.proxy_monitor import monitor_all_proxies
     result = await monitor_all_proxies()
     return result
+
+
+@router.post("/health-check")
+async def proxy_health_check(db: Session = Depends(get_db)):
+    """Deep health check: TCP test all active proxies + auto-deactivate slow ones (>10s)."""
+    pm = ProxyManager(db)
+    health = await pm.check_all_proxies_health()
+    slow = await pm.auto_deactivate_slow_proxies()
+    return {
+        **health,
+        "slow_deactivated": slow["deactivated"],
+        "threshold_ms": slow["threshold_ms"],
+    }
+

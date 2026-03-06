@@ -6,6 +6,7 @@ No account creation — autoreg is a separate module.
 import asyncio
 import random
 import string
+import time
 from datetime import datetime
 from loguru import logger
 
@@ -30,11 +31,19 @@ def list_active_campaigns() -> list[int]:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-MAX_EMAILS_PER_ACCOUNT = 50   # then rotate to next account
 MAX_CONSECUTIVE_ERRORS = 3    # kill account after N errors in a row
 SEND_RETRY_DELAY = 30         # seconds between retries on failure
 RESOURCE_CHECK_INTERVAL = 300  # check resources every 5 min
 RESOURCE_WAIT_TIMEOUT = 300   # wait up to 5 min for user to add links/templates
+ACCOUNT_COOLDOWN_SECONDS = 3600  # 1 hour cooldown after hitting daily limit
+
+# ── Provider-specific daily sending limits ──
+PROVIDER_DAILY_LIMITS = {
+    "yahoo": 20, "aol": 20,
+    "outlook": 30, "hotmail": 30,
+    "gmail": 25, "proton": 15,
+}
+DEFAULT_DAILY_LIMIT = 25
 
 # ── Progressive warmup delay schedule (seconds) ──
 # After each email, wait this long before the next one.
@@ -72,12 +81,14 @@ class CampaignRunner:
 
     def __init__(self, campaign_id: int):
         self.campaign_id = campaign_id
-        self.account_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
+        self.account_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=200)
         self._stop_event = asyncio.Event()
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # not paused initially
         self._send_tasks: list[asyncio.Task] = []
         self._monitor_task: asyncio.Task | None = None
+        self._template_idx = 0  # round-robin template counter
+        self._accounts_rotated = 0  # accounts re-queued after daily limit
 
     @property
     def is_running(self) -> bool:
@@ -151,7 +162,7 @@ class CampaignRunner:
             db.close()
 
     async def stop(self, reason: str = "Manual stop"):
-        """Stop the campaign."""
+        """Stop the campaign and generate task report."""
         self._stop_event.set()
         self._pause_event.set()  # unblock any paused workers
 
@@ -169,6 +180,20 @@ class CampaignRunner:
                 db.commit()
         finally:
             db.close()
+
+        # ── Generate task report on completion ──
+        try:
+            from ..services.task_report import task_report
+            report = task_report.generate(self.campaign_id)
+            if report and "error" not in report:
+                logger.info(
+                    f"Campaign REPORT: id={self.campaign_id} | "
+                    f"sent={report.get('accounts', {}).get('created', 0)}, "
+                    f"cost=${report.get('grand_total', 0)}, "
+                    f"rotated={self._accounts_rotated}"
+                )
+        except Exception as e:
+            logger.debug(f"Campaign report generation failed: {e}")
 
         _active_campaigns.pop(self.campaign_id, None)
         logger.info(f"Campaign STOP: id={self.campaign_id}, reason={reason}")
@@ -203,8 +228,13 @@ class CampaignRunner:
     # ─── Send Worker ──────────────────────────────────────────────────────────
 
     async def _send_worker(self, worker_id: int):
-        """Pull accounts from queue, send emails via BROWSER."""
+        """Pull accounts from queue, send emails via BROWSER.
+        Smart rotation: re-queues accounts after daily limit.
+        Template cycling: round-robin instead of deactivation.
+        ErrorHandler: consistent error classification.
+        """
         from ..browser_manager import BrowserManager
+        from ..services.error_handler import ErrorHandler
 
         while not self._stop_event.is_set():
             await self._pause_event.wait()
@@ -223,10 +253,22 @@ class CampaignRunner:
             except asyncio.CancelledError:
                 break
 
+            # ── Check cooldown (smart rotation) ──
+            cooldown_until = account_data.get("cooldown_until", 0)
+            if cooldown_until > time.time():
+                # Not ready yet — re-queue for later
+                try:
+                    self.account_queue.put_nowait(account_data)
+                except asyncio.QueueFull:
+                    pass
+                await asyncio.sleep(5)
+                continue
+
             db = SessionLocal()
             bm = None
             page = None
             context = None
+            account_dead = False
             try:
                 campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
                 if not campaign or campaign.status not in (
@@ -239,8 +281,15 @@ class CampaignRunner:
                 provider = account_data["provider"]
                 from_name = account_data.get("first_name", "")
                 account_id = account_data.get("account_id")
+                daily_limit = PROVIDER_DAILY_LIMITS.get(provider, DEFAULT_DAILY_LIMIT)
 
-                logger.info(f"Campaign send[{worker_id}]: starting with {email}")
+                # ── ErrorHandler for this account ──
+                error_handler = ErrorHandler(
+                    account_email=email,
+                    engine="campaign",
+                )
+
+                logger.info(f"Campaign send[{worker_id}]: starting with {email} (limit: {daily_limit}/day)")
 
                 consecutive_errors = 0
                 emails_sent = 0
@@ -289,7 +338,7 @@ class CampaignRunner:
                 # Check if session is valid (not redirected to login)
                 if "signin" in page.url or "login" in page.url or "account" in page.url:
                     logger.warning(f"Campaign send[{worker_id}] {email}: session expired / not logged in")
-                    # Mark account as needing re-auth
+                    account_dead = True
                     if account_id:
                         acc = db.query(Account).filter(Account.id == account_id).first()
                         if acc:
@@ -301,7 +350,7 @@ class CampaignRunner:
                 while (
                     not self._stop_event.is_set()
                     and consecutive_errors < MAX_CONSECUTIVE_ERRORS
-                    and emails_sent < MAX_EMAILS_PER_ACCOUNT
+                    and emails_sent < daily_limit
                 ):
                     await self._pause_event.wait()
                     if self._stop_event.is_set():
@@ -318,30 +367,32 @@ class CampaignRunner:
                         await self.stop("All recipients sent")
                         break
 
-                    # Get template
-                    template = db.query(CampaignTemplate).filter(
+                    # ── Template rotation (round-robin) ──
+                    templates = db.query(CampaignTemplate).filter(
                         CampaignTemplate.campaign_id == self.campaign_id,
                         CampaignTemplate.active == True  # noqa
-                    ).first()
-                    if not template:
+                    ).all()
+
+                    if not templates:
                         logger.warning(f"Campaign send[{worker_id}]: no active templates, waiting...")
                         for _ in range(RESOURCE_WAIT_TIMEOUT // 10):
                             await asyncio.sleep(10)
                             if self._stop_event.is_set():
                                 break
-                            template = db.query(CampaignTemplate).filter(
+                            templates = db.query(CampaignTemplate).filter(
                                 CampaignTemplate.campaign_id == self.campaign_id,
                                 CampaignTemplate.active == True
-                            ).first()
-                            if template:
+                            ).all()
+                            if templates:
                                 break
-                        if not template:
+                        if not templates:
                             await self.stop("No active templates (waited 5 min)")
                             break
 
-                    # Lock template (one-time use)
+                    # Round-robin: cycle through templates without deactivating
+                    template = templates[self._template_idx % len(templates)]
+                    self._template_idx += 1
                     template_id = template.id
-                    template.active = False
                     template.use_count = (template.use_count or 0) + 1
                     db.commit()
 
@@ -411,8 +462,6 @@ class CampaignRunner:
                     # ═══ BROWSER COMPOSE & SEND ═══
                     send_ok = False
                     send_error = ""
-                    is_dead = False
-                    is_rate_limited = False
 
                     try:
                         await self._browser_compose_send(
@@ -420,29 +469,19 @@ class CampaignRunner:
                         )
                         send_ok = True
                     except Exception as e:
-                        send_error = str(e).lower()
-                        if any(x in send_error for x in [
-                            "limit", "too many", "rate", "throttl",
-                            "temporarily locked", "try again later",
-                        ]):
-                            is_rate_limited = True
-                        elif any(x in send_error for x in [
-                            "signin", "login", "session expired",
-                            "locked", "suspended", "disabled",
-                            "verify your identity",
-                        ]):
-                            is_dead = True
+                        send_error = str(e)
                         logger.warning(
                             f"Campaign send[{worker_id}] {email} -> {recipient.email} "
-                            f"ERROR: {str(e)[:200]}"
+                            f"ERROR: {send_error[:200]}"
                         )
 
-                    # ═══ Process result ═══
+                    # ═══ Process result via ErrorHandler ═══
                     if send_ok:
                         recipient.result = "ok"
                         emails_sent += 1
                         warmup_level += 1
                         consecutive_errors = 0
+                        error_handler.record_sent()
 
                         link = db.query(CampaignLink).filter(
                             CampaignLink.id == link_id
@@ -469,64 +508,64 @@ class CampaignRunner:
                         db.commit()
                         logger.debug(
                             f"Campaign send[{worker_id}] {email} -> {recipient.email} "
-                            f"({emails_sent}/{MAX_EMAILS_PER_ACCOUNT})"
+                            f"({emails_sent}/{daily_limit})"
                         )
-
-                    elif is_rate_limited:
-                        # Undo recipient + template lock, switch account
-                        recipient.sent = False
-                        recipient.sent_at = None
-                        recipient.result = None
-                        t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
-                        if t:
-                            t.active = True
-                            t.use_count = max((t.use_count or 1) - 1, 0)
-                        campaign = db.query(Campaign).filter(
-                            Campaign.id == self.campaign_id
-                        ).first()
-                        if campaign:
-                            campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
-                        db.commit()
-                        logger.warning(
-                            f"Campaign send[{worker_id}] {email} RATE LIMITED -> switching account"
-                        )
-                        break
-
-                    elif is_dead:
-                        # Undo recipient + template lock, mark account dead
-                        recipient.sent = False
-                        recipient.sent_at = None
-                        recipient.result = None
-                        t = db.query(CampaignTemplate).filter(CampaignTemplate.id == template_id).first()
-                        if t:
-                            t.active = True
-                            t.use_count = max((t.use_count or 1) - 1, 0)
-                        campaign = db.query(Campaign).filter(
-                            Campaign.id == self.campaign_id
-                        ).first()
-                        if campaign:
-                            campaign.total_errors = (campaign.total_errors or 0) + 1
-                            campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
-                        if account_id:
-                            acc = db.query(Account).filter(Account.id == account_id).first()
-                            if acc:
-                                acc.status = AccountStatus.DEAD
-                        db.commit()
-                        logger.warning(
-                            f"Campaign send[{worker_id}] {email} DEAD: {send_error[:80]}"
-                        )
-                        break
 
                     else:
-                        # Generic browser error
-                        recipient.result = "error"
-                        campaign = db.query(Campaign).filter(
-                            Campaign.id == self.campaign_id
-                        ).first()
-                        if campaign:
-                            campaign.total_errors = (campaign.total_errors or 0) + 1
-                        db.commit()
-                        consecutive_errors += 1
+                        # ── Use ErrorHandler for classification ──
+                        action = error_handler.handle_error(send_error)
+
+                        if action == "mark_dead":
+                            # Undo recipient, mark account dead
+                            recipient.sent = False
+                            recipient.sent_at = None
+                            recipient.result = None
+                            account_dead = True
+                            campaign = db.query(Campaign).filter(
+                                Campaign.id == self.campaign_id
+                            ).first()
+                            if campaign:
+                                campaign.total_errors = (campaign.total_errors or 0) + 1
+                                campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
+                            if account_id:
+                                acc = db.query(Account).filter(Account.id == account_id).first()
+                                if acc:
+                                    acc.status = AccountStatus.DEAD
+                            db.commit()
+                            logger.warning(
+                                f"Campaign send[{worker_id}] {email} DEAD: {send_error[:80]}"
+                            )
+                            break
+
+                        elif action == "pause":
+                            # Rate limited — undo recipient, re-queue with cooldown
+                            recipient.sent = False
+                            recipient.sent_at = None
+                            recipient.result = None
+                            db.commit()
+                            logger.warning(
+                                f"Campaign send[{worker_id}] {email} RATE LIMITED -> cooldown"
+                            )
+                            # Re-queue with cooldown (smart rotation)
+                            account_data["cooldown_until"] = time.time() + ACCOUNT_COOLDOWN_SECONDS
+                            account_data["prior_sends"] = warmup_level
+                            try:
+                                self.account_queue.put_nowait(account_data)
+                                self._accounts_rotated += 1
+                            except asyncio.QueueFull:
+                                pass
+                            break
+
+                        else:
+                            # Retry or unknown — generic error
+                            recipient.result = "error"
+                            campaign = db.query(Campaign).filter(
+                                Campaign.id == self.campaign_id
+                            ).first()
+                            if campaign:
+                                campaign.total_errors = (campaign.total_errors or 0) + 1
+                            db.commit()
+                            consecutive_errors += 1
 
                     # Progressive warmup delay
                     delay = get_warmup_delay(warmup_level)
@@ -537,15 +576,30 @@ class CampaignRunner:
                         )
                     await asyncio.sleep(delay)
 
-                # Account exhausted or dead — update stats
-                campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
-                if campaign:
-                    campaign.accounts_dead = (campaign.accounts_dead or 0) + 1
-                    db.commit()
+                # ── Account finished its batch ──
+                if not account_dead and emails_sent >= daily_limit:
+                    # Hit daily limit — re-queue with cooldown (smart rotation)
+                    account_data["cooldown_until"] = time.time() + ACCOUNT_COOLDOWN_SECONDS
+                    account_data["prior_sends"] = warmup_level
+                    try:
+                        self.account_queue.put_nowait(account_data)
+                        self._accounts_rotated += 1
+                        logger.info(
+                            f"Campaign send[{worker_id}] {email}: daily limit ({daily_limit}) hit "
+                            f"-> re-queued with {ACCOUNT_COOLDOWN_SECONDS}s cooldown"
+                        )
+                    except asyncio.QueueFull:
+                        logger.warning(f"Campaign send[{worker_id}] {email}: queue full, cannot re-queue")
+                elif account_dead:
+                    # Only count actual dead accounts
+                    campaign = db.query(Campaign).filter(Campaign.id == self.campaign_id).first()
+                    if campaign:
+                        # accounts_dead already incremented in error handler above
+                        db.commit()
 
                 logger.info(
                     f"Campaign send[{worker_id}] {email} done: "
-                    f"sent={emails_sent}, errors={consecutive_errors}"
+                    f"sent={emails_sent}, errors={consecutive_errors}, dead={account_dead}"
                 )
 
             except asyncio.CancelledError:
@@ -571,160 +625,17 @@ class CampaignRunner:
                         pass
                 db.close()
 
-    # ─── Browser Compose & Send ───────────────────────────────────────────────
+    # ─── Browser Compose & Send ─────────────────────────────────────────────
 
     async def _browser_compose_send(
         self, page, provider: str, to_email: str, subject: str, body: str
     ):
         """
         Compose and send one email via browser UI.
-        Raises Exception on failure (caller handles error classification).
+        Delegates to shared browser_mail_sender module.
         """
-        if provider in ("yahoo", "aol"):
-            await self._browser_send_yahoo_aol(page, to_email, subject, body, provider)
-        elif provider in ("outlook", "hotmail"):
-            await self._browser_send_outlook(page, to_email, subject, body)
-        elif provider == "gmail":
-            await self._browser_send_gmail(page, to_email, subject, body)
-        elif provider == "proton":
-            await self._browser_send_proton(page, to_email, subject, body)
-        else:
-            raise Exception(f"Browser send not implemented for provider: {provider}")
-
-    async def _browser_send_yahoo_aol(
-        self, page, to_email: str, subject: str, body: str, provider: str = "yahoo"
-    ):
-        """Compose and send in Yahoo/AOL Mail via browser."""
-        if provider == "aol":
-            compose_sel = 'a[data-test-id="compose-button"], button:has-text("Compose")'
-        else:
-            compose_sel = 'button[aria-label="New message"], a[data-test-id="compose-button"]'
-        await page.locator(compose_sel).first.click(timeout=10000)
-        await asyncio.sleep(random.uniform(1.5, 3))
-
-        to_field = page.locator('input#message-to-field')
-        await to_field.click()
-        await asyncio.sleep(random.uniform(0.2, 0.5))
-        await to_field.type(to_email, delay=random.randint(30, 70))
-        await asyncio.sleep(random.uniform(0.3, 0.6))
-        await page.keyboard.press("Tab")
-        await asyncio.sleep(random.uniform(0.5, 1))
-
-        subj_field = page.locator('input#compose-subject-input')
-        await subj_field.click()
-        await subj_field.fill("")
-        await subj_field.type(subject, delay=random.randint(20, 50))
-        await asyncio.sleep(random.uniform(0.3, 0.8))
-
-        body_field = page.locator('div[aria-label="Message body"]')
-        await body_field.click()
-        await page.evaluate(
-            "(el, html) => el.innerHTML = html",
-            [await body_field.element_handle(), body],
-        ) if "<" in body else await body_field.type(body, delay=random.randint(10, 30))
-        await asyncio.sleep(random.uniform(0.5, 1.5))
-
-        for sel in [
-            'button[aria-label="Send this email"]',
-            'button[title="Send this email"]',
-            'button:has-text("Send")',
-        ]:
-            try:
-                btn = page.locator(sel).first
-                if await btn.is_visible(timeout=1000):
-                    await btn.click()
-                    break
-            except Exception:
-                continue
-
-        await asyncio.sleep(random.uniform(2, 4))
-
-        page_text = await page.inner_text("body")
-        if "limit" in page_text.lower() or "too many" in page_text.lower():
-            raise Exception("Daily sending limit detected")
-        if "temporarily locked" in page_text.lower():
-            raise Exception("Account temporarily locked")
-
-    async def _browser_send_gmail(self, page, to_email: str, subject: str, body: str):
-        """Compose and send in Gmail via browser."""
-        await page.click('[gh="cm"], [data-tooltip="Compose"]', timeout=10000)
-        await asyncio.sleep(random.uniform(1, 2.5))
-
-        to_input = page.locator('input[name="to"], [aria-label="To recipients"]').first
-        await to_input.click()
-        await to_input.type(to_email, delay=random.randint(30, 60))
-        await asyncio.sleep(random.uniform(0.5, 1.5))
-
-        subj_input = page.locator('input[name="subjectbox"]').first
-        await subj_input.click()
-        await subj_input.type(subject, delay=random.randint(20, 50))
-        await asyncio.sleep(random.uniform(0.3, 1))
-
-        body_el = page.locator('[aria-label="Message Body"], [role="textbox"]').first
-        await body_el.click()
-        await page.evaluate(
-            "(el, html) => el.innerHTML = html",
-            [await body_el.element_handle(), body],
-        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
-        await asyncio.sleep(random.uniform(0.5, 2))
-
-        await page.click('[aria-label="Send"], [data-tooltip="Send"]')
-        await asyncio.sleep(random.uniform(2, 4))
-
-    async def _browser_send_outlook(self, page, to_email: str, subject: str, body: str):
-        """Compose and send in Outlook/Hotmail via browser."""
-        await page.click('[aria-label="New mail"], button:has-text("New mail")', timeout=10000)
-        await asyncio.sleep(random.uniform(1, 3))
-
-        to_input = page.locator('[aria-label="To"], input[role="combobox"]').first
-        await to_input.click()
-        await to_input.type(to_email, delay=random.randint(30, 60))
-        await asyncio.sleep(random.uniform(1, 2))
-        await page.keyboard.press("Tab")
-
-        subj_input = page.locator('[aria-label="Add a subject"]').first
-        await subj_input.click()
-        await subj_input.type(subject, delay=random.randint(20, 50))
-        await asyncio.sleep(random.uniform(0.3, 1))
-
-        body_el = page.locator('[aria-label="Message body"], [role="textbox"]').first
-        await body_el.click()
-        await page.evaluate(
-            "(el, html) => el.innerHTML = html",
-            [await body_el.element_handle(), body],
-        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
-        await asyncio.sleep(random.uniform(0.5, 2))
-
-        await page.click('[aria-label="Send"], button:has-text("Send")')
-        await asyncio.sleep(random.uniform(2, 4))
-
-    async def _browser_send_proton(self, page, to_email: str, subject: str, body: str):
-        """Compose and send in Proton Mail via browser."""
-        await page.click('[data-testid="sidebar:compose"], button:has-text("New message")', timeout=10000)
-        await asyncio.sleep(random.uniform(1, 3))
-
-        to_input = page.locator('[data-testid="composer:to"] input, input[placeholder*="Recipient"]').first
-        await to_input.click()
-        await to_input.type(to_email, delay=random.randint(30, 60))
-        await asyncio.sleep(random.uniform(0.5, 1))
-        await page.keyboard.press("Tab")
-        await asyncio.sleep(random.uniform(0.3, 0.6))
-
-        subj_input = page.locator('[data-testid="composer:subject"] input, input[placeholder="Subject"]').first
-        await subj_input.click()
-        await subj_input.type(subject, delay=random.randint(20, 50))
-        await asyncio.sleep(random.uniform(0.3, 1))
-
-        body_el = page.locator('[data-testid="composer:body"] [contenteditable="true"], [contenteditable="true"]').first
-        await body_el.click()
-        await page.evaluate(
-            "(el, html) => el.innerHTML = html",
-            [await body_el.element_handle(), body],
-        ) if "<" in body else await body_el.type(body, delay=random.randint(10, 30))
-        await asyncio.sleep(random.uniform(0.5, 2))
-
-        await page.click('[data-testid="composer:send-button"], button:has-text("Send")')
-        await asyncio.sleep(random.uniform(2, 5))
+        from .browser_mail_sender import browser_compose_send
+        await browser_compose_send(page, provider, to_email, subject, body)
 
     # ─── Resource Monitor ─────────────────────────────────────────────────────
 

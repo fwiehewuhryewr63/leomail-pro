@@ -32,12 +32,14 @@ from ._helpers import (
     detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
     debug_screenshot as _debug_screenshot,
+    _safe_screenshot,
     scan_for_block_signals as _scan_for_block_signals,
     clean_session as _clean_session,
     rate_limiter as _rate_limiter,
     RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
     RegContext, verify_page_state, block_check, run_step,
     export_account_to_file,
+    run_flow_machine,
 )
 
 
@@ -804,41 +806,22 @@ async def register_single_outlook(
 
         page.on("request", _on_request)
 
-        # ── Execute Steps ──
-        await step_0_warmup(page, ctx)
-
-        await step_1_navigate(page, ctx, proxy, db)
-
-        if BIRTH_CANCEL_EVENT.is_set():
+        # ── State Machine: all steps via run_flow_machine ──
+        all_steps = [
+            ("warmup",        step_0_warmup,         (ctx,)),
+            ("navigate",      step_1_navigate,       (ctx, proxy, db)),
+            ("email_mode",    step_2_email_mode,     (ctx,)),
+            ("enter_email",   step_3_enter_email,    (ctx, domain)),
+            ("password",      step_4_password,       (ctx,)),
+            ("birthday",      step_5_birthday,       (ctx, birthday, proxy)),
+            ("name",          step_6_name,           (ctx,)),
+            ("captcha",       step_7_captcha,        (ctx, captcha_provider)),
+            ("post_prompts",  step_8_post_prompts,   (ctx,)),
+            ("verify",        step_9_verify_success, (ctx,)),
+        ]
+        result = await run_flow_machine(page, ctx, all_steps, BIRTH_CANCEL_EVENT)
+        if result is None:
             return None
-
-        await step_2_email_mode(page, ctx)
-
-        await step_3_enter_email(page, ctx, domain)
-
-        if BIRTH_CANCEL_EVENT.is_set():
-            return None
-
-        await step_4_password(page, ctx)
-
-        if BIRTH_CANCEL_EVENT.is_set():
-            return None
-
-        await step_5_birthday(page, ctx, birthday, proxy)
-
-        if BIRTH_CANCEL_EVENT.is_set():
-            return None
-
-        await step_6_name(page, ctx)
-
-        if BIRTH_CANCEL_EVENT.is_set():
-            return None
-
-        await step_7_captcha(page, ctx, captcha_provider)
-
-        await step_8_post_prompts(page, ctx)
-
-        await step_9_verify_success(page, ctx)
 
         # ── Save session and create account ──
         try:

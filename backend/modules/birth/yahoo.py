@@ -27,20 +27,16 @@ from ._helpers import (
     check_error_on_page as _check_error_on_page,
     fluent_combobox_select as _fluent_combobox_select,
     wait_for_any as _wait_for_any,
-    step_screenshot as _step_screenshot,
-    wait_and_find as _wait_and_find,
-    detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     detect_and_solve_funcaptcha as _detect_and_solve_funcaptcha,
+    detect_and_solve_recaptcha as _detect_and_solve_recaptcha,
     debug_screenshot as _debug_screenshot,
-    scan_for_block_signals as _scan_for_block_signals,
-    clean_session as _clean_session,
-    rate_limiter as _rate_limiter,
-    RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
-    RegContext, verify_page_state, block_check, run_step,
-    PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
+    _safe_screenshot,
     order_sms_with_chain, get_next_sms_number, get_sms_chain,
-    reset_chain_state, SMS_CODE_TIMEOUT,
-    export_account_to_file,
+    reset_chain_state,
+    PHONE_COUNTRY_MAP, PREFIX_TO_SMS_COUNTRY, COUNTRY_TO_ISO2,
+    RecoverableError, RateLimitError, BannedIPError, CaptchaFailError, FatalError,
+    RegContext, export_account_to_file,
+    run_flow_machine,
 )
 
 
@@ -1232,19 +1228,36 @@ async def register_single_yahoo(
         page = await context.new_page()
         ACTIVE_PAGES[ctx.thread_id] = {"page": page, "context": context}
 
-        await step_0_warmup(page, ctx)
-        await step_1_navigate(page, ctx, proxy, db, vision)
-        if BIRTH_CANCEL_EVENT.is_set():
+        # ── State Machine: steps 0-3 (pre-SMS) ──
+        pre_sms_steps = [
+            ("warmup",      step_0_warmup,      (ctx,)),
+            ("navigate",    step_1_navigate,    (ctx, proxy, db, vision)),
+            ("fill_form",   step_2_fill_form,   (ctx, birthday)),
+            ("submit_form", step_3_submit_form, (ctx, captcha_provider, vision)),
+        ]
+        result = await run_flow_machine(page, ctx, pre_sms_steps, BIRTH_CANCEL_EVENT)
+        if result is None:
             return None
-        await step_2_fill_form(page, ctx, birthday)
-        if BIRTH_CANCEL_EVENT.is_set():
-            return None
-        await step_3_submit_form(page, ctx, captcha_provider, vision)
-        if BIRTH_CANCEL_EVENT.is_set():
-            return None
-        await step_4_sms_verification(page, ctx, sms_provider, proxy,
-                                       captcha_provider, BIRTH_CANCEL_EVENT)
-        await step_5_verify_success(page, ctx)
+
+        # Step 4-5: SMS + verify (complex args, run directly with safe_screenshot)
+        try:
+            await step_4_sms_verification(page, ctx, sms_provider, proxy,
+                                           captcha_provider, BIRTH_CANCEL_EVENT)
+        except (RecoverableError, RateLimitError, BannedIPError, CaptchaFailError, FatalError):
+            await _safe_screenshot(page, "yahoo_sms_error", _log)
+            raise
+        except Exception as e:
+            await _safe_screenshot(page, "yahoo_sms_crash", _log)
+            raise FatalError("E599", f"sms_verification: {str(e)[:200]}")
+
+        try:
+            await step_5_verify_success(page, ctx)
+        except (RecoverableError, RateLimitError, BannedIPError, CaptchaFailError, FatalError):
+            await _safe_screenshot(page, "yahoo_verify_error", _log)
+            raise
+        except Exception as e:
+            await _safe_screenshot(page, "yahoo_verify_crash", _log)
+            raise FatalError("E599", f"verify_success: {str(e)[:200]}")
 
         # Save session and create account
         try:

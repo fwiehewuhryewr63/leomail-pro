@@ -4,7 +4,9 @@ Shared utility functions for all provider registration engines.
 """
 import asyncio
 import random
+import time
 import threading
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
@@ -151,10 +153,15 @@ ISO2_TO_SMS_COUNTRY = {
 # Reverse: SMS provider country code -> ISO2 (e.g. "br" -> "BR", "uk" -> "GB")
 COUNTRY_TO_ISO2 = {v: k for k, v in ISO2_TO_SMS_COUNTRY.items()}
 
-# Priority order when no specific country detected
-COUNTRY_FALLBACK_PRIORITY = [
-    "us", "uk", "de", "nl", "se", "pl", "br", "ca", "fr",
-    "es", "ru", "it", "at", "cz", "ee", "ro", "ie", "ua", "il",
+# ── SMS cost tiers (Economist skill: cheap first, escalate if needed) ──
+SMS_TIER_CHEAP = ["id", "ph", "in", "bd", "pk", "ke", "tz", "vn"]     # $0.03-0.05
+SMS_TIER_MEDIUM = ["ru", "br", "co", "mx", "ua", "ar", "cl", "pe"]    # $0.08-0.15
+SMS_TIER_EXPENSIVE = ["us", "uk", "ca", "de", "nl", "se", "fr", "au"]  # $0.30-0.50
+SMS_ALL_TIERS = SMS_TIER_CHEAP + SMS_TIER_MEDIUM + SMS_TIER_EXPENSIVE
+
+# Priority order when no specific country detected (cheap → expensive)
+COUNTRY_FALLBACK_PRIORITY = SMS_ALL_TIERS + [
+    "pl", "es", "it", "at", "cz", "ee", "ro", "ie", "il",
 ]
 
 # Yahoo-specific SMS country priority (Phase 3 data: sorted by number pool size)
@@ -207,11 +214,11 @@ EMAIL_PROVIDER_SMS_RULES = {
     },
     "outlook": {
         "mode": "flexible",
-        "countries": COUNTRY_FALLBACK_PRIORITY,
+        "countries": SMS_ALL_TIERS,  # cheap first, auto-escalate
     },
     "hotmail": {
         "mode": "flexible",
-        "countries": COUNTRY_FALLBACK_PRIORITY,
+        "countries": SMS_ALL_TIERS,  # cheap first, auto-escalate
     },
     "protonmail": {
         "mode": "none",
@@ -455,6 +462,25 @@ async def order_sms_with_chain(
             
             _log(f"[OK] {provider_name}: number from {order.get('country', '?')} - {number}")
             _reset_sms_backoff(service)
+
+            # ── Track cost (Economist skill) ──
+            try:
+                from ...services.cost_tracker import cost_tracker
+                country = order.get("country", "")
+                # Estimate cost based on tier
+                if country in SMS_TIER_CHEAP:
+                    est_cost = 0.04
+                elif country in SMS_TIER_MEDIUM:
+                    est_cost = 0.12
+                else:
+                    est_cost = 0.35
+                cost_tracker.record_sms(
+                    provider=provider_name, amount=est_cost,
+                    country=country, success=True,
+                )
+            except Exception:
+                pass
+
             return order, provider, expanded_countries
         
         err_msg = order.get("error", "empty") if order else "no response"
@@ -1393,9 +1419,89 @@ class RegContext:
     _log: object = None     # Logging function
     _err: object = None     # Error logging function
     _arkose_blob: str = ""  # FunCaptcha blob captured from Arkose Labs API
+    # ── State machine tracking (Part 5) ──
+    current_step: str = ""          # Name of the current step being executed
+    step_times: dict = field(default_factory=dict)  # step_name -> elapsed seconds
+
+# ── Safe Screenshot (never throws) ──────────────────────────────────────────────────
 
 
-# ── Defensive Coding Template Helpers ──────────────────────────────────────────
+async def _safe_screenshot(page, name: str, log_fn=None):
+    """Take debug screenshot — guaranteed to never throw.
+    Use this before raising exceptions to capture page state."""
+    try:
+        await debug_screenshot(page, name, log_fn)
+    except Exception:
+        try:
+            logger.debug(f"Screenshot failed for {name}")
+        except Exception:
+            pass
+
+
+# ── State Machine Dispatcher ───────────────────────────────────────────────────
+
+
+async def run_flow_machine(page, ctx: RegContext, steps: list,
+                           cancel_event=None):
+    """
+    Execute a list of registration steps with:
+    - Auto-screenshot on ANY error (before re-raising)
+    - Step timing logged to ctx.step_times
+    - Cancel event checking between steps
+    - Consistent error logging
+
+    Args:
+        page: Playwright page object
+        ctx: RegContext with _log/_err functions
+        steps: list of (step_name, async_fn, args_tuple)
+               e.g. [("warmup", step_0_warmup, (ctx,)), ...]
+        cancel_event: threading.Event — if set, abort early
+
+    Returns: True if all steps completed, None if cancelled.
+    Raises: RegistrationError subclasses (with auto-screenshot).
+    """
+    for step_name, step_fn, step_args in steps:
+        # Check cancel
+        if cancel_event and cancel_event.is_set():
+            if ctx._log:
+                ctx._log(f"[CANCEL] Aborted before {step_name}")
+            return None
+
+        ctx.current_step = step_name
+        start_time = time.time()
+
+        try:
+            await step_fn(page, *step_args)
+            elapsed = time.time() - start_time
+            ctx.step_times[step_name] = round(elapsed, 1)
+            if ctx._log:
+                ctx._log(f"[STEP] {step_name} OK ({elapsed:.1f}s)")
+
+        except RegistrationError:
+            # Known error — screenshot and re-raise
+            elapsed = time.time() - start_time
+            ctx.step_times[step_name] = round(elapsed, 1)
+            await _safe_screenshot(page, f"{ctx.provider}_{step_name}_error", ctx._log)
+            raise
+
+        except asyncio.CancelledError:
+            # Task cancelled — screenshot but don't wrap
+            await _safe_screenshot(page, f"{ctx.provider}_{step_name}_cancelled", ctx._log)
+            raise
+
+        except Exception as e:
+            # Unknown error — screenshot + wrap in FatalError
+            elapsed = time.time() - start_time
+            ctx.step_times[step_name] = round(elapsed, 1)
+            await _safe_screenshot(page, f"{ctx.provider}_{step_name}_crash", ctx._log)
+            if ctx._err:
+                ctx._err(f"[CRASH] {step_name}: {str(e)[:300]}")
+            raise FatalError("E599", f"{step_name}: {str(e)[:200]}")
+
+    return True
+
+
+# ── Defensive Coding Template Helpers ────────────────────────────────────────
 
 
 async def verify_page_state(page, url_pattern: str = None, selector: str = None,

@@ -359,6 +359,7 @@ class MailingStats(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
     account_email = Column(String, index=True)
     recipient_email = Column(String, index=True)
     template_name = Column(String, nullable=True)
@@ -387,6 +388,24 @@ class WarmupEmail(Base):
     # Reply tracking
     replied = Column(Boolean, default=False)
     replied_at = Column(DateTime, nullable=True)
+
+
+class CostRecord(Base):
+    """Per-operation cost tracking: SMS orders, captcha solves, proxy usage."""
+    __tablename__ = "cost_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)
+    resource_type = Column(String, index=True)   # "sms", "captcha", "proxy"
+    provider = Column(String, nullable=True)      # "5sim", "grizzly", "simsms", "capguru", "2captcha"
+    amount = Column(Float, default=0.0)           # cost in USD
+    currency = Column(String, default="USD")
+    country = Column(String, nullable=True)       # SMS country code
+    account_email = Column(String, nullable=True) # which account this cost was for
+    details = Column(String, nullable=True)       # e.g. "order_id=12345, number=+1234567890"
+    success = Column(Boolean, default=True)       # was the operation successful?
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 # ─── CAMPAIGN / BLITZ PIPELINE (v4) ──────────────────────────────────────────

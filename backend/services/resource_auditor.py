@@ -183,6 +183,26 @@ def check_system_health(db: Session) -> dict:
         "validator": _check_validator(),
     }
 
+    # ── Cost estimates (Economist skill: pre-flight awareness) ──
+    sms_balance = sms_data.get("total_balance", 0)
+    cap_balance = captcha_data.get("balance", 0)
+    sms_per_account = 0.15   # avg cost (weighted across tiers)
+    captcha_per_account = 0.02
+    total_per_account = sms_per_account + captcha_per_account
+
+    sms_affordable = int(sms_balance / sms_per_account) if sms_per_account > 0 else 0
+    cap_affordable = int(cap_balance / captcha_per_account) if captcha_per_account > 0 else 0
+    affordable = min(sms_affordable, cap_affordable)
+
+    health["cost_estimate"] = {
+        "sms_per_account": sms_per_account,
+        "captcha_per_account": captcha_per_account,
+        "total_per_account": total_per_account,
+        "affordable_accounts": affordable,
+        "estimated_cost_for_50": round(50 * total_per_account, 2),
+        "estimated_cost_for_100": round(100 * total_per_account, 2),
+    }
+
     # Overall status
     statuses = [
         health["sms"]["status"],

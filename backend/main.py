@@ -74,7 +74,11 @@ async def _startup():
     from .database import PROJECT_ROOT as _PR
     log_path = _PR / "user_data" / "logs" / "leomail.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.add(str(log_path), rotation="5 MB", retention="7 days", level="INFO",
+    logger.add(str(log_path), rotation="10 MB", retention=5, level="INFO",
+               format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}")
+    # Separate error-only log for quick debugging
+    err_path = _PR / "user_data" / "logs" / "errors.log"
+    logger.add(str(err_path), rotation="5 MB", retention=3, level="ERROR",
                format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}")
 
     # Create all tables
@@ -270,6 +274,26 @@ async def _startup():
                     logger.info(f"Migrated: added {col} column to accounts")
         except Exception:
             pass
+
+        # mailing_stats - campaign_id column
+        try:
+            ms_cols = [c["name"] for c in inspector.get_columns("mailing_stats")]
+            ms_migrations = {
+                "campaign_id": "INTEGER",
+            }
+            for col, col_type in ms_migrations.items():
+                if col not in ms_cols:
+                    conn.execute(text(f"ALTER TABLE mailing_stats ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Migrated: added {col} column to mailing_stats")
+        except Exception:
+            pass
+
+        # cost_records table — create if missing (new table, create_all handles it)
+        if "cost_records" not in inspector.get_table_names():
+            from .models import CostRecord  # noqa: F401
+            Base.metadata.create_all(bind=db_engine, tables=[CostRecord.__table__])
+            logger.info("Migrated: created cost_records table")
 
     # Initialize user_data directories
     init_directories()

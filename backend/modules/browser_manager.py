@@ -167,10 +167,11 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
                            device_memory: int = 8, langs: list = None,
                            timezone_id: str = "", viewport: dict = None,
                            device_scale: float = 1, is_mobile: bool = False,
-                           chrome_version: str = "") -> str:
+                           chrome_version: str = "", canvas_seed: int = None) -> str:
     """
     Build comprehensive antidetect stealth JS to inject into each browser context.
     Dynamically adapts to UA (platform matching) and rotates GPU per context.
+    canvas_seed: if provided, uses fixed seed for canvas/audio noise (for profile persistence).
     """
     if not gpu:
         gpu = random.choice(GPU_COMBOS)
@@ -193,7 +194,8 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
 
     gpu_vendor, gpu_renderer = gpu
     langs_js = json.dumps(langs)
-    canvas_seed = random.randint(1, 999999)
+    if canvas_seed is None:
+        canvas_seed = random.randint(1, 999999)
 
     # Screen dimensions from viewport (pixelscan checks consistency!)
     vp = viewport or {"width": 1920, "height": 1080}
@@ -1379,13 +1381,17 @@ class BrowserManager:
             # 4. Font rendering consistency
             "--font-render-hinting=medium",
             "--disable-lcd-text",
-            # 5. TLS/JA3 & HTTP/2 fingerprint: use in-process network service
-            # This ensures TLS handshake + HTTP/2 SETTINGS match genuine Chrome
-            # (recommended by browserless.io research for anti-fingerprint)
-            "--enable-features=DnsOverHttps,NetworkServiceInProcess2",
+            # 5. TLS/JA3 & HTTP/2 fingerprint hardening:
+            # NetworkServiceInProcess2 — ensures TLS handshake + HTTP/2 SETTINGS match genuine Chrome
+            # PostQuantumCECPQ2 — Chrome's post-quantum key exchange (real Chrome 115+ has this)
+            # EncryptedClientHello — ECH support (real Chrome 117+ in TLS ClientHello)
+            # These make our JA4 fingerprint indistinguishable from real Chrome
+            "--enable-features=DnsOverHttps,NetworkServiceInProcess2,PostQuantumCECPQ2,EncryptedClientHello",
             # 6. Cipher suites: blacklist weak/deprecated ciphers (makes TLS look modern)
             # Removes RC4, 3DES, DH export — same as modern Chrome defaults
             "--cipher-suite-blacklist=0x0004,0x0005,0x000a,0x002f,0x0035,0x003c,0x009c,0x009d",
+            # 7. Force TLS 1.3 as minimum (Chrome 140 default)
+            "--tls13-variant=final",
         ]
         launch_kwargs = {
             "headless": self.headless,
@@ -1426,6 +1432,7 @@ class BrowserManager:
         proxy=None,
         geo: str = None,
         session_path: str = None,
+        account_id: int = None,
     ) -> BrowserContext:
         """
         Create a new anti-detect browser context (desktop only).
@@ -1490,10 +1497,17 @@ class BrowserManager:
             "java_script_enabled": True,
         }
 
-        # Desktop configuration
-        context_options["user_agent"] = _generate_desktop_ua()
-        context_options["viewport"] = random.choice(DESKTOP_VIEWPORTS)
-        context_options["device_scale_factor"] = random.choice([1, 1, 1, 1.25, 1.5, 2])
+        # Desktop configuration — load saved fingerprint or generate new
+        saved_fp = self.load_fingerprint(account_id) if account_id else None
+        if saved_fp:
+            context_options["user_agent"] = saved_fp.get("user_agent", _generate_desktop_ua())
+            context_options["viewport"] = saved_fp.get("viewport", random.choice(DESKTOP_VIEWPORTS))
+            context_options["device_scale_factor"] = saved_fp.get("device_scale", 1)
+            logger.debug(f"Loaded fingerprint for account {account_id}")
+        else:
+            context_options["user_agent"] = _generate_desktop_ua()
+            context_options["viewport"] = random.choice(DESKTOP_VIEWPORTS)
+            context_options["device_scale_factor"] = random.choice([1, 1, 1, 1.25, 1.5, 2])
         context_options["is_mobile"] = False
         context_options["has_touch"] = False
 
@@ -1526,14 +1540,22 @@ class BrowserManager:
         is_mobile = context_options.get("is_mobile", False)
 
         # Select GPU, hw, memory — desktop only, OS-matched
-        if "Macintosh" in ctx_ua or "Mac OS" in ctx_ua:
-            ctx_gpu = random.choice(GPU_COMBOS_MAC)
-        elif "Linux" in ctx_ua:
-            ctx_gpu = random.choice(GPU_COMBOS_LINUX)
+        # Use saved fingerprint if available (profile persistence)
+        if saved_fp:
+            ctx_gpu = tuple(saved_fp.get("gpu", random.choice(GPU_COMBOS)))
+            ctx_hw = saved_fp.get("hw_concurrency", 8)
+            ctx_mem = saved_fp.get("device_memory", 8)
+            ctx_canvas_seed = saved_fp.get("canvas_seed", None)
         else:
-            ctx_gpu = random.choice(GPU_COMBOS)
-        ctx_hw = random.choice([4, 8, 12, 16])
-        ctx_mem = random.choice([4, 8, 16])
+            if "Macintosh" in ctx_ua or "Mac OS" in ctx_ua:
+                ctx_gpu = random.choice(GPU_COMBOS_MAC)
+            elif "Linux" in ctx_ua:
+                ctx_gpu = random.choice(GPU_COMBOS_LINUX)
+            else:
+                ctx_gpu = random.choice(GPU_COMBOS)
+            ctx_hw = random.choice([4, 8, 12, 16])
+            ctx_mem = random.choice([4, 8, 16])
+            ctx_canvas_seed = random.randint(1, 999999)
 
         # Build GEO-matched language list for stealth scripts
         # This ensures navigator.languages matches Accept-Language and locale
@@ -1554,7 +1576,21 @@ class BrowserManager:
             device_memory=ctx_mem, langs=ctx_langs,
             timezone_id=timezone_id, viewport=ctx_viewport,
             device_scale=ctx_scale, is_mobile=is_mobile,
+            canvas_seed=ctx_canvas_seed,
         )
+
+        # Save fingerprint for persistence if account_id provided
+        if account_id and not saved_fp:
+            self.save_fingerprint(account_id, {
+                "user_agent": ctx_ua,
+                "gpu": list(ctx_gpu),
+                "hw_concurrency": ctx_hw,
+                "device_memory": ctx_mem,
+                "canvas_seed": ctx_canvas_seed,
+                "viewport": ctx_viewport,
+                "device_scale": ctx_scale,
+            })
+            logger.info(f"Fingerprint saved for account {account_id}")
 
         # Set Accept-Language HTTP header to match navigator.languages
         # Without this, Yahoo server sees default "en-US" header but German JS languages = bot
@@ -1749,6 +1785,32 @@ window.Blob.toString=function(){return'function Blob() { [native code] }'};
         logger.info(f"Session saved: account {account_id} -> {session_path}")
         return session_path
 
+    @staticmethod
+    def save_fingerprint(account_id: int, data: dict) -> str:
+        """Save fingerprint data (GPU, viewport, UA, seeds) for an account."""
+        profile_dir = PROFILES_DIR / str(account_id)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        fp_path = str(profile_dir / "fingerprint.json")
+        with open(fp_path, "w") as f:
+            json.dump(data, f, indent=2)
+        logger.debug(f"Fingerprint saved: account {account_id} -> {fp_path}")
+        return fp_path
+
+    @staticmethod
+    def load_fingerprint(account_id: int) -> dict | None:
+        """Load saved fingerprint data for an account, or None if not saved."""
+        fp_path = PROFILES_DIR / str(account_id) / "fingerprint.json"
+        if not fp_path.exists():
+            return None
+        try:
+            with open(fp_path) as f:
+                data = json.load(f)
+            logger.debug(f"Fingerprint loaded: account {account_id}")
+            return data
+        except Exception as e:
+            logger.warning(f"Failed to load fingerprint for account {account_id}: {e}")
+            return None
+
     async def load_session_context(
         self,
         account_id: int,
@@ -1761,6 +1823,7 @@ window.Blob.toString=function(){return'function Blob() { [native code] }'};
             proxy=proxy,
             geo=geo,
             session_path=session_path if os.path.exists(session_path) else None,
+            account_id=account_id,
         )
         return context, session_path
 

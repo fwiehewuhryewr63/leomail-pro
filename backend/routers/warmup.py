@@ -16,6 +16,11 @@ class WarmupRequest(BaseModel):
     farm_ids: list[int] = []        # Warm-up specific farms, empty = all eligible
     threads: int = 5                # Concurrent accounts
     accounts_limit: int = 0         # 0 = all eligible
+    emails_per_day: int = 0         # 0 = auto (phase-based progressive)
+    warmup_days: int = 30           # Total warmup duration in days
+    enable_replies: bool = True     # Reply to received warmup emails
+    enable_starring: bool = True    # Star/important/read random emails
+    enable_spam_rescue: bool = True # Check spam folder, move to inbox
 
 
 class WarmupStatusResponse(BaseModel):
@@ -23,25 +28,48 @@ class WarmupStatusResponse(BaseModel):
     accounts_processed: int = 0
     total_sent: int = 0
     total_received: int = 0
+    total_replied: int = 0
+    total_starred: int = 0
+    total_spam_rescued: int = 0
     total_errors: int = 0
 
 
 # Global state
 _warmup_running = False
-_warmup_stats = {"accounts_processed": 0, "total_sent": 0, "total_received": 0, "total_errors": 0}
+_warmup_stats = {
+    "accounts_processed": 0, "total_sent": 0, "total_received": 0,
+    "total_replied": 0, "total_starred": 0, "total_spam_rescued": 0, "total_errors": 0,
+}
 import threading
 _warmup_cancel = threading.Event()
 
 
-async def _run_warmup_task(farm_ids: list[int], threads: int, accounts_limit: int, db: Session):
+async def _run_warmup_task(
+    farm_ids: list[int], threads: int, accounts_limit: int, db: Session,
+    warmup_days: int = 30, emails_per_day: int = 0,
+    enable_replies: bool = True, enable_starring: bool = True,
+    enable_spam_rescue: bool = True,
+):
     """Background task to run warm-up."""
     global _warmup_running, _warmup_stats
     _warmup_running = True
     _warmup_cancel.clear()
-    _warmup_stats = {"accounts_processed": 0, "total_sent": 0, "total_received": 0, "total_errors": 0}
+    _warmup_stats = {
+        "accounts_processed": 0, "total_sent": 0, "total_received": 0,
+        "total_replied": 0, "total_starred": 0, "total_spam_rescued": 0, "total_errors": 0,
+    }
 
     try:
-        from ..services.warmup_worker import run_warmup_batch
+        from ..services.warmup_worker import run_warmup_batch, WarmupSettings
+
+        # Build settings from request
+        settings = WarmupSettings(
+            warmup_days=warmup_days,
+            emails_per_day=emails_per_day,
+            enable_replies=enable_replies,
+            enable_starring=enable_starring,
+            enable_spam_rescue=enable_spam_rescue,
+        )
 
         # Get eligible accounts
         query = db.query(Account).filter(
@@ -72,6 +100,7 @@ async def _run_warmup_task(farm_ids: list[int], threads: int, accounts_limit: in
             db=db,
             cancel_event=_warmup_cancel,
             max_threads=threads,
+            settings=settings,
         )
 
         _warmup_stats.update(result)
@@ -96,8 +125,18 @@ async def start_warmup(request: WarmupRequest, background_tasks: BackgroundTasks
         threads=request.threads,
         accounts_limit=request.accounts_limit,
         db=db,
+        warmup_days=request.warmup_days,
+        emails_per_day=request.emails_per_day,
+        enable_replies=request.enable_replies,
+        enable_starring=request.enable_starring,
+        enable_spam_rescue=request.enable_spam_rescue,
     )
-    return {"status": "started", "farm_ids": request.farm_ids, "threads": request.threads}
+    return {
+        "status": "started",
+        "farm_ids": request.farm_ids,
+        "threads": request.threads,
+        "warmup_days": request.warmup_days,
+    }
 
 
 @router.post("/stop")
