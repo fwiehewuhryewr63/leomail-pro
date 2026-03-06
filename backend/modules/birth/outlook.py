@@ -411,72 +411,89 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
     """Step 7: Handle PerimeterX HUMAN challenge ('Press and hold') or FunCaptcha fallback.
     MS Outlook uses hsprotect.net (PerimeterX/HUMAN Security) enforcement.
     The challenge is usually 'press and hold the button', NOT classic FunCaptcha puzzles.
+
+    RE-CHALLENGE LOOP: Microsoft sometimes shows a SECOND captcha after the first one passes.
+    We loop up to MAX_CAPTCHA_ROUNDS to handle re-challenges.
     """
+    MAX_CAPTCHA_ROUNDS = 3  # max re-challenges before giving up
     ctx._log("Checking CAPTCHA...")
     await _human_delay(2, 4)
 
-    # Detect enforcement iframe (hsprotect.net or legacy funcaptcha/arkose)
-    captcha_frame = page.locator(
-        'iframe[src*="hsprotect"], iframe[title*="captcha"], iframe[title*="Verification"], '
-        'iframe[title*="Human"], iframe[src*="funcaptcha"], #enforcementFrame'
-    )
+    for captcha_round in range(1, MAX_CAPTCHA_ROUNDS + 1):
+        if captcha_round > 1:
+            ctx._log(f"[CAPTCHA] Re-challenge detected — round {captcha_round}/{MAX_CAPTCHA_ROUNDS}")
+            await _human_delay(2, 4)
 
-    if await captcha_frame.count() == 0:
-        # No enforcement — check for reCAPTCHA fallback
-        ctx._log("No enforcement iframe — checking reCAPTCHA fallback...")
-        recaptcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
-        if recaptcha_solved:
-            ctx._log("[OK] reCAPTCHA solved (MS fallback)")
-            await _human_delay(3, 6)
-            post_btn = await _wait_for_any(page, _NEXT_SELECTORS, timeout=5000)
-            if post_btn:
-                await _human_click(page, post_btn)
-                await _human_delay(3, 6)
-        else:
-            ctx._log("No CAPTCHA detected - continuing")
-        await block_check(page, ctx.provider, ctx, "post_captcha")
-        return
+        # Detect enforcement iframe (hsprotect.net or legacy funcaptcha/arkose)
+        captcha_frame = page.locator(
+            'iframe[src*="hsprotect"], iframe[title*="captcha"], iframe[title*="Verification"], '
+            'iframe[title*="Human"], iframe[src*="funcaptcha"], #enforcementFrame'
+        )
 
-    # ── Enforcement iframe detected ──
-    await _debug_screenshot(page, f"{ctx.username}_captcha_check", ctx._log)
-
-    # Check main page text for challenge type
-    page_text = ""
-    try:
-        page_text = await page.inner_text("body")
-    except Exception:
-        pass
-    page_lower = page_text.lower()
-
-    # Check for BLOCK signals (not a challenge, just a ban)
-    block_keywords = [
-        "can't create", "cannot create", "unable to create",
-        "something went wrong", "try again later",
-        "we couldn't create", "account cannot be created",
-    ]
-    for kw in block_keywords:
-        if kw in page_lower:
-            ctx._err(f"[BLOCK] Microsoft BLOCKED: '{kw}'")
-            raise BannedIPError("E302", f"MS blocked: {kw}")
-
-    # ── Try PerimeterX "Press and hold" challenge ──
-    is_press_hold = "press and hold" in page_lower or "prove you're human" in page_lower
-    if is_press_hold:
-        ctx._log("[CAPTCHA] PerimeterX 'Press and hold' challenge detected")
-        solved = await _solve_perimeterx_hold(page, ctx)
-        if solved:
-            ctx._log("[OK] PerimeterX challenge passed!")
-            await _human_delay(3, 6)
+        if await captcha_frame.count() == 0:
+            if captcha_round == 1:
+                # No enforcement on first check — try reCAPTCHA fallback
+                ctx._log("No enforcement iframe — checking reCAPTCHA fallback...")
+                recaptcha_solved = await _detect_and_solve_recaptcha(page, captcha_provider, ctx._log)
+                if recaptcha_solved:
+                    ctx._log("[OK] reCAPTCHA solved (MS fallback)")
+                    await _human_delay(3, 6)
+                    post_btn = await _wait_for_any(page, _NEXT_SELECTORS, timeout=5000)
+                    if post_btn:
+                        await _human_click(page, post_btn)
+                        await _human_delay(3, 6)
+                else:
+                    ctx._log("No CAPTCHA detected - continuing")
+            else:
+                # No enforcement on subsequent round — previous solve was accepted!
+                ctx._log(f"[OK] No re-challenge on round {captcha_round} — captcha fully passed!")
             await block_check(page, ctx.provider, ctx, "post_captcha")
             return
+
+        # ── Enforcement iframe detected ──
+        await _debug_screenshot(page, f"{ctx.username}_captcha_round{captcha_round}", ctx._log)
+
+        # Check main page text for challenge type
+        page_text = ""
+        try:
+            page_text = await page.inner_text("body")
+        except Exception:
+            pass
+        page_lower = page_text.lower()
+
+        # Check for BLOCK signals (not a challenge, just a ban)
+        block_keywords = [
+            "can't create", "cannot create", "unable to create",
+            "something went wrong", "try again later",
+            "we couldn't create", "account cannot be created",
+        ]
+        for kw in block_keywords:
+            if kw in page_lower:
+                ctx._err(f"[BLOCK] Microsoft BLOCKED: '{kw}'")
+                raise BannedIPError("E302", f"MS blocked: {kw}")
+
+        # ── Try PerimeterX "Press and hold" challenge ──
+        is_press_hold = "press and hold" in page_lower or "prove you're human" in page_lower
+        if is_press_hold:
+            ctx._log(f"[CAPTCHA] PerimeterX 'Press and hold' challenge (round {captcha_round})")
+            solved = await _solve_perimeterx_hold(page, ctx)
+            if solved:
+                ctx._log(f"[OK] PerimeterX challenge passed (round {captcha_round})!")
+                await _human_delay(3, 6)
+                # DON'T return yet — loop back to check for re-challenge
+                continue
+            else:
+                ctx._err(f"[CAPTCHA] PerimeterX press-and-hold FAILED on round {captcha_round}")
+                raise CaptchaFailError("E410", f"PerimeterX press-and-hold failed (round {captcha_round})")
         else:
-            ctx._err("[CAPTCHA] PerimeterX press-and-hold FAILED after retries")
-            raise CaptchaFailError("E410", "PerimeterX press-and-hold failed")
-    else:
-        # Unknown enforcement type — log and try API captcha solving
-        ctx._log(f"[CAPTCHA] Unknown enforcement: {page_lower[:120]}")
-        ctx._err("[CAPTCHA] Unknown enforcement type — cannot solve")
-        raise CaptchaFailError("E411", "Unknown enforcement type (not press-and-hold)")
+            # Unknown enforcement type
+            ctx._log(f"[CAPTCHA] Unknown enforcement: {page_lower[:120]}")
+            ctx._err("[CAPTCHA] Unknown enforcement type — cannot solve")
+            raise CaptchaFailError("E411", "Unknown enforcement type (not press-and-hold)")
+
+    # Exhausted all rounds
+    ctx._err(f"[CAPTCHA] Failed after {MAX_CAPTCHA_ROUNDS} re-challenge rounds")
+    raise CaptchaFailError("E412", f"Captcha re-challenged {MAX_CAPTCHA_ROUNDS} times — giving up")
 
     await block_check(page, ctx.provider, ctx, "post_captcha")
 

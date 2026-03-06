@@ -302,7 +302,6 @@ export default function Proxies() {
                                     { label: 'Y/A', color: '#6001D2', bg: 'rgba(96,1,210,0.15)' },
                                     { label: 'O/H', color: '#0078D4', bg: 'rgba(0,120,212,0.15)' },
                                     { label: 'P', color: '#6D4AFF', bg: 'rgba(109,74,255,0.15)' },
-                                    { label: 'T', color: '#840010', bg: 'rgba(132,0,16,0.15)' },
                                 ].map(b => (
                                     <th key={b.label} style={{ ...thStyle, textAlign: 'center', padding: '8px 4px' }}>
                                         <span style={{
@@ -378,13 +377,12 @@ export default function Proxies() {
                                         {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
                                     </td>
 
-                                    {/* Per-provider usage cells: G, Y/A, O/H, P, T */}
+                                    {/* Per-provider usage cells: G, Y/A, O/H, P */}
                                     {[
                                         { key: 'G', limit: 1 },
                                         { key: 'YA', limit: 3 },
                                         { key: 'OH', limit: 3 },
                                         { key: 'PT', limit: 3 },
-                                        { key: 'TT', limit: 3 },
                                     ].map(({ key, limit }) => {
                                         const cnt = p[`use_${key}`] || 0;
                                         const style = usageCell(cnt);
