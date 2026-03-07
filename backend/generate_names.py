@@ -5,6 +5,17 @@ Run: python generate_names.py
 """
 import random
 import os
+from extra_countries import (
+    UK_FIRST_MALE, UK_FIRST_FEMALE, UK_LAST,
+    RU_FIRST_MALE, RU_FIRST_FEMALE, RU_LAST,
+    EG_FIRST_MALE, EG_FIRST_FEMALE, EG_LAST,
+    NG_FIRST_MALE, NG_FIRST_FEMALE, NG_LAST,
+    ZA_FIRST_MALE, ZA_FIRST_FEMALE, ZA_LAST,
+    AR_FIRST_MALE_ARAB, AR_FIRST_FEMALE_ARAB, AR_LAST_ARAB,
+    IN_FIRST_MALE, IN_FIRST_FEMALE, IN_LAST,
+    PH_FIRST_MALE, PH_FIRST_FEMALE, PH_LAST,
+    TR_FIRST_MALE, TR_FIRST_FEMALE, TR_LAST,
+)
 
 # ─────────────────────────────────────────────────────────
 # SHARED SPANISH LATAM SURNAMES (common across all countries)
@@ -338,8 +349,22 @@ CA_LAST = [
 ]
 
 
-def generate_pack(first_male, first_female, last_names, count=5000):
-    """Generate unique first,last combos."""
+def generate_pack_gendered(first_names, last_names, count=25000):
+    """Generate unique first,last combos from a single-gender first name list."""
+    combos = set()
+    max_possible = len(first_names) * len(last_names)
+    target = min(count, max_possible)
+    attempts = 0
+    while len(combos) < target and attempts < target * 10:
+        first = random.choice(first_names)
+        last = random.choice(last_names)
+        combos.add((first, last))
+        attempts += 1
+    return sorted(combos)
+
+
+def generate_pack_mix(first_male, first_female, last_names, count=50000):
+    """Generate unique first,last combos from BOTH male + female names."""
     all_first = first_male + first_female
     combos = set()
     max_possible = len(all_first) * len(last_names)
@@ -353,87 +378,192 @@ def generate_pack(first_male, first_female, last_names, count=5000):
     return sorted(combos)
 
 
+def expand_last_names(base_lasts):
+    """
+    Expand last name list with compound last names (culturally authentic).
+    In Latin America, Spain, Brazil, etc. people commonly use two last names
+    (paternal + maternal), e.g. 'Garcia Rodriguez', 'Martinez Lopez'.
+    This multiplies available combos significantly.
+    """
+    expanded = list(base_lasts)  # Keep all single last names
+    # Add compound last names (pick pairs that sound natural)
+    compound_count = 0
+    seen = set(expanded)
+    shuffled = list(base_lasts)
+    random.shuffle(shuffled)
+    for i in range(len(shuffled)):
+        for j in range(len(shuffled)):
+            if i == j:
+                continue
+            compound = f"{shuffled[i]} {shuffled[j]}"
+            if compound not in seen:
+                expanded.append(compound)
+                seen.add(compound)
+                compound_count += 1
+                if len(expanded) >= 500:  # Cap at 500 last names
+                    return expanded
+    return expanded
+
+
+def expand_last_names_en(base_lasts):
+    """Expand English last names with hyphenated compounds (Smith-Jones)."""
+    expanded = list(base_lasts)
+    seen = set(expanded)
+    shuffled = list(base_lasts)
+    random.shuffle(shuffled)
+    for i in range(len(shuffled)):
+        for j in range(i + 1, len(shuffled)):
+            compound = f"{shuffled[i]}-{shuffled[j]}"
+            if compound not in seen:
+                expanded.append(compound)
+                seen.add(compound)
+                if len(expanded) >= 500:
+                    return expanded
+    return expanded
+
+
 def build_country_data(extra_male, extra_female, extra_last):
-    """Combine shared LATAM base names with country-specific extras."""
+    """Combine shared LATAM base names with country-specific extras + compound lasts."""
     males = list(set(SPANISH_MALE_COMMON + extra_male))
     females = list(set(SPANISH_FEMALE_COMMON + extra_female))
-    lasts = list(set(LATAM_COMMON_LAST + extra_last))
+    base_lasts = list(set(LATAM_COMMON_LAST + extra_last))
+    lasts = expand_last_names(base_lasts)
     return males, females, lasts
+
+
+def write_pack(path, combos, label):
+    """Write a name pack file."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"# {label} -- {len(combos)} unique combos\n")
+        for first, last in combos:
+            f.write(f"{first},{last}\n")
+
+
+def generate_3_packs(base_name, males, females, lasts, out_dir):
+    """
+    Generate 3 packs for a country:
+      - {base}_M_25k.txt  (25000 male-only first names)
+      - {base}_F_25k.txt  (25000 female-only first names)
+      - {base}_Mix_50k.txt (50000 mixed first names)
+    Returns total names generated.
+    """
+    total = 0
+
+    # Male pack
+    m_combos = generate_pack_gendered(males, lasts, 25000)
+    m_file = f"{base_name}_M_25k.txt"
+    write_pack(os.path.join(out_dir, m_file), m_combos, m_file)
+    print(f"  {m_file}: {len(m_combos)} names ({len(males)} male x {len(lasts)} last)")
+    total += len(m_combos)
+
+    # Female pack
+    f_combos = generate_pack_gendered(females, lasts, 25000)
+    f_file = f"{base_name}_F_25k.txt"
+    write_pack(os.path.join(out_dir, f_file), f_combos, f_file)
+    print(f"  {f_file}: {len(f_combos)} names ({len(females)} female x {len(lasts)} last)")
+    total += len(f_combos)
+
+    # Mix pack (male + female combined = 50k target)
+    mix_combos = generate_pack_mix(males, females, lasts, 50000)
+    mix_file = f"{base_name}_Mix_50k.txt"
+    write_pack(os.path.join(out_dir, mix_file), mix_combos, mix_file)
+    print(f"  {mix_file}: {len(mix_combos)} names ({len(males)}m + {len(females)}f x {len(lasts)} last)")
+    total += len(mix_combos)
+
+    return total
 
 
 def main():
     # ─── Define all packs ───
+    MX_EXTRA_MALE = [
+        "Josue","Erick","Omar","Aaron","Saul","Uriel","Missael","Noe","Jesus","Christian",
+        "Jonathan","Edgar","Said","Alexis","Brandon","Kevin","Angel","Obed","Gael","Iker",
+    ]
+    MX_EXTRA_FEMALE = [
+        "Itzel","Arely","Nayeli","Estrella","Sol","Libertad","Celeste","Abril","Luz","Juana",
+        "Aurora","Soledad","Lourdes","Hortensia","Raquel","Irene","Julia","Marina","Noemi","Kenya",
+    ]
+    MX_EXTRA_LAST = [
+        "Orozco","Guzman","Salazar","Acosta","Espinoza","Luna","Ochoa","Cervantes","Silva","Rojas",
+        "Escobar","Cortes","Velazquez","Palacios","Campos","Valencia","Avila","Maldonado","Zamora","Sandoval",
+        "Mejia","Leon","Montoya","Paredes","Pena","Montes","Dominguez","Cardenas","Ibarra","Miranda",
+        "Serrano","Figueroa","Molina","Pacheco","Camacho","Cabrera","Trujillo","Mora","Bravo","Rangel",
+        "Salinas","Bautista","Ponce","Cisneros","Magana","Cuevas","Villalobos","Saavedra","Barajas","Amaya",
+        "Duarte","Macias","Chavez","Rosas","Aguirre","Leal","Nava","Parra","Estrada","Montalvo",
+    ]
+
     latam_countries = {
-        "mexico_5k.txt": (MX_EXTRA_MALE := [
-            "Josue","Erick","Omar","Aaron","Saul","Uriel","Missael","Noe","Jesus","Christian",
-            "Jonathan","Edgar","Said","Alexis","Brandon","Kevin","Angel","Obed","Gael","Iker",
-        ], MX_EXTRA_FEMALE := [
-            "Itzel","Arely","Nayeli","Estrella","Sol","Libertad","Celeste","Abril","Luz","Juana",
-            "Aurora","Soledad","Lourdes","Hortensia","Raquel","Irene","Julia","Marina","Noemi","Kenya",
-        ], [
-            "Orozco","Guzman","Salazar","Acosta","Espinoza","Luna","Ochoa","Cervantes","Silva","Rojas",
-            "Escobar","Cortes","Velazquez","Palacios","Campos","Valencia","Avila","Maldonado","Zamora","Sandoval",
-            "Mejia","Leon","Montoya","Paredes","Pena","Montes","Dominguez","Cardenas","Ibarra","Miranda",
-            "Serrano","Figueroa","Molina","Pacheco","Camacho","Cabrera","Trujillo","Mora","Bravo","Rangel",
-            "Salinas","Bautista","Ponce","Cisneros","Magana","Cuevas","Villalobos","Saavedra","Barajas","Amaya",
-            "Duarte","Macias","Chavez","Rosas","Aguirre","Leal","Nava","Parra","Estrada","Montalvo",
-        ]),
-        "colombia_5k.txt": (CO_EXTRA_MALE, CO_EXTRA_FEMALE, CO_EXTRA_LAST),
-        "argentina_5k.txt": (AR_EXTRA_MALE, AR_EXTRA_FEMALE, AR_EXTRA_LAST),
-        "peru_5k.txt": (PE_EXTRA_MALE, PE_EXTRA_FEMALE, PE_EXTRA_LAST),
-        "venezuela_5k.txt": (VE_EXTRA_MALE, VE_EXTRA_FEMALE, VE_EXTRA_LAST),
-        "chile_5k.txt": (CL_EXTRA_MALE, CL_EXTRA_FEMALE, CL_EXTRA_LAST),
-        "ecuador_5k.txt": (EC_EXTRA_MALE, EC_EXTRA_FEMALE, EC_EXTRA_LAST),
-        "guatemala_5k.txt": (GT_EXTRA_MALE, GT_EXTRA_FEMALE, GT_EXTRA_LAST),
-        "dominican_5k.txt": (DO_EXTRA_MALE, DO_EXTRA_FEMALE, DO_EXTRA_LAST),
-        "honduras_5k.txt": (HN_EXTRA_MALE, HN_EXTRA_FEMALE, HN_EXTRA_LAST),
-        "paraguay_5k.txt": (PY_EXTRA_MALE, PY_EXTRA_FEMALE, PY_EXTRA_LAST),
-        "el_salvador_5k.txt": (SV_EXTRA_MALE, SV_EXTRA_FEMALE, SV_EXTRA_LAST),
-        "nicaragua_5k.txt": (NI_EXTRA_MALE, NI_EXTRA_FEMALE, NI_EXTRA_LAST),
-        "costa_rica_5k.txt": (CR_EXTRA_MALE, CR_EXTRA_FEMALE, CR_EXTRA_LAST),
-        "panama_5k.txt": (PA_EXTRA_MALE, PA_EXTRA_FEMALE, PA_EXTRA_LAST),
-        "uruguay_5k.txt": (UY_EXTRA_MALE, UY_EXTRA_FEMALE, UY_EXTRA_LAST),
-        "cuba_5k.txt": (CU_EXTRA_MALE, CU_EXTRA_FEMALE, CU_EXTRA_LAST),
-        "bolivia_5k.txt": (BO_EXTRA_MALE, BO_EXTRA_FEMALE, BO_EXTRA_LAST),
-        "puerto_rico_5k.txt": (PR_EXTRA_MALE, PR_EXTRA_FEMALE, PR_EXTRA_LAST),
+        "mexico": (MX_EXTRA_MALE, MX_EXTRA_FEMALE, MX_EXTRA_LAST),
+        "colombia": (CO_EXTRA_MALE, CO_EXTRA_FEMALE, CO_EXTRA_LAST),
+        "argentina": (AR_EXTRA_MALE, AR_EXTRA_FEMALE, AR_EXTRA_LAST),
+        "peru": (PE_EXTRA_MALE, PE_EXTRA_FEMALE, PE_EXTRA_LAST),
+        "venezuela": (VE_EXTRA_MALE, VE_EXTRA_FEMALE, VE_EXTRA_LAST),
+        "chile": (CL_EXTRA_MALE, CL_EXTRA_FEMALE, CL_EXTRA_LAST),
+        "ecuador": (EC_EXTRA_MALE, EC_EXTRA_FEMALE, EC_EXTRA_LAST),
+        "guatemala": (GT_EXTRA_MALE, GT_EXTRA_FEMALE, GT_EXTRA_LAST),
+        "dominican": (DO_EXTRA_MALE, DO_EXTRA_FEMALE, DO_EXTRA_LAST),
+        "honduras": (HN_EXTRA_MALE, HN_EXTRA_FEMALE, HN_EXTRA_LAST),
+        "paraguay": (PY_EXTRA_MALE, PY_EXTRA_FEMALE, PY_EXTRA_LAST),
+        "el_salvador": (SV_EXTRA_MALE, SV_EXTRA_FEMALE, SV_EXTRA_LAST),
+        "nicaragua": (NI_EXTRA_MALE, NI_EXTRA_FEMALE, NI_EXTRA_LAST),
+        "costa_rica": (CR_EXTRA_MALE, CR_EXTRA_FEMALE, CR_EXTRA_LAST),
+        "panama": (PA_EXTRA_MALE, PA_EXTRA_FEMALE, PA_EXTRA_LAST),
+        "uruguay": (UY_EXTRA_MALE, UY_EXTRA_FEMALE, UY_EXTRA_LAST),
+        "cuba": (CU_EXTRA_MALE, CU_EXTRA_FEMALE, CU_EXTRA_LAST),
+        "bolivia": (BO_EXTRA_MALE, BO_EXTRA_FEMALE, BO_EXTRA_LAST),
+        "puerto_rico": (PR_EXTRA_MALE, PR_EXTRA_FEMALE, PR_EXTRA_LAST),
     }
 
     # Non-LATAM packs (standalone data)
     standalone = {
-        "us_names_5k.txt": (US_FIRST_MALE, US_FIRST_FEMALE, US_LAST),
-        "brazil_5k.txt": (BR_FIRST_MALE, BR_FIRST_FEMALE, BR_LAST),
-        "canada_5k.txt": (CA_FIRST_MALE, CA_FIRST_FEMALE, CA_LAST),
+        "us_names": (US_FIRST_MALE, US_FIRST_FEMALE, US_LAST),
+        "brazil": (BR_FIRST_MALE, BR_FIRST_FEMALE, BR_LAST),
+        "canada": (CA_FIRST_MALE, CA_FIRST_FEMALE, CA_LAST),
+        "uk": (UK_FIRST_MALE, UK_FIRST_FEMALE, UK_LAST),
+        "india": (IN_FIRST_MALE, IN_FIRST_FEMALE, IN_LAST),
+        "philippines": (PH_FIRST_MALE, PH_FIRST_FEMALE, PH_LAST),
+    }
+
+    # Countries with non-compound last name traditions
+    standalone_nocompound = {
+        "russia": (RU_FIRST_MALE, RU_FIRST_FEMALE, RU_LAST),
+        "egypt": (EG_FIRST_MALE, EG_FIRST_FEMALE, EG_LAST),
+        "nigeria": (NG_FIRST_MALE, NG_FIRST_FEMALE, NG_LAST),
+        "south_africa": (ZA_FIRST_MALE, ZA_FIRST_FEMALE, ZA_LAST),
+        "arab": (AR_FIRST_MALE_ARAB, AR_FIRST_FEMALE_ARAB, AR_LAST_ARAB),
+        "turkey": (TR_FIRST_MALE, TR_FIRST_FEMALE, TR_LAST),
     }
 
     out_dir = os.path.join(os.path.dirname(__file__), "data", "names")
     os.makedirs(out_dir, exist_ok=True)
 
     total_names = 0
+    total_packs = 0
 
-    # Generate LATAM packs (base + extras)
-    for filename, (extra_m, extra_f, extra_l) in latam_countries.items():
+    # Generate LATAM packs (base + extras) — 3 per country
+    for country, (extra_m, extra_f, extra_l) in latam_countries.items():
+        print(f"\n── {country.upper()} ──")
         males, females, lasts = build_country_data(extra_m, extra_f, extra_l)
-        combos = generate_pack(males, females, lasts, 5000)
-        path = os.path.join(out_dir, filename)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(f"# {filename} -- {len(combos)} unique combos\n")
-            for first, last in combos:
-                f.write(f"{first},{last}\n")
-        total_names += len(combos)
-        print(f"  {filename}: {len(combos)} names ({len(males)}m + {len(females)}f x {len(lasts)} last)")
+        total_names += generate_3_packs(country, males, females, lasts, out_dir)
+        total_packs += 3
 
-    # Generate standalone packs
-    for filename, (males, females, lasts) in standalone.items():
-        combos = generate_pack(males, females, lasts, 5000)
-        path = os.path.join(out_dir, filename)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(f"# {filename} -- {len(combos)} unique combos\n")
-            for first, last in combos:
-                f.write(f"{first},{last}\n")
-        total_names += len(combos)
-        print(f"  {filename}: {len(combos)} names ({len(males)}m + {len(females)}f x {len(lasts)} last)")
+    # Generate standalone packs --- 3 per country (with EN-style compound lasts)
+    for country, (males, females, lasts) in standalone.items():
+        print(f"\n-- {country.upper()} --")
+        expanded_lasts = expand_last_names_en(list(lasts))
+        total_names += generate_3_packs(country, list(males), list(females), expanded_lasts, out_dir)
+        total_packs += 3
 
-    print(f"\nTotal: {total_names} names across {len(latam_countries) + len(standalone)} packs")
+    # Generate packs for countries that use expand_last_names (space-separated compounds)
+    for country, (males, females, lasts) in standalone_nocompound.items():
+        print(f"\n-- {country.upper()} --")
+        expanded_lasts = expand_last_names(list(lasts))
+        total_names += generate_3_packs(country, list(males), list(females), expanded_lasts, out_dir)
+        total_packs += 3
+
+    print(f"\n{'='*50}")
+    print(f"Total: {total_names} names across {total_packs} packs")
+    print(f"({total_packs // 3} countries × 3 packs each: M, F, Mix)")
 
 
 if __name__ == "__main__":

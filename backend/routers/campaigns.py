@@ -24,7 +24,7 @@ class CampaignCreate(BaseModel):
     name: str
     geo: str
     niche: str = "general"
-    name_pack: str = "brazil_5k"
+    name_pack: str = "brazil_Mix_50k"
     providers: list[str] = ["gmail", "yahoo"]
     birth_threads: int = 10
     send_threads: int = 20

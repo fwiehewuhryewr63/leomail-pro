@@ -184,6 +184,7 @@ async def run_birth_task(request: BirthRequest):
             "usa": "us", "venezuela": "ve", "turkey": "tr", "russia": "ru",
             "germany": "de", "france": "fr", "spain": "es", "italy": "it",
             "uk": "gb", "india": "in", "japan": "jp", "china": "cn",
+            "arab": "sa", "philippines": "ph",
         }
         auto_buy_geo = "us"  # fallback
         if geo_label and geo_label != "MIX":

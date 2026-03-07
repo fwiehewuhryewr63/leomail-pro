@@ -34,7 +34,7 @@ from ._helpers import (
     rate_limiter as _rate_limiter,
     RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
     RegContext, verify_page_state, block_check, run_step,
-    export_account_to_file,
+    export_account_to_file, get_expected_language,
 )
 
 
@@ -458,6 +458,7 @@ async def register_single_protonmail(
             try: db.commit()
             except Exception: pass
 
+    _proxy_geo = (proxy.geo or "").upper() if proxy else ""
     ctx = RegContext(
         provider="protonmail",
         username=username,
@@ -466,8 +467,9 @@ async def register_single_protonmail(
         first_name=first_name,
         last_name=last_name,
         proxy_ip=f"{proxy.host}:{proxy.port}" if proxy else "",
-        proxy_geo=getattr(proxy, 'country', '') or "" if proxy else "",
+        proxy_geo=_proxy_geo,
         proxy_type=getattr(proxy, 'proxy_type', '') or "" if proxy else "",
+        language=get_expected_language(_proxy_geo),
         thread_id=thread_log.id if thread_log else 0,
         _log=_log,
         _err=_err,
@@ -516,13 +518,7 @@ async def register_single_protonmail(
 
         await step_8_verify_success(page, ctx)
 
-        # ── Save session and create account ──
-        try:
-            session_path = await browser_manager.save_session(context, 0)
-        except Exception as se:
-            logger.warning(f"[ProtonMail] Session save warning: {se}")
-            session_path = None
-
+        # ── Save session, fingerprint, and create account ──
         account = Account(
             email=email,
             password=password,
@@ -531,6 +527,8 @@ async def register_single_protonmail(
             last_name=last_name,
             gender="random",
             birthday=birthday,
+            geo=proxy.geo if proxy and hasattr(proxy, 'geo') else None,
+            language=ctx.language or 'en',
             birth_ip=f"{proxy.host}" if proxy else None,
             status="new",
         )
@@ -538,12 +536,23 @@ async def register_single_protonmail(
         db.commit()
         db.refresh(account)
 
-        if session_path:
-            try:
-                account.browser_profile_path = await browser_manager.save_session(context, account.id)
+        # Save session (cookies/localStorage) with real account ID
+        try:
+            account.browser_profile_path = await browser_manager.save_session(context, account.id)
+            db.commit()
+        except Exception as se:
+            logger.warning(f"[ProtonMail] Session save warning: {se}")
+
+        # Save fingerprint for profile persistence
+        try:
+            fp_data = getattr(context, '_leomail_fingerprint', None)
+            if fp_data:
+                browser_manager.save_fingerprint(account.id, fp_data)
+                account.user_agent = fp_data.get("user_agent", "")
                 db.commit()
-            except Exception:
-                pass
+                logger.info(f"[ProtonMail] Fingerprint saved for account {account.id}")
+        except Exception as fp_err:
+            logger.warning(f"[ProtonMail] Fingerprint save warning: {fp_err}")
 
         logger.info(f"[OK] ProtonMail registered: {email}")
         export_account_to_file(account)

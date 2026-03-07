@@ -192,9 +192,10 @@ async def cost_tracking(db: Session = Depends(get_db)):
     total_accounts = db.query(Account).count()
     total_sent = db.query(func.sum(Account.total_emails_sent)).scalar() or 0
 
-    # Estimate SMS costs (assuming ~$0.10 per SMS on average)
-    gmail_accounts = db.query(Account).filter(Account.provider == "gmail").count()
-    sms_cost_estimate = round(gmail_accounts * 0.10, 2)
+    # Estimate SMS costs (Yahoo, AOL, Gmail all use SMS for verification)
+    SMS_PROVIDERS = {"gmail", "yahoo", "aol"}
+    sms_accounts = db.query(Account).filter(Account.provider.in_(SMS_PROVIDERS)).count()
+    sms_cost_estimate = round(sms_accounts * 0.10, 2)
 
     # Estimate CAPTCHA costs
     # FunCaptcha ~$0.003, hCaptcha ~$0.002, reCAPTCHA ~$0.003, image ~$0.001
@@ -214,7 +215,7 @@ async def cost_tracking(db: Session = Depends(get_db)):
         count = row[1]
         providers[prov] = {
             "count": count,
-            "sms_cost": round(count * 0.10, 2) if prov == "gmail" else 0,
+            "sms_cost": round(count * 0.10, 2) if prov in SMS_PROVIDERS else 0,
             "captcha_cost": round(
                 count * (0.003 if prov in ("outlook", "hotmail") else
                          0.002 if prov == "protonmail" else 0), 3

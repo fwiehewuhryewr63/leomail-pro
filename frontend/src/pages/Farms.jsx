@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Database, Plus, Download, Trash2, ChevronRight, Users, X,
-    Activity, Calendar, Mail, AlertTriangle, TrendingUp, Merge, Upload, ArrowRight, MinusCircle
+    Activity, Calendar, Mail, AlertTriangle, TrendingUp, Merge, Upload, ArrowRight, MinusCircle, FileText
 } from 'lucide-react';
 
 import { API } from '../api';
@@ -114,6 +114,12 @@ export default function Farms() {
         const res = await fetch(`${API}/farms/${id}/export`);
         const blob = await res.blob();
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${name}.zip`; a.click();
+    };
+
+    const exportFarmText = async (id, name) => {
+        const res = await fetch(`${API}/farms/${id}/export-text`);
+        const blob = await res.blob();
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${name}.txt`; a.click();
     };
 
     const viewFarm = async (id) => {
@@ -247,7 +253,8 @@ export default function Farms() {
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: 6, marginTop: 10 }} onClick={e => e.stopPropagation()}>
-                                <button className="btn btn-sm" onClick={() => exportFarm(farm.id, farm.name)}><Download size={12} /> Export</button>
+                                <button className="btn btn-sm" onClick={() => exportFarm(farm.id, farm.name)}><Download size={12} /> ZIP</button>
+                                <button className="btn btn-sm" onClick={() => exportFarmText(farm.id, farm.name)}><FileText size={12} /> TXT</button>
                                 <button className="btn btn-sm btn-danger" onClick={() => deleteFarm(farm.id)}><Trash2 size={12} /></button>
                             </div>
                         </div>

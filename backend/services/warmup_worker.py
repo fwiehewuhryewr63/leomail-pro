@@ -462,16 +462,22 @@ async def run_warmup_batch(
 
     Returns: {"total_sent": N, "total_received": N, "total_replied": N, ... "accounts_processed": N}
     """
+    from ..database import SessionLocal
+    from ..services.engine_manager import engine_manager as _engine_mgr
+
     if settings is None:
         settings = WarmupSettings()
-    engine_manager = EngineManager()
-    engine_manager.start_engine(EngineType.WARMUP, len(accounts))
+    _engine_mgr.start_engine(EngineType.WARMUP, max_threads, len(accounts))
 
     totals = {
         "total_sent": 0, "total_received": 0, "total_replied": 0,
         "total_starred": 0, "total_spam_rescued": 0,
         "total_errors": 0, "accounts_processed": 0,
     }
+
+    # Collect account IDs for per-task session isolation
+    account_ids = [acc.id for acc in accounts if acc.status != AccountStatus.WARMED]
+    all_account_ids = [acc.id for acc in accounts]
 
     # Reset daily counters if new day
     for acc in accounts:
@@ -485,26 +491,41 @@ async def run_warmup_batch(
 
     # Process with semaphore (limit concurrent browsers for RAM)
     semaphore = asyncio.Semaphore(max_threads)
+    totals_lock = asyncio.Lock()
 
-    async def process_one(account: Account):
+    async def process_one(account_id: int):
         async with semaphore:
             if cancel_event.is_set():
                 return
-            # All other accounts are peers
-            peers = [a for a in accounts if a.id != account.id]
-            result = await warmup_single_account(account, peers, db, cancel_event, settings)
-            totals["total_sent"] += result["sent"]
-            totals["total_received"] += result["received"]
-            totals["total_replied"] += result["replied"]
-            totals["total_starred"] += result["starred"]
-            totals["total_spam_rescued"] += result["spam_rescued"]
-            totals["total_errors"] += result["errors"]
-            totals["accounts_processed"] += 1
-            engine_manager.increment_completed(EngineType.WARMUP)
+            # Each task gets its own DB session (SQLAlchemy is NOT thread-safe)
+            task_db = SessionLocal()
+            try:
+                account = task_db.query(Account).get(account_id)
+                if not account:
+                    return
+                # Load peer accounts in this session
+                peers = task_db.query(Account).filter(
+                    Account.id.in_(all_account_ids),
+                    Account.id != account_id,
+                ).all()
+                result = await warmup_single_account(account, peers, task_db, cancel_event, settings)
+                async with totals_lock:
+                    totals["total_sent"] += result["sent"]
+                    totals["total_received"] += result["received"]
+                    totals["total_replied"] += result["replied"]
+                    totals["total_starred"] += result["starred"]
+                    totals["total_spam_rescued"] += result["spam_rescued"]
+                    totals["total_errors"] += result["errors"]
+                    totals["accounts_processed"] += 1
+                _engine_mgr.get_engine(EngineType.WARMUP).increment_completed()
+            except Exception as e:
+                logger.error(f"[Warmup] process_one error for account {account_id}: {e}")
+            finally:
+                task_db.close()
 
-    tasks = [process_one(acc) for acc in accounts if acc.status != AccountStatus.WARMED]
+    tasks = [process_one(aid) for aid in account_ids]
     await asyncio.gather(*tasks, return_exceptions=True)
 
-    engine_manager.finish_engine(EngineType.WARMUP)
+    _engine_mgr.finish_engine(EngineType.WARMUP)
     logger.info(f"[OK] Warmup batch complete: {totals}")
     return totals

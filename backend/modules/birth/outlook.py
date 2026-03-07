@@ -39,7 +39,7 @@ from ._helpers import (
     rate_limiter as _rate_limiter,
     RateLimitError, BannedIPError, FatalError, RecoverableError, CaptchaFailError,
     RegContext, verify_page_state, block_check, run_step,
-    export_account_to_file,
+    export_account_to_file, get_expected_language,
     run_flow_machine,
 )
 
@@ -880,6 +880,7 @@ async def register_single_outlook(
             try: db.commit()
             except Exception: pass
 
+    _proxy_geo = (proxy.geo or "").upper() if proxy else ""
     ctx = RegContext(
         provider=provider_name,
         username=username,
@@ -888,8 +889,9 @@ async def register_single_outlook(
         first_name=first_name,
         last_name=last_name,
         proxy_ip=f"{proxy.host}:{proxy.port}" if proxy else "",
-        proxy_geo=getattr(proxy, 'country', '') or "" if proxy else "",
+        proxy_geo=_proxy_geo,
         proxy_type=getattr(proxy, 'proxy_type', '') or "" if proxy else "",
+        language=get_expected_language(_proxy_geo),
         thread_id=thread_log.id if thread_log else 0,
         _log=_log,
         _err=_err,
@@ -984,6 +986,8 @@ async def register_single_outlook(
             last_name=ctx.last_name,
             gender="random",
             birthday=birthday,
+            geo=proxy.geo if proxy and hasattr(proxy, 'geo') else None,
+            language=ctx.language or 'en',
             birth_ip=f"{proxy.host}" if proxy else None,
             status="new",
         )

@@ -39,7 +39,7 @@ from ._helpers import (
     PHONE_COUNTRY_MAP, COUNTRY_TO_ISO2, PREFIX_TO_SMS_COUNTRY,
     order_sms_with_chain, get_next_sms_number,
     reset_chain_state, SMS_CODE_TIMEOUT,
-    export_account_to_file,
+    export_account_to_file, get_expected_language,
 )
 
 
@@ -877,6 +877,7 @@ async def register_single_aol(
             try: db.commit()
             except Exception: pass
 
+    _proxy_geo = (proxy.geo or "").upper() if proxy else ""
     ctx = RegContext(
         provider="aol",
         username=username,
@@ -885,8 +886,9 @@ async def register_single_aol(
         first_name=first_name,
         last_name=last_name,
         proxy_ip=f"{proxy.host}:{proxy.port}" if proxy else "",
-        proxy_geo=getattr(proxy, 'country', '') or "" if proxy else "",
+        proxy_geo=_proxy_geo,
         proxy_type=getattr(proxy, 'proxy_type', '') or "" if proxy else "",
+        language=get_expected_language(_proxy_geo),
         thread_id=thread_log.id if thread_log else 0,
         _log=_log,
         _err=_err,
@@ -934,12 +936,7 @@ async def register_single_aol(
 
         await step_5_verify_success(page, ctx)
 
-        # ── Save session and create account ──
-        try:
-            session_path = await browser_manager.save_session(context, 0)
-        except Exception:
-            session_path = None
-
+        # ── Save session, fingerprint, and create account ──
         _sms_success = True
         display_phone = getattr(ctx, '_display_phone', '')
 
@@ -951,6 +948,8 @@ async def register_single_aol(
             last_name=ctx.last_name,
             gender="random",
             birthday=birthday,
+            geo=proxy.geo if proxy and hasattr(proxy, 'geo') else None,
+            language=ctx.language or 'en',
             birth_ip=f"{proxy.host}" if proxy else None,
             status="new",
         )
@@ -958,12 +957,23 @@ async def register_single_aol(
         db.commit()
         db.refresh(account)
 
-        if session_path:
-            try:
-                account.browser_profile_path = await browser_manager.save_session(context, account.id)
+        # Save session (cookies/localStorage) with real account ID
+        try:
+            account.browser_profile_path = await browser_manager.save_session(context, account.id)
+            db.commit()
+        except Exception as se:
+            logger.warning(f"[AOL] Session save warning: {se}")
+
+        # Save fingerprint for profile persistence
+        try:
+            fp_data = getattr(context, '_leomail_fingerprint', None)
+            if fp_data:
+                browser_manager.save_fingerprint(account.id, fp_data)
+                account.user_agent = fp_data.get("user_agent", "")
                 db.commit()
-            except Exception:
-                pass
+                logger.info(f"[AOL] Fingerprint saved for account {account.id}")
+        except Exception as fp_err:
+            logger.warning(f"[AOL] Fingerprint save warning: {fp_err}")
 
         logger.info(f"[OK] AOL registered: {ctx.email}")
         export_account_to_file(account, {"sms_phone": display_phone})

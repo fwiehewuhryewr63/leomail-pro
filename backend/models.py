@@ -431,7 +431,7 @@ class Campaign(Base):
     stop_reason = Column(String, nullable=True)        # why it stopped
 
     # Birth config
-    name_pack = Column(String, default="brazil_5k")    # name pack filename (without .txt)
+    name_pack = Column(String, default="brazil_Mix_50k")    # name pack filename (without .txt)
     providers = Column(JSON, default=list)              # ["gmail", "yahoo"]
     gender = Column(String, default="female")           # always female for burn model
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Leomail v3 - Names Router
 Upload, list, delete name packs. Get random name from selected packs.
 Format: firstname,lastname or firstname lastname per line.
@@ -20,43 +20,132 @@ os.makedirs(NAMES_DIR, exist_ok=True)
 # Built-in GEO name packs directory
 BUILTIN_NAMES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "names")
 
-# GEO pack labels
+# GEO pack labels â€” maps filename stem to display name
 GEO_LABELS = {
-    # Legacy small packs
-    "us_uk": "US / UK",
-    "latam_es": "LATAM",
-    "brazil_pt": "Brazil",
-    "ru_cis": "Russia / CIS",
-    "arab": "Arab",
-    "europe_de_fr_it": "Europe DE/FR/IT",
-    "africa": "Africa",
-    # 5K packs - Tier 1 + LATAM
-    "us_names_5k": "USA",
-    "canada_5k": "Canada",
-    "brazil_5k": "Brazil",
-    "mexico_5k": "Mexico",
-    "colombia_5k": "Colombia",
-    "argentina_5k": "Argentina",
-    "peru_5k": "Peru",
-    "venezuela_5k": "Venezuela",
-    "chile_5k": "Chile",
-    "ecuador_5k": "Ecuador",
-    "guatemala_5k": "Guatemala",
-    "dominican_5k": "Dominican Rep",
-    "honduras_5k": "Honduras",
-    "paraguay_5k": "Paraguay",
-    "el_salvador_5k": "El Salvador",
-    "nicaragua_5k": "Nicaragua",
-    "costa_rica_5k": "Costa Rica",
-    "panama_5k": "Panama",
-    "uruguay_5k": "Uruguay",
-    "cuba_5k": "Cuba",
-    "bolivia_5k": "Bolivia",
-    "puerto_rico_5k": "Puerto Rico",
-    # Africa
-    "egypt_5k": "Egypt",
-    "nigeria_5k": "Nigeria",
-    "south_africa_5k": "South Africa",
+    # -- USA --
+    "us_names_M_25k": "USA (M)",
+    "us_names_F_25k": "USA (F)",
+    "us_names_Mix_50k": "USA (Mix)",
+    # -- Canada --
+    "canada_M_25k": "Canada (M)",
+    "canada_F_25k": "Canada (F)",
+    "canada_Mix_50k": "Canada (Mix)",
+    # -- Brazil --
+    "brazil_M_25k": "Brazil (M)",
+    "brazil_F_25k": "Brazil (F)",
+    "brazil_Mix_50k": "Brazil (Mix)",
+    # -- Mexico --
+    "mexico_M_25k": "Mexico (M)",
+    "mexico_F_25k": "Mexico (F)",
+    "mexico_Mix_50k": "Mexico (Mix)",
+    # -- Colombia --
+    "colombia_M_25k": "Colombia (M)",
+    "colombia_F_25k": "Colombia (F)",
+    "colombia_Mix_50k": "Colombia (Mix)",
+    # -- Argentina --
+    "argentina_M_25k": "Argentina (M)",
+    "argentina_F_25k": "Argentina (F)",
+    "argentina_Mix_50k": "Argentina (Mix)",
+    # -- Peru --
+    "peru_M_25k": "Peru (M)",
+    "peru_F_25k": "Peru (F)",
+    "peru_Mix_50k": "Peru (Mix)",
+    # -- Venezuela --
+    "venezuela_M_25k": "Venezuela (M)",
+    "venezuela_F_25k": "Venezuela (F)",
+    "venezuela_Mix_50k": "Venezuela (Mix)",
+    # -- Chile --
+    "chile_M_25k": "Chile (M)",
+    "chile_F_25k": "Chile (F)",
+    "chile_Mix_50k": "Chile (Mix)",
+    # -- Ecuador --
+    "ecuador_M_25k": "Ecuador (M)",
+    "ecuador_F_25k": "Ecuador (F)",
+    "ecuador_Mix_50k": "Ecuador (Mix)",
+    # -- Guatemala --
+    "guatemala_M_25k": "Guatemala (M)",
+    "guatemala_F_25k": "Guatemala (F)",
+    "guatemala_Mix_50k": "Guatemala (Mix)",
+    # -- Dominican Rep --
+    "dominican_M_25k": "Dominican Rep (M)",
+    "dominican_F_25k": "Dominican Rep (F)",
+    "dominican_Mix_50k": "Dominican Rep (Mix)",
+    # -- Honduras --
+    "honduras_M_25k": "Honduras (M)",
+    "honduras_F_25k": "Honduras (F)",
+    "honduras_Mix_50k": "Honduras (Mix)",
+    # -- Paraguay --
+    "paraguay_M_25k": "Paraguay (M)",
+    "paraguay_F_25k": "Paraguay (F)",
+    "paraguay_Mix_50k": "Paraguay (Mix)",
+    # -- El Salvador --
+    "el_salvador_M_25k": "El Salvador (M)",
+    "el_salvador_F_25k": "El Salvador (F)",
+    "el_salvador_Mix_50k": "El Salvador (Mix)",
+    # -- Nicaragua --
+    "nicaragua_M_25k": "Nicaragua (M)",
+    "nicaragua_F_25k": "Nicaragua (F)",
+    "nicaragua_Mix_50k": "Nicaragua (Mix)",
+    # -- Costa Rica --
+    "costa_rica_M_25k": "Costa Rica (M)",
+    "costa_rica_F_25k": "Costa Rica (F)",
+    "costa_rica_Mix_50k": "Costa Rica (Mix)",
+    # -- Panama --
+    "panama_M_25k": "Panama (M)",
+    "panama_F_25k": "Panama (F)",
+    "panama_Mix_50k": "Panama (Mix)",
+    # -- Uruguay --
+    "uruguay_M_25k": "Uruguay (M)",
+    "uruguay_F_25k": "Uruguay (F)",
+    "uruguay_Mix_50k": "Uruguay (Mix)",
+    # -- Cuba --
+    "cuba_M_25k": "Cuba (M)",
+    "cuba_F_25k": "Cuba (F)",
+    "cuba_Mix_50k": "Cuba (Mix)",
+    # -- Bolivia --
+    "bolivia_M_25k": "Bolivia (M)",
+    "bolivia_F_25k": "Bolivia (F)",
+    "bolivia_Mix_50k": "Bolivia (Mix)",
+    # -- Puerto Rico --
+    "puerto_rico_M_25k": "Puerto Rico (M)",
+    "puerto_rico_F_25k": "Puerto Rico (F)",
+    "puerto_rico_Mix_50k": "Puerto Rico (Mix)",
+    # -- UK --
+    "uk_M_25k": "UK (M)",
+    "uk_F_25k": "UK (F)",
+    "uk_Mix_50k": "UK (Mix)",
+    # -- Russia --
+    "russia_M_25k": "Russia (M)",
+    "russia_F_25k": "Russia (F)",
+    "russia_Mix_50k": "Russia (Mix)",
+    # -- Egypt --
+    "egypt_M_25k": "Egypt (M)",
+    "egypt_F_25k": "Egypt (F)",
+    "egypt_Mix_50k": "Egypt (Mix)",
+    # -- Nigeria --
+    "nigeria_M_25k": "Nigeria (M)",
+    "nigeria_F_25k": "Nigeria (F)",
+    "nigeria_Mix_50k": "Nigeria (Mix)",
+    # -- South Africa --
+    "south_africa_M_25k": "South Africa (M)",
+    "south_africa_F_25k": "South Africa (F)",
+    "south_africa_Mix_50k": "South Africa (Mix)",
+    # -- Arab --
+    "arab_M_25k": "Arab (M)",
+    "arab_F_25k": "Arab (F)",
+    "arab_Mix_50k": "Arab (Mix)",
+    # -- India --
+    "india_M_25k": "India (M)",
+    "india_F_25k": "India (F)",
+    "india_Mix_50k": "India (Mix)",
+    # -- Philippines --
+    "philippines_M_25k": "Philippines (M)",
+    "philippines_F_25k": "Philippines (F)",
+    "philippines_Mix_50k": "Philippines (Mix)",
+    # -- Turkey --
+    "turkey_M_25k": "Turkey (M)",
+    "turkey_F_25k": "Turkey (F)",
+    "turkey_Mix_50k": "Turkey (Mix)",
 }
 
 
@@ -152,7 +241,7 @@ def seed_builtin_names():
             logger.info(f"[Names] Fixed {fixed} paths -> absolute")
 
         # Migrate old pack names to clean GEO format
-        # (e.g., "Argentina - 5000" → "Argentina")
+        # (e.g., "Argentina - 5000" â†’ "Argentina")
         old_to_new = {}
         for geo_key, clean_label in GEO_LABELS.items():
             filename = f"{geo_key}.txt"
@@ -164,7 +253,7 @@ def seed_builtin_names():
         if old_to_new:
             db.commit()
             for pid, (old, new) in old_to_new.items():
-                logger.info(f"[Names] Renamed: '{old}' → '{new}'")
+                logger.info(f"[Names] Renamed: '{old}' â†’ '{new}'")
             logger.info(f"[Names] Migrated {len(old_to_new)} pack names to clean GEO format")
 
     except Exception as e:
@@ -389,3 +478,4 @@ async def get_random_name(pack_ids: str = "", db: Session = Depends(get_db)):
 
     first, last = random.choice(all_names)
     return {"first_name": first, "last_name": last}
+

@@ -247,10 +247,13 @@ async def remove_accounts(farm_id: int, req: FarmRemoveAccounts, db: Session = D
 
 @router.get("/{farm_id}/export")
 async def export_farm(farm_id: int, db: Session = Depends(get_db)):
-    """Export farm as ZIP archive with accounts."""
+    """Export farm as ZIP archive with accounts + profiles (session + fingerprint)."""
+    from ..database import USER_DATA_DIR
     farm = db.query(Farm).filter(Farm.id == farm_id).first()
     if not farm:
         return {"error": "Farm not found"}
+
+    profiles_dir = USER_DATA_DIR / "profiles"
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -263,8 +266,17 @@ async def export_farm(farm_id: int, db: Session = Depends(get_db)):
         }
         zf.writestr("farm_info.json", json.dumps(farm_info, indent=2, ensure_ascii=False))
 
-        # Each account as separate JSON
-        for i, acc in enumerate(farm.accounts):
+        # Text export (market format)
+        text_lines = []
+        for acc in farm.accounts:
+            line = f"{acc.email}:{acc.password}"
+            if acc.recovery_email:
+                line += f":{acc.recovery_email}"
+            text_lines.append(line)
+        zf.writestr("accounts.txt", "\n".join(text_lines))
+
+        # Each account as JSON + profile files
+        for acc in farm.accounts:
             acc_data = {
                 "id": acc.id,
                 "email": acc.email,
@@ -275,14 +287,28 @@ async def export_farm(farm_id: int, db: Session = Depends(get_db)):
                 "health_score": acc.health_score,
                 "gender": acc.gender,
                 "geo": acc.geo,
+                "language": acc.language,
                 "first_name": acc.first_name,
                 "last_name": acc.last_name,
+                "birthday": acc.birthday.isoformat() if acc.birthday else None,
                 "recovery_email": acc.recovery_email,
                 "recovery_phone": acc.recovery_phone,
+                "birth_ip": acc.birth_ip,
+                "user_agent": acc.user_agent,
+                "browser_profile_path": acc.browser_profile_path,
                 "created_at": acc.created_at.isoformat() if acc.created_at else None,
+                "last_active": acc.last_active.isoformat() if acc.last_active else None,
             }
             safe_email = acc.email.replace("@", "_at_").replace(".", "_")
             zf.writestr(f"accounts/{safe_email}.json", json.dumps(acc_data, indent=2, ensure_ascii=False))
+
+            # Include session.json and fingerprint.json if they exist
+            profile_dir = profiles_dir / str(acc.id)
+            if profile_dir.exists():
+                for fname in ("session.json", "fingerprint.json"):
+                    fpath = profile_dir / fname
+                    if fpath.exists():
+                        zf.write(fpath, f"profiles/{acc.id}/{fname}")
 
     buf.seek(0)
     safe_name = farm.name.replace(" ", "_").replace("/", "_")
@@ -290,6 +316,29 @@ async def export_farm(farm_id: int, db: Session = Depends(get_db)):
         buf,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="farm_{safe_name}.zip"'}
+    )
+
+
+@router.get("/{farm_id}/export-text")
+async def export_farm_text(farm_id: int, db: Session = Depends(get_db)):
+    """Export farm accounts as plain text (email:password per line)."""
+    farm = db.query(Farm).filter(Farm.id == farm_id).first()
+    if not farm:
+        return {"error": "Farm not found"}
+
+    lines = []
+    for acc in farm.accounts:
+        line = f"{acc.email}:{acc.password}"
+        if acc.recovery_email:
+            line += f":{acc.recovery_email}"
+        lines.append(line)
+
+    content = "\n".join(lines)
+    safe_name = farm.name.replace(" ", "_").replace("/", "_")
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="farm_{safe_name}_accounts.txt"'}
     )
 
 
