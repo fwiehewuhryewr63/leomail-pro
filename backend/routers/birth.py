@@ -296,6 +296,8 @@ async def run_birth_task(request: BirthRequest):
             success_counter = [0]
             name_index = [0]  # Atomic index into shuffled name pool
             job_lock = asyncio.Lock()
+            proxy_select_lock = asyncio.Lock()  # Serialize proxy selection — prevents 2 workers getting same proxy
+            proxies_in_use = set()  # Track proxy IDs currently being used by active workers
             # Smart retry: shared blacklists across workers
             country_blacklist = set()  # countries that failed SMS
             proxy_blacklist = set()    # proxy IDs that got E500/banned
@@ -343,11 +345,14 @@ async def run_birth_task(request: BirthRequest):
 
                     thread_log = None
                     try:
-                        # Get a verified proxy (excluding blacklisted/burned ones)
-                        proxy = await proxy_manager.get_verified_unbound_proxy_async(
-                            exclude_ids=proxy_blacklist,
-                            provider=request.provider,
-                        )
+                        # Get a verified proxy (excluding blacklisted/burned AND currently in-use ones)
+                        async with proxy_select_lock:
+                            proxy = await proxy_manager.get_verified_unbound_proxy_async(
+                                exclude_ids=proxy_blacklist | proxies_in_use,
+                                provider=request.provider,
+                            )
+                            if proxy:
+                                proxies_in_use.add(proxy.id)
                         if not proxy:
                             # NEVER GIVE UP — auto-buy and retry until user cancels
                             # Check cancel first
@@ -498,6 +503,7 @@ async def run_birth_task(request: BirthRequest):
                             # Bind proxy permanently to account
                             if proxy:
                                 proxy_manager.bind_proxy_to_account(proxy, account)
+                                proxies_in_use.discard(proxy.id)  # Bound to account — no longer in contention
 
                             farm.accounts.append(account)
                             thread_log.status = "done"
@@ -625,6 +631,10 @@ async def run_birth_task(request: BirthRequest):
 
                             await asyncio.sleep(random.uniform(2, 5))
 
+                        # Release proxy from in-use tracking (attempt done)
+                        if proxy:
+                            proxies_in_use.discard(proxy.id)
+
                     except Exception as e:
                         err_str = str(e)
                         err_lower = err_str.lower()
@@ -648,6 +658,9 @@ async def run_birth_task(request: BirthRequest):
                             pass
                         # Wait longer on browser crash to give auto-restart time
                         await asyncio.sleep(5 if is_browser_crash else 3)
+                        # Release proxy from in-use tracking on exception
+                        if proxy:
+                            proxies_in_use.discard(proxy.id)
 
             # Launch workers
             num_workers = min(request.threads, request.quantity)
