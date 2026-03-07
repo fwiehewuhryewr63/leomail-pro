@@ -812,7 +812,7 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
     Runs 15-30s - enough to establish session cookies without being slow.
     """
     if duration_seconds is None:
-        duration_seconds = random.randint(15, 30)
+        duration_seconds = random.randint(45, 90)
 
     logger.debug(f"Post-reg warmup ({provider}) for ~{duration_seconds}s")
 
@@ -828,12 +828,14 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
             ("https://mail.aol.com/d/compose/", "AOL Compose"),
         ],
         "outlook": [
-            ("https://outlook.live.com/mail/", "Outlook Inbox"),
-            ("https://outlook.live.com/mail/options/general", "Outlook Settings"),
+            ("https://outlook.live.com/mail/0/inbox", "Outlook Inbox"),
+            ("https://outlook.live.com/mail/0/options/general", "Outlook Settings"),
+            ("https://outlook.live.com/people/", "Outlook People"),
         ],
         "hotmail": [
-            ("https://outlook.live.com/mail/", "Hotmail Inbox"),
-            ("https://outlook.live.com/mail/options/general", "Hotmail Settings"),
+            ("https://outlook.live.com/mail/0/inbox", "Hotmail Inbox"),
+            ("https://outlook.live.com/mail/0/options/general", "Hotmail Settings"),
+            ("https://outlook.live.com/people/", "Hotmail People"),
         ],
         "gmail": [
             ("https://mail.google.com/mail/u/0/#inbox", "Gmail Inbox"),

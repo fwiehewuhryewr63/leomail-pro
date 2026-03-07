@@ -911,6 +911,220 @@ async def step_9_verify_success(page, ctx: RegContext) -> bool:
     return True
 
 
+# ── Outlook Post-Registration Warmup ─────────────────────────────────────────────
+
+
+async def _outlook_post_reg_warmup(page, ctx: RegContext):
+    """Outlook-specific post-registration warmup (45-90s).
+
+    A real user's first-time inbox experience:
+    1. Dismiss onboarding prompts (Welcome wizard, "Get app", "Choose look")
+    2. Land in inbox, see welcome email
+    3. Open and READ the welcome email
+    4. Browse settings briefly
+    5. Maybe open compose to check how it works
+    Total: 45-90s — natural first-time user pace
+
+    Every step is error-tolerant — if something fails, we continue.
+    """
+    duration = random.randint(45, 90)
+    start = asyncio.get_event_loop().time()
+    ctx._log(f"[POST-REG] Outlook first-time inbox experience ({duration}s)...")
+
+    def _elapsed():
+        return asyncio.get_event_loop().time() - start
+
+    # ── Step 1: Navigate to inbox ──
+    try:
+        await page.goto("https://outlook.live.com/mail/0/inbox",
+                        wait_until="domcontentloaded", timeout=25000)
+        await _human_delay(3, 6)
+        ctx._log("[POST-REG] Inbox page loaded")
+    except Exception as e:
+        ctx._log(f"[POST-REG] Inbox load error: {str(e)[:80]}")
+        # Fallback: try base URL
+        try:
+            await page.goto("https://outlook.live.com/mail/",
+                            wait_until="domcontentloaded", timeout=20000)
+            await _human_delay(3, 5)
+        except Exception:
+            ctx._log("[POST-REG] Could not reach inbox — skipping")
+            return
+
+    # ── Step 2: Dismiss onboarding prompts ──
+    # MS shows multiple prompts for new accounts: Welcome, Get app, Theme, etc.
+    _ONBOARDING_DISMISS_SELECTORS = [
+        # "Get the Outlook app" / "Try the Outlook app"
+        'button:has-text("Skip")', 'button:has-text("No thanks")',
+        'button:has-text("Maybe later")', 'a:has-text("Skip")',
+        'button:has-text("Not now")',
+        # "Choose your look" / "Pick a theme"
+        'button:has-text("Got it")', 'button:has-text("Done")',
+        # "Import contacts" / "Welcome wizard"
+        'button:has-text("Skip for now")', 'button:has-text("Close")',
+        # Generic dismiss / continue
+        'button[aria-label="Close"]', 'button[aria-label="Dismiss"]',
+        'button[aria-label="close"]', 'button[aria-label="dismiss"]',
+        # Close "X" buttons on dialogs
+        'div[role="dialog"] button[aria-label="Close"]',
+        'div[role="dialog"] button:has-text("×")',
+        # Multi-language variants
+        'button:has-text("Пропустить")', 'button:has-text("Omitir")',
+        'button:has-text("Überspringen")', 'button:has-text("Ignorer")',
+        'button:has-text("Salta")',
+    ]
+
+    # Try dismissing up to 5 prompts (MS can chain multiple)
+    for prompt_round in range(5):
+        if _elapsed() > duration * 0.3:  # Don't spend more than 30% on onboarding
+            break
+        dismissed = False
+        for sel in _ONBOARDING_DISMISS_SELECTORS:
+            try:
+                btn = page.locator(sel).first
+                if await btn.count() > 0 and await btn.is_visible():
+                    await _human_delay(1, 2)
+                    await _human_click(page, sel)
+                    ctx._log(f"[POST-REG] Dismissed onboarding prompt ({sel[:40]})")
+                    await _human_delay(2, 4)
+                    dismissed = True
+                    break
+            except Exception:
+                continue
+        if not dismissed:
+            break  # No more prompts to dismiss
+        await _human_delay(1, 2)
+
+    # ── Step 3: Read the welcome email ──
+    if _elapsed() < duration * 0.6:
+        try:
+            # Wait for email list to populate
+            await _human_delay(2, 4)
+
+            # Look for the first email in inbox (likely Microsoft welcome)
+            email_selectors = [
+                'div[role="listbox"] div[role="option"]:first-child',
+                'div[data-convid]',
+                'div[role="option"][aria-label*="Microsoft"]',
+                'div[role="option"][aria-label*="Welcome"]',
+                'div[role="option"][aria-label*="Outlook"]',
+                'div[role="option"]:first-child',
+            ]
+
+            email_clicked = False
+            for sel in email_selectors:
+                try:
+                    el = page.locator(sel).first
+                    if await el.count() > 0 and await el.is_visible():
+                        await _human_click(page, sel)
+                        email_clicked = True
+                        ctx._log("[POST-REG] Opened first email (welcome)")
+                        break
+                except Exception:
+                    continue
+
+            if email_clicked:
+                # Read the email — scroll and idle
+                await _human_delay(3, 6)
+                from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
+                await random_mouse_move(page, steps=random.randint(2, 4))
+                await random_scroll(page, "down")
+                await _human_delay(2, 5)
+                await random_scroll(page, "down")
+                await _human_delay(2, 4)
+
+                # Maybe scroll back up
+                if random.random() < 0.4:
+                    await random_scroll(page, "up")
+                    await _human_delay(1, 3)
+
+                # Idle "reading" behavior
+                await idle_behavior(page, random.uniform(3, 6))
+                await random_mouse_move(page, steps=random.randint(1, 3))
+
+                # Go back to inbox
+                try:
+                    back_btn = page.locator('button[aria-label="Back"], button[title="Back"]').first
+                    if await back_btn.count() > 0:
+                        await _human_click(page, 'button[aria-label="Back"], button[title="Back"]')
+                        await _human_delay(2, 4)
+                    else:
+                        await page.goto("https://outlook.live.com/mail/0/inbox",
+                                        wait_until="domcontentloaded", timeout=15000)
+                        await _human_delay(2, 4)
+                except Exception:
+                    pass
+
+                ctx._log("[POST-REG] Welcome email read")
+            else:
+                ctx._log("[POST-REG] No emails found in inbox yet — skipping")
+                # Just browse inbox
+                from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
+                await random_mouse_move(page, steps=random.randint(2, 5))
+                await random_scroll(page, "down")
+                await _human_delay(2, 4)
+                await idle_behavior(page, random.uniform(2, 4))
+
+        except Exception as e:
+            ctx._log(f"[POST-REG] Email read error: {str(e)[:80]}")
+
+    # ── Step 4: Visit Settings ──
+    if _elapsed() < duration * 0.8:
+        try:
+            await page.goto("https://outlook.live.com/mail/0/options/general",
+                            wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(2, 5)
+            from ..human_behavior import random_mouse_move, random_scroll
+            await random_mouse_move(page, steps=random.randint(2, 4))
+            await random_scroll(page, "down")
+            await _human_delay(2, 4)
+            await random_scroll(page, "down")
+            await _human_delay(1, 3)
+            ctx._log("[POST-REG] Browsed settings")
+        except Exception as e:
+            ctx._log(f"[POST-REG] Settings visit error: {str(e)[:80]}")
+
+    # ── Step 5: Open Compose (but don't send) ──
+    if _elapsed() < duration * 0.9 and random.random() < 0.5:
+        try:
+            await page.goto("https://outlook.live.com/mail/0/deeplink/compose",
+                            wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(3, 6)
+            from ..human_behavior import random_mouse_move, idle_behavior
+            await random_mouse_move(page, steps=random.randint(1, 3))
+            await idle_behavior(page, random.uniform(2, 4))
+            ctx._log("[POST-REG] Checked compose window")
+
+            # Close compose without sending (discard)
+            discard = await _wait_for_any(page, [
+                'button:has-text("Discard")', 'button[aria-label="Discard"]',
+                'button:has-text("Отмена")', 'button:has-text("Descartar")',
+            ], timeout=3000)
+            if discard:
+                await _human_click(page, discard)
+                await _human_delay(1, 3)
+        except Exception as e:
+            ctx._log(f"[POST-REG] Compose visit error: {str(e)[:80]}")
+
+    # ── Step 6: Back to inbox — final idle ──
+    remaining = duration - _elapsed()
+    if remaining > 5:
+        try:
+            await page.goto("https://outlook.live.com/mail/0/inbox",
+                            wait_until="domcontentloaded", timeout=15000)
+            await _human_delay(2, 4)
+            from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
+            await random_mouse_move(page, steps=random.randint(2, 5))
+            await random_scroll(page, "down")
+            await idle_behavior(page, min(remaining - 3, random.uniform(3, 8)))
+            await random_mouse_move(page, steps=random.randint(1, 3))
+        except Exception:
+            pass
+
+    total_time = _elapsed()
+    ctx._log(f"[POST-REG] Outlook warmup complete ({total_time:.1f}s)")
+
+
 # ── Main Orchestrator ────────────────────────────────────────────────────────────
 
 
@@ -1106,11 +1320,10 @@ async def register_single_outlook(
         except Exception as imap_e:
             logger.debug(f"[Outlook] IMAP check skipped: {imap_e}")
 
-        # Post-registration warmup
+        # Post-registration warmup — Outlook-specific
         try:
-            from ..human_behavior import post_registration_warmup
             _log("[OK] Post-reg session warmup...")
-            await post_registration_warmup(page, provider=provider_name)
+            await _outlook_post_reg_warmup(page, ctx)
         except Exception as warmup_e:
             logger.debug(f"[Outlook] Post-reg warmup error: {warmup_e}")
 
