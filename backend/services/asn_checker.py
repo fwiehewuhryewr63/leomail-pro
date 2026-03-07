@@ -281,8 +281,8 @@ SERVICE_ACCEPTS = {
     "gmail":      {"mobile"},                           # Gmail: mobile 4G ONLY
     "yahoo":      {"residential", "mobile"},            # Yahoo: residential/mobile ISP only
     "aol":        {"residential", "mobile"},            # AOL: same as Yahoo (Verizon)
-    "outlook":    {"residential", "mobile", "datacenter"},  # Outlook: accepts all
-    "hotmail":    {"residential", "mobile", "datacenter"},  # Hotmail: same as Outlook
+    "outlook":    {"residential", "mobile"},              # Outlook: residential/mobile only (datacenter fails PX captcha)
+    "hotmail":    {"residential", "mobile"},              # Hotmail: same as Outlook
     "protonmail": {"residential", "mobile", "datacenter"},  # Protonmail: accepts all
 }
 

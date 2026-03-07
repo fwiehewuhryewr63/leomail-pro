@@ -188,7 +188,7 @@ class ProxyManager:
         proxies = query.all()
 
         # ── ASN-based filtering: skip datacenter proxies for strict services ──
-        if provider and provider.lower() in ('yahoo', 'aol', 'gmail'):
+        if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
             try:
                 from .asn_checker import is_suitable_for
                 before = len(proxies)
@@ -367,7 +367,7 @@ class ProxyManager:
         candidates = query.all()
 
         # ── ASN-based filtering: skip datacenter proxies for strict services ──
-        if provider and provider.lower() in ('yahoo', 'aol', 'gmail'):
+        if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
             try:
                 from .asn_checker import is_suitable_for
                 before = len(candidates)
@@ -388,7 +388,7 @@ class ProxyManager:
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
             ).all()
-            if provider and provider.lower() in ('yahoo', 'aol', 'gmail'):
+            if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
                 try:
                     from .asn_checker import is_suitable_for
                     fallback = [p for p in fallback if is_suitable_for(p.host, provider.lower(), db_proxy=p)]

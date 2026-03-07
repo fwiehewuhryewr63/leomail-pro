@@ -26,6 +26,7 @@ from ._helpers import (
     human_click as _human_click,
     check_error_on_page as _check_error_on_page,
     fluent_combobox_select as _fluent_combobox_select,
+    MONTH_ALIASES, COUNTRY_ALIASES,
     wait_for_any as _wait_for_any,
     step_screenshot as _step_screenshot,
     wait_and_find as _wait_and_find,
@@ -270,15 +271,28 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
         "NZ": "New Zealand", "AT": "Austria", "BR": "Brazil",
         "MX": "Mexico", "ES": "Spain", "PL": "Poland",
         "CZ": "Czechia", "RO": "Romania", "TR": "Turkey",
+        "IT": "Italy", "PT": "Portugal", "AR": "Argentina",
+        "CO": "Colombia", "CL": "Chile", "PE": "Peru",
+        "IN": "India", "JP": "Japan", "KR": "South Korea",
+        "RU": "Russia", "UA": "Ukraine", "IL": "Israel",
+        "ZA": "South Africa", "EG": "Egypt", "NG": "Nigeria",
+        "KE": "Kenya", "PH": "Philippines", "ID": "Indonesia",
+        "TH": "Thailand", "VN": "Vietnam", "MY": "Malaysia",
+        "SG": "Singapore", "HK": "Hong Kong", "FI": "Finland",
+        "DK": "Denmark", "NO": "Norway", "HU": "Hungary",
+        "GR": "Greece", "CN": "China", "TW": "Taiwan",
     }
-    if geo_profile and geo_profile["country"] in _MS_COUNTRY_NAMES:
-        chosen_country = _MS_COUNTRY_NAMES[geo_profile["country"]]
+    geo_code = geo_profile["country"] if geo_profile else None
+    if geo_code and geo_code in _MS_COUNTRY_NAMES:
+        chosen_country = _MS_COUNTRY_NAMES[geo_code]
     else:
         country_pool = [
             "United States", "United Kingdom", "Canada", "Australia",
             "Germany", "France", "Netherlands", "Sweden",
         ]
         chosen_country = random.choice(country_pool)
+    # Get locale-aware aliases for this country
+    country_aliases = COUNTRY_ALIASES.get(geo_code, [chosen_country]) if geo_code else [chosen_country]
     ctx._log(f"Selecting country: {chosen_country} (GEO: {proxy_geo or 'auto'})")
 
     country_ok = await _fluent_combobox_select(page, [
@@ -286,8 +300,10 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
         'button[name="countryDropdownName"]',
         'button[aria-label*="ountry"]',
         'button[aria-label*="тран"]',
+        'button[aria-label*="aís"]',
+        'button[aria-label*="and"]',
         'button[role="combobox"]:first-of-type',
-    ], chosen_country, "Country", ctx._log, timeout=5000)
+    ], chosen_country, "Country", ctx._log, timeout=5000, aliases=country_aliases)
     if not country_ok:
         old_country = await _wait_for_any(page, [
             'select[id*="Country"]', 'select[name*="Country"]',
@@ -300,13 +316,16 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
                 pass
     await _human_delay(0.5, 1.0)
 
-    # Month
+    # Month — use locale-aware aliases
+    month_aliases = MONTH_ALIASES.get(birthday.month, [month_name])
     month_ok = await _fluent_combobox_select(page, [
         '#BirthMonthDropdown',
         'button[name="BirthMonth"]',
         'button[aria-label*="irth month"]',
         'button[aria-label*="есяц"]',
-    ], month_name, "Month", ctx._log, timeout=10000)
+        'button[aria-label*="es de"]',
+        'button[aria-label*="onat"]',
+    ], month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
     if not month_ok:
         old_month = await _wait_for_any(page, [
             '#BirthMonth', 'select[name="BirthMonth"]',
@@ -473,7 +492,30 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
                 raise BannedIPError("E302", f"MS blocked: {kw}")
 
         # ── Try PerimeterX "Press and hold" challenge ──
-        is_press_hold = "press and hold" in page_lower or "prove you're human" in page_lower
+        # Multi-locale detection: the challenge text can be in any language
+        _PX_CHALLENGE_KEYWORDS = [
+            "press and hold", "prove you're human",         # English
+            "pressione e segure", "provar que você",        # Portuguese
+            "mantén presionado", "mantener presionado", "demuestra que eres", # Spanish
+            "gedrückt halten", "halten sie", "beweisen",    # German
+            "appuyez et maintenez", "prouvez que vous",     # French
+            "tieni premuto", "dimostra che sei",            # Italian
+            "houd ingedrukt", "bewijs dat je",              # Dutch
+            "naciśnij i przytrzymaj", "udowodnij",          # Polish
+            "basılı tutun", "insan olduğunuzu",             # Turkish
+            "apăsați și mențineți",                         # Romanian
+            "tryck och håll",                               # Swedish
+            "人間であることを証明",                            # Japanese
+        ]
+        is_press_hold = any(kw in page_lower for kw in _PX_CHALLENGE_KEYWORDS)
+
+        # FALLBACK: if enforcement iframe from hsprotect.net exists, it's ALWAYS press-and-hold
+        # This handles ANY language we haven't mapped
+        has_hsprotect = await page.locator('iframe[src*="hsprotect"]').count() > 0
+        if not is_press_hold and has_hsprotect:
+            ctx._log(f"[CAPTCHA] hsprotect iframe detected — treating as press-and-hold (text did not match known patterns)")
+            is_press_hold = True
+
         if is_press_hold:
             ctx._log(f"[CAPTCHA] PerimeterX 'Press and hold' challenge (round {captcha_round})")
             solved = await _solve_perimeterx_hold(page, ctx)
@@ -486,7 +528,7 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
                 ctx._err(f"[CAPTCHA] PerimeterX press-and-hold FAILED on round {captcha_round}")
                 raise CaptchaFailError("E410", f"PerimeterX press-and-hold failed (round {captcha_round})")
         else:
-            # Unknown enforcement type
+            # Unknown enforcement type (no hsprotect iframe, no known patterns)
             ctx._log(f"[CAPTCHA] Unknown enforcement: {page_lower[:120]}")
             ctx._err("[CAPTCHA] Unknown enforcement type — cannot solve")
             raise CaptchaFailError("E411", "Unknown enforcement type (not press-and-hold)")
@@ -500,94 +542,139 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
 
 async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) -> bool:
     """Solve PerimeterX 'Press and hold the button' challenge.
-    The button loads inside an hsprotect.net iframe. We need to find and hold it.
+    The button loads inside an hsprotect.net iframe. Strategy:
+    1. Try to find #px-captcha in main page (PerimeterX sometimes injects it directly)
+    2. Try Playwright frame_locator() to find elements INSIDE the cross-origin iframe
+    3. Fall back to pressing center of the iframe element itself
+    Hold duration: 10-16 seconds (PerimeterX requires long holds).
     Returns True if challenge was passed, False otherwise.
     """
+    pre_url = page.url  # remember URL before challenge
+
     for attempt in range(1, max_retries + 1):
         ctx._log(f"[PX] Attempt {attempt}/{max_retries}: looking for hold button...")
 
-        # Wait for button to appear (it loads asynchronously)
-        hold_button = None
-        # Try multiple selectors — button can be in main page or iframe
-        button_selectors = [
-            '#px-captcha',                       # PerimeterX standard button ID
-            'div[id="px-captcha"]',             # div variant
-            'button[id*="captcha"]',
-            '[data-testid*="captcha"]',
-            'iframe[src*="hsprotect"]',          # might need to interact with iframe itself
-        ]
+        hold_target = None  # the locator to get bounding_box from
+        found_via = "none"
 
-        for sel in button_selectors:
+        # ── Strategy 1: #px-captcha in main page ──
+        main_page_selectors = [
+            '#px-captcha',
+            'div[id="px-captcha"]',
+            '[data-testid*="captcha"]',
+            'button[id*="captcha"]',
+        ]
+        for sel in main_page_selectors:
             try:
                 loc = page.locator(sel)
                 if await loc.count() > 0:
-                    hold_button = loc.first
-                    ctx._log(f"[PX] Found button: {sel}")
+                    hold_target = loc.first
+                    found_via = f"main_page:{sel}"
                     break
             except Exception:
                 continue
 
-        if not hold_button:
-            # Try to find ANY clickable element with captcha-like attributes
-            try:
-                hold_button_js = await page.evaluate(r"""() => {
-                    // Look for px-captcha div
-                    let el = document.getElementById('px-captcha');
-                    if (el) return {found: true, id: 'px-captcha'};
-                    // Look inside iframes
-                    const iframes = document.querySelectorAll('iframe[src*="hsprotect"]');
-                    for (const iframe of iframes) {
-                        try {
-                            const doc = iframe.contentDocument;
-                            if (doc) {
-                                el = doc.getElementById('px-captcha');
-                                if (el) return {found: true, id: 'px-captcha', iframe: true};
-                                // Any button or interactive element
-                                const btn = doc.querySelector('button, [role="button"], .captcha-button');
-                                if (btn) return {found: true, tag: btn.tagName, iframe: true};
-                            }
-                        } catch(e) {}
-                    }
-                    return {found: false};
-                }""")
-                if hold_button_js and hold_button_js.get("found"):
-                    ctx._log(f"[PX] Found via JS: {hold_button_js}")
-                    if hold_button_js.get("id") == "px-captcha":
-                        hold_button = page.locator("#px-captcha")
-            except Exception:
-                pass
+        # ── Strategy 2: frame_locator() to find elements INSIDE the iframe ──
+        if not hold_target:
+            iframe_selectors = [
+                'iframe[src*="hsprotect"]',
+                'iframe[title*="Human"]',
+                'iframe[title*="captcha"]',
+                'iframe[title*="Verification"]',
+                '#enforcementFrame',
+            ]
+            for iframe_sel in iframe_selectors:
+                try:
+                    iframe_loc = page.locator(iframe_sel)
+                    iframe_count = await iframe_loc.count()
+                    if iframe_count == 0:
+                        continue
+                    # Use .first when multiple iframes match (strict mode fix)
+                    if iframe_count > 1:
+                        frame = page.frame_locator(f"{iframe_sel} >> nth=0")
+                    else:
+                        frame = page.frame_locator(iframe_sel)
+                    # Look for the press-and-hold button inside the iframe
+                    inner_selectors = [
+                        '#px-captcha',
+                        '#px-captcha-wrapper',
+                        'div[id="px-captcha"]',
+                        'button',
+                        '[role="button"]',
+                        '.btn',
+                        '#hold_button',
+                    ]
+                    for inner_sel in inner_selectors:
+                        try:
+                            inner_loc = frame.locator(inner_sel)
+                            if await inner_loc.count() > 0:
+                                hold_target = inner_loc.first
+                                found_via = f"frame:{iframe_sel} > {inner_sel}"
+                                break
+                        except Exception:
+                            continue
+                    if hold_target:
+                        break
+                except Exception:
+                    continue
 
-        if not hold_button:
+        # ── Strategy 3: Fall back to the iframe element itself ──
+        if not hold_target:
+            for iframe_sel in ['iframe[src*="hsprotect"]', 'iframe[title*="Human"]', '#enforcementFrame']:
+                try:
+                    loc = page.locator(iframe_sel)
+                    if await loc.count() > 0:
+                        hold_target = loc.first
+                        found_via = f"iframe_element:{iframe_sel}"
+                        break
+                except Exception:
+                    continue
+
+        if not hold_target:
             ctx._log(f"[PX] No button found on attempt {attempt}")
             await _human_delay(2, 4)
             continue
 
         # ── Simulate human press-and-hold ──
         try:
-            # Move mouse to button area naturally
-            await random_mouse_move(page, steps=random.randint(2, 4))
-            await _human_delay(0.5, 1.5)
-
-            # Get button bounding box
-            bbox = await hold_button.bounding_box()
-            if not bbox:
-                ctx._log("[PX] Button has no bounding box — might be hidden")
+            # Get bounding box — wait for button to render (height > 0)
+            bbox = None
+            for wait_i in range(6):  # poll up to 6 times (0, 1, 2, 3, 4, 5s)
+                bbox = await hold_target.bounding_box()
+                if bbox and bbox.get('height', 0) > 5 and bbox.get('width', 0) > 5:
+                    break  # button rendered with real dimensions
+                if wait_i < 5:
+                    if wait_i == 0:
+                        ctx._log(f"[PX] {found_via} — waiting for button to render...")
+                    await asyncio.sleep(1.0)
+                    bbox = None  # reset for next check
+            
+            if not bbox or bbox.get('height', 0) <= 5:
+                ctx._log(f"[PX] {found_via} — button has zero/tiny dimensions after 5s wait (bbox={bbox})")
                 await _human_delay(2, 4)
                 continue
 
-            # Click position: random offset within button
-            x = bbox['x'] + bbox['width'] * random.uniform(0.3, 0.7)
-            y = bbox['y'] + bbox['height'] * random.uniform(0.3, 0.7)
+            ctx._log(f"[PX] Found via {found_via} — bbox: {bbox['width']:.0f}x{bbox['height']:.0f} at ({bbox['x']:.0f},{bbox['y']:.0f})")
+
+            # Move mouse naturally first
+            await random_mouse_move(page, steps=random.randint(2, 4))
+            await _human_delay(0.5, 1.5)
+
+            # Click position: center of the target with small random offset
+            x = bbox['x'] + bbox['width'] * random.uniform(0.35, 0.65)
+            y = bbox['y'] + bbox['height'] * random.uniform(0.35, 0.65)
 
             ctx._log(f"[PX] Pressing and holding at ({x:.0f}, {y:.0f})...")
 
+            # Move to target smoothly
+            await page.mouse.move(x, y, steps=random.randint(8, 16))
+            await _human_delay(0.3, 0.6)
+
             # Mouse down (start press)
-            await page.mouse.move(x, y, steps=random.randint(5, 12))
-            await _human_delay(0.2, 0.5)
             await page.mouse.down()
 
-            # Hold for 3-8 seconds (human-like duration)
-            hold_duration = random.uniform(4.0, 8.0)
+            # Hold for 10-16 seconds (PerimeterX requires LONG holds)
+            hold_duration = random.uniform(10.0, 16.0)
             ctx._log(f"[PX] Holding for {hold_duration:.1f}s...")
             await asyncio.sleep(hold_duration)
 
@@ -598,7 +685,7 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
             # Wait for response / page change
             await _human_delay(3, 6)
 
-            # Check if challenge passed — page should change URL or content
+            # ── Check if challenge passed ──
             current_url = page.url
             current_text = ""
             try:
@@ -606,13 +693,37 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
             except Exception:
                 pass
 
-            # Success indicators: no more "prove you're human", or page advanced
-            if "prove you're human" not in current_text.lower() and "press and hold" not in current_text.lower():
+            # Success indicators:
+            # 1. URL changed (page advanced past challenge)
+            if current_url != pre_url:
+                ctx._log(f"[PX] URL changed: {pre_url[:60]} → {current_url[:60]} — SOLVED!")
+                await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
+                return True
+
+            # 2. Challenge text gone (multi-language check)
+            lower_text = current_text.lower()
+            _PX_STILL_SHOWING = [
+                "press and hold", "prove you're human",
+                "pressione e segure", "provar que você",
+                "mantén presionado", "demuestra que eres",
+                "gedrückt halten", "appuyez et maintenez",
+                "tieni premuto", "houd ingedrukt",
+                "basılı tutun", "naciśnij i przytrzymaj",
+            ]
+            challenge_still_showing = any(kw in lower_text for kw in _PX_STILL_SHOWING)
+            if not challenge_still_showing:
                 ctx._log("[PX] Challenge text gone — appears solved!")
                 await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
                 return True
 
-            # Still on challenge page — take screenshot and retry
+            # 3. Check if enforcement iframe is gone (challenge dismissed)
+            iframe_count = await page.locator('iframe[src*="hsprotect"]').count()
+            if iframe_count == 0:
+                ctx._log("[PX] Enforcement iframe gone — challenge passed!")
+                await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
+                return True
+
+            # Still on challenge page — screenshot and retry
             ctx._log(f"[PX] Still on challenge page after attempt {attempt}")
             await _debug_screenshot(page, f"{ctx.username}_px_retry{attempt}", ctx._log)
             await _human_delay(2, 4)

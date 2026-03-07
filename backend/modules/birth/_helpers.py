@@ -3,6 +3,7 @@ Leomail v4 - Birth Helpers
 Shared utility functions for all provider registration engines.
 """
 import asyncio
+import unicodedata
 import random
 import time
 import threading
@@ -860,10 +861,97 @@ async def check_error_on_page(page) -> str | None:
     return None
 
 
-async def fluent_combobox_select(page, button_selectors: list[str], value: str, label: str, _log, timeout=5000):
+# ── Multi-locale month names (month number → known translations) ──
+# Covers: en, es, pt, fr, de, it, nl, pl, cs, ro, tr, sv, da, nb, fi, hu, el, ja, ko, zh, ar, he, th, vi, id, ms
+MONTH_ALIASES = {
+    1:  ["January", "enero", "janeiro", "janvier", "Januar", "gennaio", "januari", "styczeń", "leden", "ianuarie", "Ocak", "januari", "januar", "januar", "tammikuu", "január", "Ιανουάριος", "1月", "1월", "一月", "يناير", "ינואר", "มกราคม", "Tháng 1", "Januari", "Januari"],
+    2:  ["February", "febrero", "fevereiro", "février", "Februar", "febbraio", "februari", "luty", "únor", "februarie", "Şubat", "februari", "februar", "februar", "helmikuu", "február", "Φεβρουάριος", "2月", "2월", "二月", "فبراير", "פברואר", "กุมภาพันธ์", "Tháng 2", "Februari", "Februari"],
+    3:  ["March", "marzo", "março", "mars", "März", "marzo", "maart", "marzec", "březen", "martie", "Mart", "mars", "marts", "mars", "maaliskuu", "március", "Μάρτιος", "3月", "3월", "三月", "مارس", "מרץ", "มีนาคม", "Tháng 3", "Maret", "Mac"],
+    4:  ["April", "abril", "abril", "avril", "April", "aprile", "april", "kwiecień", "duben", "aprilie", "Nisan", "april", "april", "april", "huhtikuu", "április", "Απρίλιος", "4月", "4월", "四月", "أبريل", "אפריל", "เมษายน", "Tháng 4", "April", "April"],
+    5:  ["May", "mayo", "maio", "mai", "Mai", "maggio", "mei", "maj", "květen", "mai", "Mayıs", "maj", "maj", "mai", "toukokuu", "május", "Μάιος", "5月", "5월", "五月", "مايو", "מאי", "พฤษภาคม", "Tháng 5", "Mei", "Mei"],
+    6:  ["June", "junio", "junho", "juin", "Juni", "giugno", "juni", "czerwiec", "červen", "iunie", "Haziran", "juni", "juni", "juni", "kesäkuu", "június", "Ιούνιος", "6月", "6월", "六月", "يونيو", "יוני", "มิถุนายน", "Tháng 6", "Juni", "Jun"],
+    7:  ["July", "julio", "julho", "juillet", "Juli", "luglio", "juli", "lipiec", "červenec", "iulie", "Temmuz", "juli", "juli", "juli", "heinäkuu", "július", "Ιούλιος", "7月", "7월", "七月", "يوليو", "יולי", "กรกฎาคม", "Tháng 7", "Juli", "Julai"],
+    8:  ["August", "agosto", "agosto", "août", "August", "agosto", "augustus", "sierpień", "srpen", "august", "Ağustos", "augusti", "august", "august", "elokuu", "augusztus", "Αύγουστος", "8月", "8월", "八月", "أغسطس", "אוגוסט", "สิงหาคม", "Tháng 8", "Agustus", "Ogos"],
+    9:  ["September", "septiembre", "setembro", "septembre", "September", "settembre", "september", "wrzesień", "září", "septembrie", "Eylül", "september", "september", "september", "syyskuu", "szeptember", "Σεπτέμβριος", "9月", "9월", "九月", "سبتمبر", "ספטמבר", "กันยายน", "Tháng 9", "September", "September"],
+    10: ["October", "octubre", "outubro", "octobre", "Oktober", "ottobre", "oktober", "październik", "říjen", "octombrie", "Ekim", "oktober", "oktober", "oktober", "lokakuu", "október", "Οκτώβριος", "10月", "10월", "十月", "أكتوبر", "אוקטובר", "ตุลาคม", "Tháng 10", "Oktober", "Oktober"],
+    11: ["November", "noviembre", "novembro", "novembre", "November", "novembre", "november", "listopad", "listopad", "noiembrie", "Kasım", "november", "november", "november", "marraskuu", "november", "Νοέμβριος", "11月", "11월", "十一月", "نوفمبر", "נובמבר", "พฤศจิกายน", "Tháng 11", "November", "November"],
+    12: ["December", "diciembre", "dezembro", "décembre", "Dezember", "dicembre", "december", "grudzień", "prosinec", "decembrie", "Aralık", "december", "december", "desember", "joulukuu", "december", "Δεκέμβριος", "12月", "12월", "十二月", "ديسمبر", "דצמבר", "ธันวาคม", "Tháng 12", "Desember", "Disember"],
+}
+
+# ── Multi-locale country names (ISO 3166-1 → known translations) ──
+# Covers the countries in our proxy pool + common fallback countries
+COUNTRY_ALIASES = {
+    "US": ["United States", "Estados Unidos", "États-Unis", "Vereinigte Staaten", "Stati Uniti", "Verenigde Staten", "Stany Zjednoczone", "Spojené státy", "Statele Unite", "Amerika Birleşik Devletleri", "Förenta staterna", "USA"],
+    "GB": ["United Kingdom", "Reino Unido", "Royaume-Uni", "Vereinigtes Königreich", "Regno Unito", "Verenigd Koninkrijk", "Wielka Brytania", "Spojené království", "Regatul Unit", "Birleşik Krallık", "Storbritannien", "UK"],
+    "CA": ["Canada", "Canadá", "Kanada"],
+    "AU": ["Australia", "Australie", "Australien", "Australië"],
+    "DE": ["Germany", "Alemania", "Allemagne", "Deutschland", "Germania", "Duitsland", "Niemcy", "Německo", "Almanya", "Tyskland"],
+    "FR": ["France", "Francia", "Frankreich", "Frankrijk", "Francja", "Francie", "Fransa", "Frankrike", "Ranska"],
+    "NL": ["Netherlands", "Países Bajos", "Pays-Bas", "Niederlande", "Paesi Bassi", "Nederland", "Holandia", "Nizozemsko", "Olanda", "Hollanda", "Nederländerna"],
+    "SE": ["Sweden", "Suecia", "Suède", "Schweden", "Svezia", "Zweden", "Szwecja", "Švédsko", "Suedia", "İsveç", "Sverige", "Ruotsi"],
+    "IE": ["Ireland", "Irlanda", "Irlande", "Irland", "Ierland", "Irlandia", "Irsko", "İrlanda"],
+    "NZ": ["New Zealand", "Nueva Zelanda", "Nouvelle-Zélande", "Neuseeland", "Nuova Zelanda", "Nieuw-Zeeland", "Nowa Zelandia", "Nový Zéland", "Noua Zeelandă", "Yeni Zelanda"],
+    "AT": ["Austria", "Autriche", "Österreich", "Oostenrijk", "Avusturya", "Rakousko"],
+    "BR": ["Brazil", "Brasil", "Brésil", "Brasilien", "Brasile", "Brazilië", "Brazylia", "Brazílie", "Brezilya"],
+    "MX": ["Mexico", "México", "Mexique", "Mexiko", "Messico", "Meksyk", "Mexiko", "Meksika"],
+    "ES": ["Spain", "España", "Espagne", "Spanien", "Spagna", "Spanje", "Hiszpania", "Španělsko", "Spania", "İspanya", "Spanien"],
+    "PL": ["Poland", "Polonia", "Pologne", "Polen", "Polska", "Polsko", "Polonya"],
+    "CZ": ["Czechia", "Czech Republic", "República Checa", "Tchéquie", "Tschechien", "Cechia", "Tsjechië", "Česko", "Česká republika", "Çekya"],
+    "RO": ["Romania", "Rumania", "Roumanie", "Rumänien", "România", "Roemenië", "Rumunia", "Rumunsko", "Romanya"],
+    "TR": ["Turkey", "Turquía", "Turquie", "Türkei", "Turchia", "Turkije", "Turcja", "Turecko", "Turcia", "Türkiye"],
+    "IT": ["Italy", "Italia", "Italie", "Italien", "Italië", "Włochy", "Itálie", "İtalya"],
+    "PT": ["Portugal", "Portogallo", "Portugalia", "Portugalsko", "Portekiz"],
+    "AR": ["Argentina", "Argentine", "Argentinien", "Argentinië", "Argentyna", "Arjantin"],
+    "CO": ["Colombia", "Colombie", "Kolumbien", "Colombie", "Kolumbia", "Kolombiya"],
+    "CL": ["Chile", "Chili", "Cile"],
+    "PE": ["Peru", "Perú", "Pérou", "Perù"],
+    "IN": ["India", "Inde", "Indien", "Indie", "Hindistan"],
+    "JP": ["Japan", "Japón", "Japon", "Giappone", "Japonia", "Japonsko", "Japonya", "日本"],
+    "KR": ["South Korea", "Corea del Sur", "Corée du Sud", "Südkorea", "Corea del Sud", "Zuid-Korea", "Korea Południowa", "Jižní Korea", "Güney Kore", "한국"],
+    "RU": ["Russia", "Rusia", "Russie", "Russland", "Rusland", "Rosja", "Rusko", "Rusya", "Россия"],
+    "UA": ["Ukraine", "Ucrania", "Oekraïne", "Ukraina", "Ukrajina", "Ukrayna", "Україна"],
+    "IL": ["Israel", "Israël", "Israele", "Izrael", "İsrail", "ישראל"],
+    "ZA": ["South Africa", "Sudáfrica", "Afrique du Sud", "Südafrika", "Sudafrica", "Zuid-Afrika", "Güney Afrika"],
+    "EG": ["Egypt", "Egipto", "Égypte", "Ägypten", "Egitto", "Egypte", "Mısır", "مصر"],
+    "NG": ["Nigeria", "Nigéria", "Nijerya"],
+    "KE": ["Kenya", "Kenia", "Keňa"],
+    "PH": ["Philippines", "Filipinas", "Filippine", "Filipijnen", "Filipiny", "Filipinler"],
+    "ID": ["Indonesia", "Indonésie", "Indonesien", "Indonesië", "Indonezja", "Endonezya"],
+    "TH": ["Thailand", "Tailandia", "Thaïlande", "Thailandia", "Tajlandia", "Thajsko", "Tayland", "ไทย"],
+    "VN": ["Vietnam", "Việt Nam", "Viêt Nam"],
+    "MY": ["Malaysia", "Malasia", "Malaisie", "Malesia", "Maleisië", "Malezja", "Malezya"],
+    "SG": ["Singapore", "Singapur", "Singapour", "Singapur"],
+    "HK": ["Hong Kong"],
+    "FI": ["Finland", "Finlandia", "Finlande", "Finnland", "Suomi"],
+    "DK": ["Denmark", "Dinamarca", "Danemark", "Dänemark", "Danimarca", "Denemarken", "Dania", "Dánsko", "Danemarca", "Danimarka", "Danmark"],
+    "NO": ["Norway", "Noruega", "Norvège", "Norwegen", "Norvegia", "Noorwegen", "Norwegia", "Norsko", "Norveç", "Norge"],
+    "HU": ["Hungary", "Hungría", "Hongrie", "Ungarn", "Ungheria", "Hongarije", "Węgry", "Maďarsko", "Ungaria", "Macaristan", "Magyarország"],
+    "GR": ["Greece", "Grecia", "Grèce", "Griechenland", "Griekenland", "Grecja", "Řecko", "Yunanistan", "Ελλάδα"],
+    "CN": ["China", "中国", "Chine", "Cina", "Chiny", "Čína", "Çin"],
+    "TW": ["Taiwan", "Taiwán", "Taïwan", "台灣"],
+}
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for accent-insensitive comparison.
+    'México' → 'mexico', 'Türkiye' → 'turkiye', 'São Paulo' → 'sao paulo'
+    """
+    # NFKD decomposition splits accented chars into base + combining mark
+    nfkd = unicodedata.normalize('NFKD', text)
+    # Strip combining characters (accents, tildes, etc.)
+    ascii_text = ''.join(c for c in nfkd if not unicodedata.combining(c))
+    return ascii_text.lower().strip()
+
+
+async def fluent_combobox_select(page, button_selectors: list[str], value: str, label: str, _log, timeout=5000, aliases: list[str] | None = None):
     """Select a value from a Fluent UI combobox (button[role=combobox] + div[role=listbox]).
-    
+
     MS signup uses Fluent UI - dropdowns are buttons that open a listbox of div[role=option] items.
+
+    Multi-locale support:
+    - `value`: primary value to match (English)
+    - `aliases`: optional list of alternative names in other languages
+    - Uses accent-normalized comparison ('México' matches 'Mexico')
     """
     btn = None
     for sel in button_selectors:
@@ -873,11 +961,11 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
                 break
         except Exception:
             continue
-    
+
     if not btn:
         _log(f"[WARN] Fluent combobox '{label}' not found")
         return False
-    
+
     try:
         # Use force=True because Fluent UI labels often overlay the button
         await page.locator(btn).first.click(force=True)
@@ -890,27 +978,62 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
         except Exception:
             _log(f"[WARN] Failed to click combobox '{label}': {e}")
             return False
-    
+
     try:
         await page.wait_for_selector('[role="listbox"]', timeout=3000)
     except Exception:
         _log(f"[WARN] Listbox for '{label}' did not appear")
         return False
-    
+
     options = page.locator('[role="listbox"] [role="option"]')
     count = await options.count()
-    
+
+    # Build normalized set of all acceptable values
+    all_targets = {_normalize_text(value)}
+    if aliases:
+        for alias in aliases:
+            all_targets.add(_normalize_text(alias))
+
+    # Phase 1: exact match (case-insensitive)
     for i in range(count):
         try:
             text = (await options.nth(i).inner_text()).strip()
-            if text == value or text.startswith(value):
+            if text.lower() == value.lower():
                 await options.nth(i).click()
-                _log(f"[OK] {label}: selected '{text}'")
+                _log(f"[OK] {label}: selected '{text}' (exact)")
                 await human_delay(0.2, 0.4)
                 return True
         except Exception:
             continue
-    
+
+    # Phase 2: alias match (accent-normalized, case-insensitive)
+    for i in range(count):
+        try:
+            text = (await options.nth(i).inner_text()).strip()
+            normalized = _normalize_text(text)
+            if normalized in all_targets:
+                await options.nth(i).click()
+                _log(f"[OK] {label}: selected '{text}' (alias match)")
+                await human_delay(0.2, 0.4)
+                return True
+        except Exception:
+            continue
+
+    # Phase 3: startswith match (any alias)
+    for i in range(count):
+        try:
+            text = (await options.nth(i).inner_text()).strip()
+            normalized = _normalize_text(text)
+            for target in all_targets:
+                if normalized.startswith(target) or target.startswith(normalized):
+                    await options.nth(i).click()
+                    _log(f"[OK] {label}: selected '{text}' (partial match)")
+                    await human_delay(0.2, 0.4)
+                    return True
+        except Exception:
+            continue
+
+    # Phase 4: numeric index fallback
     try:
         idx = int(value) - 1
         if 0 <= idx < count:
@@ -921,7 +1044,7 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
             return True
     except (ValueError, Exception):
         pass
-    
+
     _log(f"[WARN] Failed to select '{value}' in combobox '{label}' (found {count} options)")
     try:
         await page.keyboard.press("Escape")
