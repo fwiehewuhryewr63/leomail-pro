@@ -937,7 +937,7 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
     # ── Step 1: Navigate to inbox ──
     try:
         await page.goto("https://outlook.live.com/mail/0/inbox",
-                        wait_until="domcontentloaded", timeout=25000)
+                        wait_until="domcontentloaded", timeout=60000)
         await _human_delay(3, 6)
         ctx._log("[POST-REG] Inbox page loaded")
     except Exception as e:
@@ -945,7 +945,7 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
         # Fallback: try base URL
         try:
             await page.goto("https://outlook.live.com/mail/",
-                            wait_until="domcontentloaded", timeout=20000)
+                            wait_until="domcontentloaded", timeout=45000)
             await _human_delay(3, 5)
         except Exception:
             ctx._log("[POST-REG] Could not reach inbox — skipping")
@@ -1050,7 +1050,7 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
                         await _human_delay(2, 4)
                     else:
                         await page.goto("https://outlook.live.com/mail/0/inbox",
-                                        wait_until="domcontentloaded", timeout=15000)
+                                        wait_until="domcontentloaded", timeout=40000)
                         await _human_delay(2, 4)
                 except Exception:
                     pass
@@ -1072,7 +1072,7 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
     if _elapsed() < duration * 0.8:
         try:
             await page.goto("https://outlook.live.com/mail/0/options/general",
-                            wait_until="domcontentloaded", timeout=15000)
+                            wait_until="domcontentloaded", timeout=40000)
             await _human_delay(2, 5)
             from ..human_behavior import random_mouse_move, random_scroll
             await random_mouse_move(page, steps=random.randint(2, 4))
@@ -1088,7 +1088,7 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
     if _elapsed() < duration * 0.9 and random.random() < 0.5:
         try:
             await page.goto("https://outlook.live.com/mail/0/deeplink/compose",
-                            wait_until="domcontentloaded", timeout=15000)
+                            wait_until="domcontentloaded", timeout=40000)
             await _human_delay(3, 6)
             from ..human_behavior import random_mouse_move, idle_behavior
             await random_mouse_move(page, steps=random.randint(1, 3))
@@ -1111,7 +1111,7 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
     if remaining > 5:
         try:
             await page.goto("https://outlook.live.com/mail/0/inbox",
-                            wait_until="domcontentloaded", timeout=15000)
+                            wait_until="domcontentloaded", timeout=40000)
             await _human_delay(2, 4)
             from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
             await random_mouse_move(page, steps=random.randint(2, 5))

@@ -656,7 +656,7 @@ async def warmup_browsing(page, duration_seconds: int = None, geo: str = None):
 
     # Always start with Google (most natural entry point)
     try:
-        await page.goto("https://www.google.com", wait_until="load", timeout=25000)
+        await page.goto("https://www.google.com", wait_until="load", timeout=45000)
         await human_delay(2, 5)
         await random_mouse_move(page, steps=random.randint(2, 3))
 
@@ -740,7 +740,7 @@ async def warmup_browsing(page, duration_seconds: int = None, geo: str = None):
             break
 
         try:
-            await page.goto(url, wait_until="load", timeout=15000)
+            await page.goto(url, wait_until="load", timeout=35000)
             consecutive_errors = 0  # Reset on success
             await human_delay(3, 6)
 
@@ -853,7 +853,7 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
 
         try:
             logger.debug(f"Post-reg warmup: visiting {name}")
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
             await human_delay(2, 5)
 
             # Human-like: scroll and move mouse with Bezier
