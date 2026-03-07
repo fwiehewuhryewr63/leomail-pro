@@ -437,11 +437,29 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
     MAX_CAPTCHA_ROUNDS = 3  # max re-challenges before giving up
     ctx._log("Checking CAPTCHA...")
     await _human_delay(2, 4)
+    any_round_passed = False  # track if ANY round solved successfully
 
     for captcha_round in range(1, MAX_CAPTCHA_ROUNDS + 1):
         if captcha_round > 1:
-            ctx._log(f"[CAPTCHA] Re-challenge detected — round {captcha_round}/{MAX_CAPTCHA_ROUNDS}")
-            await _human_delay(2, 4)
+            ctx._log(f"[CAPTCHA] Re-challenge check — round {captcha_round}/{MAX_CAPTCHA_ROUNDS}")
+            # Wait for re-challenge iframe to appear (it re-loads asynchronously)
+            # Poll up to 8 seconds — MS takes 3-6s to inject the re-challenge iframe
+            iframe_appeared = False
+            for wait_i in range(8):
+                await asyncio.sleep(1.0)
+                rc_count = await page.locator(
+                    'iframe[src*="hsprotect"], iframe[title*="captcha"], '
+                    'iframe[title*="Human"], #enforcementFrame'
+                ).count()
+                if rc_count > 0:
+                    iframe_appeared = True
+                    ctx._log(f"[CAPTCHA] Re-challenge iframe appeared after {wait_i + 1}s")
+                    break
+            if not iframe_appeared:
+                # No re-challenge after 8s — previous solve was accepted!
+                ctx._log(f"[OK] No re-challenge after 8s — captcha fully passed!")
+                await block_check(page, ctx.provider, ctx, "post_captcha")
+                return
 
         # Detect enforcement iframe (hsprotect.net or legacy funcaptcha/arkose)
         captcha_frame = page.locator(
@@ -521,10 +539,29 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
             solved = await _solve_perimeterx_hold(page, ctx)
             if solved:
                 ctx._log(f"[OK] PerimeterX challenge passed (round {captcha_round})!")
+                any_round_passed = True
                 await _human_delay(3, 6)
                 # DON'T return yet — loop back to check for re-challenge
                 continue
             else:
+                if any_round_passed:
+                    # A previous round DID pass — MS re-challenged and we failed the re-challenge
+                    # but the first solve may have been accepted. Check if page advanced.
+                    ctx._log(f"[CAPTCHA] Re-challenge failed on round {captcha_round}, but round 1 passed — checking if accepted...")
+                    await _human_delay(3, 5)
+                    # Check if enforcement iframe disappeared (challenge was actually accepted)
+                    remaining = await page.locator('iframe[src*="hsprotect"], #enforcementFrame').count()
+                    if remaining == 0:
+                        ctx._log(f"[OK] Enforcement iframe gone after re-challenge fail — treating as success!")
+                        await block_check(page, ctx.provider, ctx, "post_captcha")
+                        return
+                    # Check if URL changed (page moved past captcha)
+                    if "signup.live.com" not in page.url:
+                        ctx._log(f"[OK] URL changed to {page.url[:60]} — registration continued!")
+                        await block_check(page, ctx.provider, ctx, "post_captcha")
+                        return
+                    ctx._log(f"[CAPTCHA] Re-challenge still active — continuing to next round")
+                    continue  # try next round instead of crash
                 ctx._err(f"[CAPTCHA] PerimeterX press-and-hold FAILED on round {captcha_round}")
                 raise CaptchaFailError("E410", f"PerimeterX press-and-hold failed (round {captcha_round})")
         else:
@@ -697,8 +734,8 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
             # Mouse down (start press)
             await page.mouse.down()
 
-            # Hold for 10-16 seconds (PerimeterX requires LONG holds)
-            hold_duration = random.uniform(10.0, 16.0)
+            # Hold for 15-18 seconds (PerimeterX requires LONG holds — 15s+ passes more often)
+            hold_duration = random.uniform(15.0, 18.0)
             ctx._log(f"[PX] Holding for {hold_duration:.1f}s...")
             await asyncio.sleep(hold_duration)
 
