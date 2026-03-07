@@ -1314,7 +1314,8 @@ def _build_stealth_scripts(ua: str = "", gpu: tuple = None, hw_concurrency: int 
 
 
 
-PROFILES_DIR = Path("user_data/profiles")
+from ..database import USER_DATA_DIR as _BM_USER_DATA_DIR
+PROFILES_DIR = _BM_USER_DATA_DIR / "profiles"
 
 
 # ─── Browser Manager ──────────────────────────────────────────────────────────
@@ -1591,6 +1592,18 @@ class BrowserManager:
                 "device_scale": ctx_scale,
             })
             logger.info(f"Fingerprint saved for account {account_id}")
+
+        # Always store fingerprint on context for later save (autoreg flow:
+        # account_id doesn't exist yet at context creation time)
+        context._leomail_fingerprint = {
+            "user_agent": ctx_ua,
+            "gpu": list(ctx_gpu),
+            "hw_concurrency": ctx_hw,
+            "device_memory": ctx_mem,
+            "canvas_seed": ctx_canvas_seed,
+            "viewport": ctx_viewport,
+            "device_scale": ctx_scale,
+        }
 
         # Set Accept-Language HTTP header to match navigator.languages
         # Without this, Yahoo server sees default "en-US" header but German JS languages = bot

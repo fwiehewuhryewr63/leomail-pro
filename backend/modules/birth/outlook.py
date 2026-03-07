@@ -975,13 +975,7 @@ async def register_single_outlook(
         if result is None:
             return None
 
-        # ── Save session and create account ──
-        try:
-            session_path = await browser_manager.save_session(context, 0)
-        except Exception as se:
-            logger.warning(f"[Outlook] Session save warning: {se}")
-            session_path = None
-
+        # ── Save session, fingerprint, and create account ──
         account = Account(
             email=ctx.email,
             password=ctx.password,
@@ -997,12 +991,23 @@ async def register_single_outlook(
         db.commit()
         db.refresh(account)
 
-        if session_path:
-            try:
-                account.browser_profile_path = await browser_manager.save_session(context, account.id)
+        # Save session (cookies/localStorage) with real account ID
+        try:
+            account.browser_profile_path = await browser_manager.save_session(context, account.id)
+            db.commit()
+        except Exception as se:
+            logger.warning(f"[Outlook] Session save warning: {se}")
+
+        # Save fingerprint (GPU, UA, canvas seed) for profile persistence
+        try:
+            fp_data = getattr(context, '_leomail_fingerprint', None)
+            if fp_data:
+                browser_manager.save_fingerprint(account.id, fp_data)
+                account.user_agent = fp_data.get("user_agent", "")
                 db.commit()
-            except Exception:
-                pass
+                logger.info(f"[Outlook] Fingerprint saved for account {account.id}")
+        except Exception as fp_err:
+            logger.warning(f"[Outlook] Fingerprint save warning: {fp_err}")
 
         logger.info(f"[OK] Outlook registered: {ctx.email}")
         export_account_to_file(account)

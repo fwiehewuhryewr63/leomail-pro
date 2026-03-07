@@ -292,8 +292,6 @@ async def run_birth_task(request: BirthRequest):
 
         try:
             registered_accounts = []
-            max_attempts = max(request.quantity * 20, 40)  # generous retries for burned proxies
-            attempt_counter = [0]
             success_counter = [0]
             name_index = [0]  # Atomic index into shuffled name pool
             job_lock = asyncio.Lock()
@@ -312,14 +310,11 @@ async def run_birth_task(request: BirthRequest):
             PROXY_MAX_ROUNDS = 8       # 2 rounds × 4 proxy tiers
 
             async def worker(worker_id: int):
-                """Worker keeps registering until target reached."""
+                """Worker keeps registering until target reached — NO attempt limit."""
                 while True:
                     needs_cooldown = False
                     async with job_lock:
                         if success_counter[0] >= request.quantity:
-                            return
-                        if attempt_counter[0] >= max_attempts:
-                            task.stop_reason = f"Process stopped - attempt limit reached ({max_attempts}). Registered {success_counter[0]} of {request.quantity}"
                             return
                         if consecutive_failures[0] >= 30:
                             task.stop_reason = f"Process stopped because - 30 errors in a row. Registered {success_counter[0]} of {request.quantity}. Check proxies and SMS."
@@ -327,8 +322,6 @@ async def run_birth_task(request: BirthRequest):
                         if consecutive_failures[0] >= 15 and consecutive_failures[0] % 15 == 0:
                             needs_cooldown = True
                             logger.warning(f"[Birth] Worker {worker_id}: {consecutive_failures[0]} failures, cooldown 60s...")
-                        attempt_counter[0] += 1
-                        current_attempt = attempt_counter[0]
 
                     # Cooldown OUTSIDE lock so other workers can continue
                     if needs_cooldown:
