@@ -809,7 +809,7 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
     """
     Post-registration session aging: visit inbox, settings, compose.
     Makes the freshly created account look like a real first-time user.
-    Runs 15-30s - enough to establish session cookies without being slow.
+    Runs 45-90s - natural first-visit pace to establish session cookies.
     """
     if duration_seconds is None:
         duration_seconds = random.randint(45, 90)

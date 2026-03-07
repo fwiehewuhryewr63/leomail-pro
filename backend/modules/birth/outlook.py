@@ -1313,10 +1313,11 @@ async def register_single_outlook(
         logger.info(f"[OK] Outlook registered: {ctx.email}")
         export_account_to_file(account)
 
-        # IMAP verification (non-blocking)
+        # IMAP verification (non-blocking, expected to fail on fresh Outlook accounts)
+        # Outlook requires app password or OAuth for IMAP — regular password won't work
         try:
             from ...services.imap_checker import verify_account_imap
-            await verify_account_imap(account, db, _log, _err)
+            await verify_account_imap(account, db, _log, _log)  # _log for errors too — IMAP fail is expected
         except Exception as imap_e:
             logger.debug(f"[Outlook] IMAP check skipped: {imap_e}")
 
