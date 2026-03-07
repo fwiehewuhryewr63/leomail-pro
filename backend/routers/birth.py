@@ -410,7 +410,7 @@ async def run_birth_task(request: BirthRequest):
 
                         thread_log = ThreadLog(
                             task_id=task.id,
-                            thread_index=current_attempt - 1,
+                            thread_index=name_index[0],
                             thread_type="birth",
                             status="running",
                             proxy_info=proxy.to_string() if proxy else "No proxy",
@@ -549,7 +549,7 @@ async def run_birth_task(request: BirthRequest):
                             # (get_next_sms_number tracks used_numbers and switches providers)
 
                             db.commit()
-                            logger.info(f"[Birth] [FAIL] Worker {worker_id}: attempt {current_attempt} failed, retrying...")
+                            logger.info(f"[Birth] [FAIL] Worker {worker_id}: attempt {name_index[0]} failed, retrying...")
 
                             # ── Classify failure reason for resource exhaustion ──
                             err_msg = (thread_log.error_message or "").lower()
