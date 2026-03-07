@@ -13,9 +13,30 @@ from pathlib import Path
 from datetime import datetime
 from loguru import logger
 
-# Current version
-VERSION = "4.5.2"
+# Current version - read from version.json at import time
 VERSION_FILE = "version.json"
+
+def _read_version_from_file() -> str:
+    """Read version from version.json, checking multiple possible locations."""
+    candidates = []
+    # 1. Frozen EXE: next to Leomail.exe
+    if getattr(sys, 'frozen', False):
+        candidates.append(Path(sys.executable).parent / VERSION_FILE)
+        candidates.append(Path(sys._MEIPASS) / VERSION_FILE)
+    # 2. Dev mode: source/version.json
+    candidates.append(Path(__file__).parent.parent.parent / VERSION_FILE)
+    candidates.append(Path(__file__).parent.parent / VERSION_FILE)
+
+    for vpath in candidates:
+        if vpath.exists():
+            try:
+                data = json.loads(vpath.read_text(encoding="utf-8"))
+                return data.get("version", "0.0.0")
+            except Exception:
+                continue
+    return "0.0.0"
+
+VERSION = _read_version_from_file()
 
 # GitHub repo for releases
 GITHUB_REPO = "fwiehewuhryewr63/leomail-pro"
