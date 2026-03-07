@@ -87,45 +87,52 @@ async def _startup():
 
     # Auto-install Chromium if missing (critical for EXE distribution)
     try:
-        # Try patchright first, fall back to playwright
-        try:
-            from patchright._impl._driver import compute_driver_executable
-            _engine_name = "Patchright"
-        except ImportError:
-            from playwright._impl._driver import compute_driver_executable
-            _engine_name = "Playwright"
-        driver_result = compute_driver_executable()
-        # compute_driver_executable returns (node_exe, cli_js) tuple or a string
-        if isinstance(driver_result, tuple):
-            node_exe_path, cli_js_path = driver_result
-            driver_dir = Path(node_exe_path).parent
-        else:
-            driver_dir = Path(driver_result).parent
-            node_exe_path = str(driver_dir / "node.exe")
-            cli_js_path = str(driver_dir / "package" / "cli.js")
-        browsers_dir = driver_dir / "package" / ".local-browsers"
-        # Check if any chromium directory with chrome.exe exists
+        _engine_name = "Patchright"
+        # Check if chromium exists in standard ms-playwright location
         chromium_ok = False
-        if browsers_dir.exists():
-            for d in browsers_dir.iterdir():
+        # Standard location: %LOCALAPPDATA%\ms-playwright\chromium-*\chrome-win64\chrome.exe
+        ms_pw_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+        if ms_pw_dir.exists():
+            for d in ms_pw_dir.iterdir():
                 if d.is_dir() and d.name.startswith("chromium"):
                     chrome_exe = d / "chrome-win64" / "chrome.exe"
                     if chrome_exe.exists():
                         chromium_ok = True
                         break
+        # Also check frozen EXE bundled path
+        if not chromium_ok and getattr(sys, 'frozen', False):
+            frozen_browsers = Path(sys._MEIPASS) / "patchright" / "driver" / "package" / ".local-browsers"
+            if frozen_browsers.exists():
+                for d in frozen_browsers.iterdir():
+                    if d.is_dir() and d.name.startswith("chromium"):
+                        chrome_exe = d / "chrome-win64" / "chrome.exe"
+                        if chrome_exe.exists():
+                            chromium_ok = True
+                            break
+
         if not chromium_ok:
             logger.info(f"{_engine_name} Chromium not found — downloading automatically...")
             import subprocess
-            env = os.environ.copy()
-            env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
+            # Use patchright's own install command (it knows where to put browsers)
             result = subprocess.run(
-                [str(node_exe_path), str(cli_js_path), "install", "chromium"],
-                env=env, capture_output=True, text=True, timeout=300
+                [sys.executable, "-m", "patchright", "install", "chromium"],
+                capture_output=True, text=True, timeout=300
             )
             if result.returncode == 0:
                 logger.info(f"{_engine_name} Chromium installed successfully")
             else:
-                logger.warning(f"{_engine_name} install returned code {result.returncode}: {result.stderr[:300]}")
+                # Check if it actually installed despite non-zero exit (Node deprecation warnings cause code 1)
+                recheck_ok = False
+                if ms_pw_dir.exists():
+                    for d in ms_pw_dir.iterdir():
+                        if d.is_dir() and d.name.startswith("chromium"):
+                            if (d / "chrome-win64" / "chrome.exe").exists():
+                                recheck_ok = True
+                                break
+                if recheck_ok:
+                    logger.info(f"{_engine_name} Chromium installed (exit code {result.returncode} was a false alarm)")
+                else:
+                    logger.warning(f"{_engine_name} Chromium install failed (code {result.returncode}): {(result.stderr or result.stdout)[:300]}")
         else:
             logger.info(f"{_engine_name} Chromium: OK")
     except Exception as e:
