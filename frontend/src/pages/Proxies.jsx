@@ -170,7 +170,7 @@ export default function Proxies() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
                 {[
                     { label: 'Total', value: total, color: '#10B981', filterKey: null },
-                    { label: 'Active', value: alive, color: '#10B981', filterKey: 'active' },
+                    { label: 'Free', value: alive, color: '#10B981', filterKey: 'active' },
                     { label: 'Bound', value: bound, color: '#06B6D4', filterKey: 'bound' },
                     { label: 'Exhausted', value: exhausted, color: '#F59E0B', filterKey: 'exhausted' },
                     { label: 'Dead', value: dead, color: '#EF4444', filterKey: 'dead' },
@@ -332,13 +332,13 @@ export default function Proxies() {
                                         <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)}
                                             style={{ accentColor: selected.has(p.id) ? 'var(--danger)' : 'var(--accent)' }} />
                                     </td>
-                                    {/* Status dot */}
+                                    {/* Status dot — health indicator only */}
                                     <td style={tdStyle}>
                                         <div style={{
                                             width: 10, height: 10, borderRadius: '50%',
-                                            background: p.status === 'active' ? '#10B981'
+                                            background: (p.status === 'active' || p.status === 'bound') ? '#10B981'
                                                 : p.status === 'exhausted' ? '#F59E0B' : '#EF4444',
-                                            boxShadow: p.status === 'active' ? '0 0 6px rgba(16,185,129,0.5)' : undefined,
+                                            boxShadow: (p.status === 'active' || p.status === 'bound') ? '0 0 6px rgba(16,185,129,0.5)' : undefined,
                                         }} />
                                     </td>
 

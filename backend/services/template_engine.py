@@ -6,9 +6,8 @@ import re
 from loguru import logger
 
 
-# Variables we support
-# {{USER}} is alias for {{EMAILNAME}} (part before @ in recipient email)
-SUPPORTED_VARIABLES = ["LINK", "FIRSTNAME", "EMAILNAME", "USER"]
+# Variables we support (new naming: USERNAME, NAME; old aliases kept for backward compat)
+SUPPORTED_VARIABLES = ["LINK", "USERNAME", "NAME", "FIRSTNAME", "EMAILNAME", "USER"]
 
 
 def detect_variables(text: str) -> list[str]:
@@ -35,7 +34,7 @@ def render_template(
     Args:
         subject: Template subject (plain text with {{VAR}} variables)
         body: Template body (plain text with {{VAR}} variables)
-        recipient: dict with keys: email, first_name, last_name
+        recipient: dict with keys: email, name (or first_name for backward compat)
         link_url: URL to substitute for {{LINK}}
     
     Returns:
@@ -47,8 +46,13 @@ def render_template(
     email_name = email.split("@")[0] if "@" in email else email
 
     # Variable substitution (case-insensitive)
+    # New naming: USERNAME = part before @, NAME = from recipient DB
+    # Old aliases kept for backward compatibility with existing templates
     replacements = {
         "{{LINK}}": link_url,
+        "{{USERNAME}}": email_name,
+        "{{NAME}}": name,
+        # Backward compat aliases
         "{{FIRSTNAME}}": name,
         "{{EMAILNAME}}": email_name,
         "{{USER}}": email_name,

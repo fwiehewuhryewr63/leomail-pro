@@ -230,7 +230,7 @@ class Template(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     subject = Column(String, nullable=False)  # may contain {{LINK}}, {{FIRSTNAME}}, etc.
-    body = Column(Text, nullable=False)  # HTML, may contain {{LINK}}, {{FIRSTNAME}}, {{LASTNAME}}, {{EMAILNAME}}
+    body = Column(Text, nullable=False)  # HTML, may contain {{LINK}}, {{USERNAME}}, {{NAME}}
     content_type = Column(String, default="html")  # html, plain
     language = Column(String, default="en")
     pack_name = Column(String, nullable=True)  # name of import pack (ZIP)

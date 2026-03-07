@@ -5,9 +5,8 @@ import { API } from '../api';
 
 const VAR_COLORS = {
     LINK: '#10B981',
-    FIRSTNAME: '#06B6D4',
-    EMAILNAME: '#F59E0B',
-    USERNAME: '#EC4899',
+    USERNAME: '#06B6D4',
+    NAME: '#F59E0B',
 };
 
 const highlightVars = (text) => {
@@ -90,7 +89,7 @@ export default function Templates() {
     });
 
     const hasLink = (vars) => (vars || []).includes('LINK');
-    const hasPersonalization = (vars) => (vars || []).some(v => ['FIRSTNAME', 'LASTNAME', 'EMAILNAME'].includes(v));
+    const hasPersonalization = (vars) => (vars || []).some(v => ['USERNAME', 'NAME', 'FIRSTNAME', 'EMAILNAME'].includes(v));
 
     const VarBadge = ({ name: varName }) => (
         <span style={{
@@ -154,7 +153,7 @@ export default function Templates() {
                         background: `${c}22`, color: c, padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.9em',
                     }}>{`{{${v}}}`}</span>
                 ))}
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.92em' }}>— required {'{{'}LINK{'}}'}  + at least 1 personalization</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.92em' }}>— required {'{{'}LINK{'}}'}  + {'{{'}USERNAME{'}}'}  or {'{{'}NAME{'}}'}  for personalization</span>
             </div>
 
             {/* ═══ LIST TAB ═══ */}
@@ -227,22 +226,22 @@ export default function Templates() {
                         <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                             Subject Line
                             <span style={{ fontSize: '0.9em', color: 'var(--text-muted)', marginLeft: 8, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-                                Use {`{{EMAILNAME}}`}, {`{{FIRSTNAME}}`}, {`{{LINK}}`}
+                                Use {`{{LINK}}`}, {`{{USERNAME}}`}, {`{{NAME}}`}
                             </span>
                         </label>
                         <input className="form-input" value={subject} onChange={e => setSubject(e.target.value)}
-                            placeholder="Hey {{EMAILNAME}}, check this out" style={{ marginTop: 4 }} />
+                            placeholder="Hey {{USERNAME}}, check this out" style={{ marginTop: 4 }} />
                     </div>
                     <div style={{ marginBottom: 14 }}>
                         <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Body (HTML)</label>
                         <textarea className="form-input" value={body} onChange={e => setBody(e.target.value)}
-                            placeholder={'<p>Hi {{FIRSTNAME}},</p>\n<p>Click here: {{LINK}}</p>'} rows={10}
+                            placeholder={'<p>Hi {{NAME}},</p>\n<p>Click here: {{LINK}}</p>'} rows={10}
                             style={{ marginTop: 4, fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }} />
                     </div>
                     {(subject || body) && (
                         <div style={{ marginBottom: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
                             <span style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>Variables:</span>
-                            {['LINK', 'FIRSTNAME', 'EMAILNAME'].filter(v =>
+                            {['LINK', 'USERNAME', 'NAME'].filter(v =>
                                 (subject + ' ' + body).toUpperCase().includes('{{' + v + '}}')
                             ).map(v => <VarBadge key={v} name={v} />)}
                         </div>

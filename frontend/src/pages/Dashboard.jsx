@@ -423,20 +423,32 @@ export default function Dashboard() {
                     </div>
                     {s.recent_activity && s.recent_activity.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {s.recent_activity.slice(0, 8).map((a, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82em' }}>
-                                    <span style={{
-                                        width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                                        background: a.type === 'success' ? '#22C55E' : a.type === 'error' ? '#EF4444' : '#3B82F6',
-                                    }} />
-                                    <span style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.88em', flexShrink: 0, width: 48 }}>
-                                        {a.time || '—'}
-                                    </span>
-                                    <span style={{ color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {a.message || '—'}
-                                    </span>
-                                </div>
-                            ))}
+                            {s.recent_activity.slice(0, 8).map((a, i) => {
+                                // Color-code by provider from email in message
+                                const msg = a.message || '—';
+                                const emailMatch = msg.match(/[\w.-]+@([\w.-]+)/i);
+                                const domain = emailMatch ? emailMatch[1].toLowerCase() : '';
+                                const provColor = domain.includes('gmail') ? '#EA4335'
+                                    : domain.includes('yahoo') ? '#6001D2'
+                                        : domain.includes('outlook') || domain.includes('hotmail') ? '#0078D4'
+                                            : domain.includes('proton') ? '#6D4AFF'
+                                                : domain.includes('aol') ? '#FF6B00'
+                                                    : 'var(--text-secondary)';
+                                return (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82em' }}>
+                                        <span style={{
+                                            width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                                            background: a.type === 'success' ? '#22C55E' : a.type === 'error' ? '#EF4444' : '#3B82F6',
+                                        }} />
+                                        <span style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.88em', flexShrink: 0, width: 48 }}>
+                                            {a.time || '—'}
+                                        </span>
+                                        <span style={{ color: provColor, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: emailMatch ? 600 : 400 }}>
+                                            {msg}
+                                        </span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     ) : (
                         <div style={{ color: 'var(--text-muted)', fontSize: '0.85em', padding: '24px 0', textAlign: 'center' }}>

@@ -13,7 +13,7 @@ import os
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
-TEMPLATE_VARS = ["LINK", "FIRSTNAME", "LASTNAME", "EMAILNAME", "USER"]
+TEMPLATE_VARS = ["LINK", "USERNAME", "NAME", "FIRSTNAME", "LASTNAME", "EMAILNAME", "USER"]
 
 
 def detect_variables(text: str) -> list:

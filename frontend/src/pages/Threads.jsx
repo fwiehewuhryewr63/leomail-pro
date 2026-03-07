@@ -257,14 +257,16 @@ export default function Threads() {
                     </button>
                 </div>
 
-                {/* Stats */}
-                <div className="card" style={{ padding: '6px 14px', marginBottom: 10, fontSize: '0.8em', color: 'var(--text-secondary)', display: 'flex', gap: 10 }}>
-                    <span style={{ color: '#10B981', fontWeight: 700 }}>{done} ✓</span>
-                    <span style={{ color: 'var(--text-muted)' }}>·</span>
-                    <span style={{ color: '#EF4444', fontWeight: 700 }}>{failed} ✗</span>
-                    <span style={{ color: 'var(--text-muted)' }}>·</span>
-                    <span style={{ color: '#06B6D4', fontWeight: 700 }}>{running} ↻</span>
-                </div>
+                {/* Stats — only show when threads are active */}
+                {running > 0 && (
+                    <div className="card" style={{ padding: '6px 14px', marginBottom: 10, fontSize: '0.8em', color: 'var(--text-secondary)', display: 'flex', gap: 10 }}>
+                        <span style={{ color: '#10B981', fontWeight: 700 }}>{done} ✓</span>
+                        <span style={{ color: 'var(--text-muted)' }}>·</span>
+                        <span style={{ color: '#EF4444', fontWeight: 700 }}>{failed} ✗</span>
+                        <span style={{ color: 'var(--text-muted)' }}>·</span>
+                        <span style={{ color: '#06B6D4', fontWeight: 700 }}>{running} ↻</span>
+                    </div>
+                )}
 
                 {/* Active groups */}
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
