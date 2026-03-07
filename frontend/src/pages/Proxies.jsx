@@ -22,9 +22,11 @@ export default function Proxies() {
     const alive = stats.active || 0;
     const dead = stats.dead || 0;
     const exhausted = stats.exhausted || 0;
+    const bound = proxies.filter(p => p.bound_to).length;
 
     const filteredProxies = filter ? proxies.filter(p => {
         if (filter === 'active') return p.status === 'active' && !p.bound_to;
+        if (filter === 'bound') return !!p.bound_to;
         if (filter === 'exhausted') return p.status === 'exhausted';
         if (filter === 'dead') return ['dead', 'expired', 'banned'].includes(p.status);
         return true;
@@ -165,10 +167,11 @@ export default function Proxies() {
             </div>
 
             {/* ═══ Stat Cards ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
                 {[
                     { label: 'Total', value: total, color: '#10B981', filterKey: null },
                     { label: 'Active', value: alive, color: '#10B981', filterKey: 'active' },
+                    { label: 'Bound', value: bound, color: '#06B6D4', filterKey: 'bound' },
                     { label: 'Exhausted', value: exhausted, color: '#F59E0B', filterKey: 'exhausted' },
                     { label: 'Dead', value: dead, color: '#EF4444', filterKey: 'dead' },
                 ].map(s => (
@@ -296,6 +299,7 @@ export default function Proxies() {
                                 <th style={thStyle}>Type</th>
                                 <th style={thStyle}>Source</th>
                                 <th style={thStyle}>Geo</th>
+                                <th style={thStyle}>Bound</th>
                                 <th style={thStyle}>Speed</th>
                                 {[
                                     { label: 'G', color: '#EA4335', bg: 'rgba(234,67,53,0.15)' },
@@ -371,6 +375,23 @@ export default function Proxies() {
 
                                     {/* Geo with flag */}
                                     <td style={{ ...tdStyle, fontSize: '0.82em' }}>{geoFlag(p.geo)}</td>
+
+                                    {/* Bound to account */}
+                                    <td style={{ ...tdStyle, fontSize: '0.75em' }}>
+                                        {p.bound_to ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                <Link2 size={11} style={{ color: '#06B6D4', flexShrink: 0 }} />
+                                                <span style={{ color: '#06B6D4', fontWeight: 600, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                                    title={p.bound_to}>{p.bound_to}</span>
+                                                <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); _unbindProxy(p.id); }}
+                                                    style={{ padding: '2px 4px', marginLeft: 2 }} title="Unbind">
+                                                    <Unlink size={10} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                        )}
+                                    </td>
 
                                     {/* Speed */}
                                     <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', color: 'var(--text-muted)' }}>
