@@ -649,10 +649,34 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
                     await asyncio.sleep(1.0)
                     bbox = None  # reset for next check
             
-            if not bbox or bbox.get('height', 0) <= 5:
-                ctx._log(f"[PX] {found_via} — button has zero/tiny dimensions after 5s wait (bbox={bbox})")
-                await _human_delay(2, 4)
-                continue
+            if not bbox or bbox.get('height', 0) <= 5 or bbox.get('width', 0) <= 5 or bbox.get('x', 0) < -100:
+                ctx._log(f"[PX] {found_via} — button has zero/tiny/offscreen dimensions after 5s wait (bbox={bbox})")
+                # Scroll element into view and retry
+                try:
+                    await hold_target.scroll_into_view_if_needed(timeout=3000)
+                    await asyncio.sleep(2.0)
+                    bbox = await hold_target.bounding_box()
+                    if bbox and bbox.get('height', 0) > 5 and bbox.get('width', 0) > 5 and bbox.get('x', 0) > -100:
+                        ctx._log(f"[PX] Scroll fixed it! New bbox: {bbox['width']:.0f}x{bbox['height']:.0f} at ({bbox['x']:.0f},{bbox['y']:.0f})")
+                    else:
+                        # Try clicking the page body to trigger re-render, then re-check
+                        try:
+                            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            await asyncio.sleep(1.5)
+                            await page.evaluate("window.scrollTo(0, 0)")
+                            await asyncio.sleep(1.5)
+                            bbox = await hold_target.bounding_box()
+                        except Exception:
+                            pass
+                        if not bbox or bbox.get('height', 0) <= 5 or bbox.get('width', 0) <= 5 or bbox.get('x', 0) < -100:
+                            ctx._log(f"[PX] Still zero/offscreen after scroll — skipping attempt {attempt}")
+                            await _human_delay(2, 4)
+                            continue
+                        ctx._log(f"[PX] Page scroll fixed it! New bbox: {bbox['width']:.0f}x{bbox['height']:.0f} at ({bbox['x']:.0f},{bbox['y']:.0f})")
+                except Exception as scroll_err:
+                    ctx._log(f"[PX] Scroll failed: {scroll_err}")
+                    await _human_delay(2, 4)
+                    continue
 
             ctx._log(f"[PX] Found via {found_via} — bbox: {bbox['width']:.0f}x{bbox['height']:.0f} at ({bbox['x']:.0f},{bbox['y']:.0f})")
 

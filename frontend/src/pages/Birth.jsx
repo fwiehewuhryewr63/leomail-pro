@@ -282,40 +282,38 @@ export default function Birth() {
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {Array.from({ length: Math.min(safeProgress.total || parseInt(threads) || 1, 10) }, (_, i) => {
+                        {Array.from({ length: parseInt(threads) || 1 }, (_, i) => {
                             const tIdx = i + 1;
-                            const isActive = running && i < (safeProgress.completed + safeProgress.failed + safeProgress.retrying);
-                            const isDone = i < safeProgress.completed;
-                            const isFailed = i >= safeProgress.completed && i < safeProgress.completed + safeProgress.failed;
-                            const isRetrying = i >= safeProgress.completed + safeProgress.failed && i < safeProgress.completed + safeProgress.failed + safeProgress.retrying;
+                            const tLog = threadLogs[i];
+                            const isDone = tLog?.status === 'completed' || tLog?.status === 'done';
+                            const isFailed = tLog?.status === 'error';
+                            const isRunning = tLog?.status === 'running';
 
                             const statusIcon = isDone ? <CheckCircle size={14} style={{ color: 'var(--success)' }} />
                                 : isFailed ? <XCircle size={14} style={{ color: 'var(--danger)' }} />
-                                    : isRetrying ? <RefreshCw size={14} style={{ color: 'var(--warning)' }} />
+                                    : isRunning ? <RefreshCw size={14} style={{ color: 'var(--warning)' }} />
                                         : <Circle size={14} style={{ color: 'var(--text-muted)' }} />;
 
-                            // Use real thread log data if available
-                            const tLog = threadLogs[i];
-                            const statusText = tLog?.status === 'completed' ? (tLog.email || 'Registered ✓')
-                                : tLog?.status === 'error' ? (tLog.error_message || 'Failed')
-                                    : tLog?.status === 'running' ? (tLog.current_step || 'Working...')
-                                        : isDone ? 'Registered ✓'
-                                            : isFailed ? 'Failed'
-                                                : isRetrying ? 'Retrying...'
-                                                    : 'Queued';
+                            const statusText = tLog?.status === 'done' ? (tLog.email || tLog.account_email || 'Registered ✓')
+                                : tLog?.status === 'completed' ? (tLog.email || tLog.account_email || 'Registered ✓')
+                                    : tLog?.status === 'error' ? (tLog.error_message || 'Failed')
+                                        : tLog?.status === 'running' ? (tLog.current_step || 'Working...')
+                                            : running ? 'Queued' : '—';
 
-                            const statusColor = isDone ? 'var(--success)' : isFailed ? 'var(--danger)' : isRetrying ? 'var(--warning)' : 'var(--text-muted)';
+                            const statusColor = isDone ? 'var(--success)' : isFailed ? 'var(--danger)' : isRunning ? 'var(--warning)' : 'var(--text-muted)';
+                            const email = isDone ? (tLog?.email || tLog?.account_email || '—') : '—';
+                            const elapsed = tLog?.elapsed ? `${Math.floor(tLog.elapsed / 60)}m ${Math.floor(tLog.elapsed % 60)}s` : '';
 
                             return (
                                 <div key={tIdx} style={{
-                                    display: 'grid', gridTemplateColumns: '70px 40px 1fr 130px 70px',
+                                    display: 'grid', gridTemplateColumns: '70px 40px 1fr 180px 70px',
                                     alignItems: 'center', gap: 8,
                                     padding: '10px 14px', borderRadius: 8,
                                     background: isDone ? 'rgba(16,185,129,0.04)'
                                         : isFailed ? 'rgba(239,68,68,0.04)'
-                                            : isRetrying ? 'rgba(245,158,11,0.04)'
+                                            : isRunning ? 'rgba(245,158,11,0.04)'
                                                 : 'rgba(255,255,255,0.01)',
-                                    borderLeft: isActive || isDone || isFailed || isRetrying ? `3px solid ${statusColor}` : '3px solid transparent',
+                                    borderLeft: `3px solid ${statusColor}`,
                                 }}>
                                     {/* Thread ID */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -326,17 +324,17 @@ export default function Birth() {
                                     {/* Provider logo */}
                                     <ProviderLogo provider={displayProvider} size={24} />
 
-                                    {/* Email placeholder */}
-                                    <span style={{ fontSize: '0.82em', color: isDone ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: isDone ? 500 : 400 }}>
-                                        {isDone ? `user${tIdx}@${displayProvider}.com` : '—'}
+                                    {/* Email */}
+                                    <span style={{ fontSize: '0.82em', color: isDone ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: isDone ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {email}
                                     </span>
 
                                     {/* Status */}
-                                    <span style={{ fontSize: '0.78em', color: statusColor, fontWeight: 600 }}>{statusText}</span>
+                                    <span style={{ fontSize: '0.78em', color: statusColor, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{statusText}</span>
 
                                     {/* Time */}
                                     <span style={{ fontSize: '0.75em', color: 'var(--text-muted)', textAlign: 'right' }}>
-                                        {isActive || isDone || isFailed ? `${tIdx}m ${(tIdx * 17) % 59}s` : ''}
+                                        {elapsed}
                                     </span>
                                 </div>
                             );

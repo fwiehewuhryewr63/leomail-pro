@@ -292,7 +292,7 @@ async def run_birth_task(request: BirthRequest):
 
         try:
             registered_accounts = []
-            max_attempts = request.quantity * 4  # fail-safe
+            max_attempts = max(request.quantity * 20, 40)  # generous retries for burned proxies
             attempt_counter = [0]
             success_counter = [0]
             name_index = [0]  # Atomic index into shuffled name pool
