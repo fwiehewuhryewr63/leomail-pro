@@ -94,8 +94,15 @@ async def _startup():
         except ImportError:
             from playwright._impl._driver import compute_driver_executable
             _engine_name = "Playwright"
-        driver_exec = compute_driver_executable()
-        driver_dir = Path(driver_exec).parent
+        driver_result = compute_driver_executable()
+        # compute_driver_executable returns (node_exe, cli_js) tuple or a string
+        if isinstance(driver_result, tuple):
+            node_exe_path, cli_js_path = driver_result
+            driver_dir = Path(node_exe_path).parent
+        else:
+            driver_dir = Path(driver_result).parent
+            node_exe_path = str(driver_dir / "node.exe")
+            cli_js_path = str(driver_dir / "package" / "cli.js")
         browsers_dir = driver_dir / "package" / ".local-browsers"
         # Check if any chromium directory with chrome.exe exists
         chromium_ok = False
@@ -109,12 +116,10 @@ async def _startup():
         if not chromium_ok:
             logger.info(f"{_engine_name} Chromium not found — downloading automatically...")
             import subprocess
-            node_exe = driver_dir / "node.exe"
-            cli_js = driver_dir / "package" / "cli.js"
             env = os.environ.copy()
             env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
             result = subprocess.run(
-                [str(node_exe), str(cli_js), "install", "chromium"],
+                [str(node_exe_path), str(cli_js_path), "install", "chromium"],
                 env=env, capture_output=True, text=True, timeout=300
             )
             if result.returncode == 0:
