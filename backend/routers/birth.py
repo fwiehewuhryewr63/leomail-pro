@@ -60,9 +60,9 @@ def classify_error(error_message: str) -> str:
     if any(x in msg for x in ["e410", "e411", "e412", "captcha", "funcaptcha",
                                "perimeterx", "px", "hcaptcha", "recaptcha", "captcha_fail"]):
         return "captcha"
-    # SMS failures
+    # SMS failures (specific phrases only — "verification" alone is too broad, matches block messages)
     if any(x in msg for x in ["sms", "phone", "code not received", "no numbers",
-                               "verification code", "verification"]):
+                               "verification code", "sms code"]):
         return "sms"
     # Proxy / IP blocks
     if any(x in msg for x in ["e301", "e303", "e304", "e500", "e501", "proxy",
@@ -770,6 +770,34 @@ async def get_sms_countries():
     return {"countries": countries}
 
 
+def _get_task_analytics(task, db):
+    """Extract provider, error breakdown, and success rate from a task."""
+    # Extract provider from task details
+    task_provider = None
+    if task.details:
+        for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail']:
+            if p in task.details.lower():
+                task_provider = p
+                break
+    # Error breakdown by category
+    error_breakdown = {"proxy": 0, "captcha": 0, "sms": 0, "block": 0,
+                       "page": 0, "browser": 0, "unknown": 0}
+    err_logs = db.query(ThreadLog).filter(
+        ThreadLog.task_id == task.id,
+        ThreadLog.status == "error",
+    ).all()
+    for el in err_logs:
+        cat = el.error_category or classify_error(el.error_message)
+        if cat in error_breakdown:
+            error_breakdown[cat] += 1
+        else:
+            error_breakdown["unknown"] += 1
+    # Success rate
+    total_attempts = (task.completed_items or 0) + (task.failed_items or 0)
+    success_rate = round((task.completed_items or 0) / total_attempts * 100) if total_attempts > 0 else 0
+    return task_provider, error_breakdown, success_rate
+
+
 @router.get("/status")
 async def birth_status(db: Session = Depends(get_db)):
     """Check if any birth task is currently running. Used by frontend for stop button."""
@@ -779,33 +807,7 @@ async def birth_status(db: Session = Depends(get_db)):
     ).order_by(Task.created_at.desc()).first()
 
     if running_task:
-        # Extract provider from task details
-        task_provider = None
-        if running_task.details:
-            # details format: "Registering N provider accounts"
-            parts = (running_task.details or "").split()
-            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail']:
-                if p in running_task.details.lower():
-                    task_provider = p
-                    break
-
-        # Error breakdown
-        error_breakdown = {"proxy": 0, "captcha": 0, "sms": 0, "block": 0,
-                           "page": 0, "browser": 0, "unknown": 0}
-        err_logs = db.query(ThreadLog).filter(
-            ThreadLog.task_id == running_task.id,
-            ThreadLog.status == "error",
-        ).all()
-        for el in err_logs:
-            cat = el.error_category or classify_error(el.error_message)
-            if cat in error_breakdown:
-                error_breakdown[cat] += 1
-            else:
-                error_breakdown["unknown"] += 1
-
-        total_attempts = (running_task.completed_items or 0) + (running_task.failed_items or 0)
-        success_rate = round((running_task.completed_items or 0) / total_attempts * 100) if total_attempts > 0 else 0
-
+        provider, breakdown, rate = _get_task_analytics(running_task, db)
         return {
             "running": True,
             "task_id": running_task.id,
@@ -814,9 +816,9 @@ async def birth_status(db: Session = Depends(get_db)):
             "failed": running_task.failed_items or 0,
             "status": "running",
             "stop_reason": running_task.stop_reason,
-            "provider": task_provider,
-            "success_rate": success_rate,
-            "error_breakdown": error_breakdown,
+            "provider": provider,
+            "success_rate": rate,
+            "error_breakdown": breakdown,
         }
 
     # Check last finished task
@@ -825,30 +827,7 @@ async def birth_status(db: Session = Depends(get_db)):
     ).order_by(Task.created_at.desc()).first()
 
     if last_task:
-        task_provider = None
-        if last_task.details:
-            for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail']:
-                if p in last_task.details.lower():
-                    task_provider = p
-                    break
-
-        # Error breakdown for finished task
-        error_breakdown = {"proxy": 0, "captcha": 0, "sms": 0, "block": 0,
-                           "page": 0, "browser": 0, "unknown": 0}
-        err_logs = db.query(ThreadLog).filter(
-            ThreadLog.task_id == last_task.id,
-            ThreadLog.status == "error",
-        ).all()
-        for el in err_logs:
-            cat = el.error_category or classify_error(el.error_message)
-            if cat in error_breakdown:
-                error_breakdown[cat] += 1
-            else:
-                error_breakdown["unknown"] += 1
-
-        total_attempts = (last_task.completed_items or 0) + (last_task.failed_items or 0)
-        success_rate = round((last_task.completed_items or 0) / total_attempts * 100) if total_attempts > 0 else 0
-
+        provider, breakdown, rate = _get_task_analytics(last_task, db)
         return {
             "running": False,
             "task_id": last_task.id,
@@ -858,9 +837,9 @@ async def birth_status(db: Session = Depends(get_db)):
             "status": last_task.status,
             "stop_reason": last_task.stop_reason,
             "error": last_task.details if last_task.status == "failed" else None,
-            "provider": task_provider,
-            "success_rate": success_rate,
-            "error_breakdown": error_breakdown,
+            "provider": provider,
+            "success_rate": rate,
+            "error_breakdown": breakdown,
         }
 
     return {"running": False, "task_id": None}
