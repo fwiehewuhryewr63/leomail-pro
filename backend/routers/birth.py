@@ -344,6 +344,7 @@ async def run_birth_task(request: BirthRequest):
                         pass
 
                     thread_log = None
+                    proxy = None  # Track for finally block
                     try:
                         # Get a verified proxy (excluding blacklisted/burned AND currently in-use ones)
                         async with proxy_select_lock:
@@ -631,10 +632,6 @@ async def run_birth_task(request: BirthRequest):
 
                             await asyncio.sleep(random.uniform(2, 5))
 
-                        # Release proxy from in-use tracking (attempt done)
-                        if proxy:
-                            proxies_in_use.discard(proxy.id)
-
                     except Exception as e:
                         err_str = str(e)
                         err_lower = err_str.lower()
@@ -658,8 +655,10 @@ async def run_birth_task(request: BirthRequest):
                             pass
                         # Wait longer on browser crash to give auto-restart time
                         await asyncio.sleep(5 if is_browser_crash else 3)
-                        # Release proxy from in-use tracking on exception
-                        if proxy:
+                    finally:
+                        # ALWAYS release proxy from in-use tracking — covers ALL exit paths
+                        # (success, failure, exception, early return on resource exhaustion)
+                        if proxy and hasattr(proxy, 'id'):
                             proxies_in_use.discard(proxy.id)
 
             # Launch workers
