@@ -333,6 +333,7 @@ class ThreadLog(Base):
     account_email = Column(String, nullable=True)
     proxy_info = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
+    error_category = Column(String, nullable=True)  # proxy, captcha, sms, block, page, browser, unknown
     screenshot_path = Column(String, nullable=True)
 
     started_at = Column(DateTime, default=datetime.utcnow)

@@ -301,6 +301,16 @@ async def _startup():
         except Exception:
             pass
 
+        # thread_logs - error_category for analytics
+        try:
+            tl_cols = [c["name"] for c in inspector.get_columns("thread_logs")]
+            if "error_category" not in tl_cols:
+                conn.execute(text("ALTER TABLE thread_logs ADD COLUMN error_category VARCHAR"))
+                conn.commit()
+                logger.info("Migrated: added error_category column to thread_logs")
+        except Exception:
+            pass
+
         # cost_records table — create if missing (new table, create_all handles it)
         if "cost_records" not in inspector.get_table_names():
             from .models import CostRecord  # noqa: F401

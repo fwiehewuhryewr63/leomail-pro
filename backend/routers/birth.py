@@ -50,6 +50,41 @@ import threading
 BIRTH_CANCEL_EVENT = threading.Event()
 
 
+def classify_error(error_message: str) -> str:
+    """Classify error message into category for analytics.
+    Categories: proxy, captcha, sms, block, page, browser, unknown.
+    Uses error codes (E1xx-E5xx) and keyword matching.
+    """
+    msg = (error_message or "").lower()
+    # Captcha failures
+    if any(x in msg for x in ["e410", "e411", "e412", "captcha", "funcaptcha",
+                               "perimeterx", "px", "hcaptcha", "recaptcha", "captcha_fail"]):
+        return "captcha"
+    # SMS failures
+    if any(x in msg for x in ["sms", "phone", "code not received", "no numbers",
+                               "verification code", "verification"]):
+        return "sms"
+    # Proxy / IP blocks
+    if any(x in msg for x in ["e301", "e303", "e304", "e500", "e501", "proxy",
+                               "dead", "datacenter", "asn", "connection error",
+                               "something went wrong"]):
+        return "proxy"
+    # Active blocks by provider
+    if any(x in msg for x in ["e302", "blocked", "unusual activity", "banned",
+                               "can't create", "suspended"]):
+        return "block"
+    # Page / selector issues
+    if any(x in msg for x in ["e101", "e102", "e103", "e104", "e502",
+                               "not found", "field", "not confirmed"]):
+        return "page"
+    # Browser crashes
+    if any(x in msg for x in ["browser", "crash", "target closed",
+                               "connection closed", "browser has been closed",
+                               "context or browser"]):
+        return "browser"
+    return "unknown"
+
+
 class BirthRequest(BaseModel):
     provider: str = "outlook"  # gmail, outlook, yahoo, aol, hotmail, protonmail
     quantity: int = 1
@@ -530,6 +565,7 @@ async def run_birth_task(request: BirthRequest):
                             thread_log.status = "error"
                             if not thread_log.error_message:
                                 thread_log.error_message = "Registration not completed"
+                            thread_log.error_category = classify_error(thread_log.error_message)
 
                             # Smart retry: blacklist proxy if E500/IP/E302/E303 blocked
                             err_msg = (thread_log.error_message or "").lower()
@@ -650,6 +686,7 @@ async def run_birth_task(request: BirthRequest):
                             if thread_log:
                                 thread_log.status = "error"
                                 thread_log.error_message = f"{'[RETRY] Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
+                                thread_log.error_category = classify_error(thread_log.error_message)
                             db.commit()
                         except Exception:
                             pass
@@ -751,6 +788,24 @@ async def birth_status(db: Session = Depends(get_db)):
                 if p in running_task.details.lower():
                     task_provider = p
                     break
+
+        # Error breakdown
+        error_breakdown = {"proxy": 0, "captcha": 0, "sms": 0, "block": 0,
+                           "page": 0, "browser": 0, "unknown": 0}
+        err_logs = db.query(ThreadLog).filter(
+            ThreadLog.task_id == running_task.id,
+            ThreadLog.status == "error",
+        ).all()
+        for el in err_logs:
+            cat = el.error_category or classify_error(el.error_message)
+            if cat in error_breakdown:
+                error_breakdown[cat] += 1
+            else:
+                error_breakdown["unknown"] += 1
+
+        total_attempts = (running_task.completed_items or 0) + (running_task.failed_items or 0)
+        success_rate = round((running_task.completed_items or 0) / total_attempts * 100) if total_attempts > 0 else 0
+
         return {
             "running": True,
             "task_id": running_task.id,
@@ -760,6 +815,8 @@ async def birth_status(db: Session = Depends(get_db)):
             "status": "running",
             "stop_reason": running_task.stop_reason,
             "provider": task_provider,
+            "success_rate": success_rate,
+            "error_breakdown": error_breakdown,
         }
 
     # Check last finished task
@@ -774,6 +831,24 @@ async def birth_status(db: Session = Depends(get_db)):
                 if p in last_task.details.lower():
                     task_provider = p
                     break
+
+        # Error breakdown for finished task
+        error_breakdown = {"proxy": 0, "captcha": 0, "sms": 0, "block": 0,
+                           "page": 0, "browser": 0, "unknown": 0}
+        err_logs = db.query(ThreadLog).filter(
+            ThreadLog.task_id == last_task.id,
+            ThreadLog.status == "error",
+        ).all()
+        for el in err_logs:
+            cat = el.error_category or classify_error(el.error_message)
+            if cat in error_breakdown:
+                error_breakdown[cat] += 1
+            else:
+                error_breakdown["unknown"] += 1
+
+        total_attempts = (last_task.completed_items or 0) + (last_task.failed_items or 0)
+        success_rate = round((last_task.completed_items or 0) / total_attempts * 100) if total_attempts > 0 else 0
+
         return {
             "running": False,
             "task_id": last_task.id,
@@ -784,6 +859,8 @@ async def birth_status(db: Session = Depends(get_db)):
             "stop_reason": last_task.stop_reason,
             "error": last_task.details if last_task.status == "failed" else None,
             "provider": task_provider,
+            "success_rate": success_rate,
+            "error_breakdown": error_breakdown,
         }
 
     return {"running": False, "task_id": None}

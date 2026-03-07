@@ -35,6 +35,8 @@ export default function Birth() {
     /* ── Progress state ── */
     const [progress, setProgress] = useState(null); // null = not loaded yet
     const [threadLogs, setThreadLogs] = useState([]);
+    const [errorBreakdown, setErrorBreakdown] = useState(null);
+    const [successRate, setSuccessRate] = useState(null);
 
     useEffect(() => {
         fetch(`${API}/resources/batch`).then(r => r.json()).then(d => {
@@ -58,8 +60,14 @@ export default function Birth() {
                 });
                 if (d.provider) setRunningProvider(d.provider);
                 setResult({ status: 'running', message: 'Running...' });
+                if (d.error_breakdown) setErrorBreakdown(d.error_breakdown);
+                if (d.success_rate != null) setSuccessRate(d.success_rate);
             }
-            // If not running, leave progress as null → shows clean "Press START"
+            // If not running but task finished, show last error breakdown
+            if (!d.running && d.error_breakdown) {
+                setErrorBreakdown(d.error_breakdown);
+                if (d.success_rate != null) setSuccessRate(d.success_rate);
+            }
         }).catch(() => { /* leave progress null */ });
     }, []);
 
@@ -120,6 +128,8 @@ export default function Birth() {
                         setThreadLogs(d.thread_logs);
                     }
                     if (d.provider) setRunningProvider(d.provider);
+                    if (d.error_breakdown) setErrorBreakdown(d.error_breakdown);
+                    if (d.success_rate != null) setSuccessRate(d.success_rate);
                     if (!d.running) {
                         setRunning(false);
                         setRunningProvider(null);
@@ -270,6 +280,84 @@ export default function Birth() {
                 <div className="progress-bar">
                     <div className="progress-fill" style={{ width: `${pct}%` }} />
                 </div>
+
+                {/* ── Error Breakdown Bar ── */}
+                {errorBreakdown && (safeProgress.failed > 0 || safeProgress.completed > 0) && (() => {
+                    const categories = [
+                        { key: 'proxy', label: 'Proxy', color: '#ef4444', icon: '🔴' },
+                        { key: 'captcha', label: 'Captcha', color: '#f59e0b', icon: '🟠' },
+                        { key: 'sms', label: 'SMS', color: '#8b5cf6', icon: '🟣' },
+                        { key: 'block', label: 'Block', color: '#dc2626', icon: '⛔' },
+                        { key: 'page', label: 'Page', color: '#6b7280', icon: '⚪' },
+                        { key: 'browser', label: 'Browser', color: '#374151', icon: '💥' },
+                        { key: 'unknown', label: 'Other', color: '#1f2937', icon: '❓' },
+                    ];
+                    const totalErrors = Object.values(errorBreakdown).reduce((a, b) => a + b, 0);
+                    const totalAll = (safeProgress.completed || 0) + totalErrors;
+                    if (totalAll === 0) return null;
+
+                    return (
+                        <div style={{ marginTop: 12 }}>
+                            {/* Success rate header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                <span style={{ fontSize: '0.75em', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Error breakdown</span>
+                                <span style={{
+                                    fontSize: '0.85em', fontWeight: 800,
+                                    color: (successRate ?? 0) >= 50 ? 'var(--success)' : (successRate ?? 0) >= 25 ? 'var(--warning)' : 'var(--danger)',
+                                }}>
+                                    {successRate ?? 0}% success
+                                </span>
+                            </div>
+
+                            {/* Stacked bar */}
+                            <div style={{
+                                display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden',
+                                background: 'rgba(255,255,255,0.04)', gap: 1,
+                            }}>
+                                {/* Success segment */}
+                                {safeProgress.completed > 0 && (
+                                    <div style={{
+                                        width: `${(safeProgress.completed / totalAll) * 100}%`,
+                                        background: '#10b981', minWidth: 3, borderRadius: 2,
+                                        transition: 'width 0.5s ease',
+                                    }} title={`Success: ${safeProgress.completed}`} />
+                                )}
+                                {/* Error segments */}
+                                {categories.map(cat => {
+                                    const count = errorBreakdown[cat.key] || 0;
+                                    if (count === 0) return null;
+                                    return (
+                                        <div key={cat.key} style={{
+                                            width: `${(count / totalAll) * 100}%`,
+                                            background: cat.color, minWidth: 3, borderRadius: 2,
+                                            transition: 'width 0.5s ease',
+                                        }} title={`${cat.label}: ${count}`} />
+                                    );
+                                })}
+                            </div>
+
+                            {/* Legend */}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginTop: 8 }}>
+                                {safeProgress.completed > 0 && (
+                                    <span style={{ fontSize: '0.72em', display: 'flex', alignItems: 'center', gap: 4, color: '#10b981', fontWeight: 600 }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: 2, background: '#10b981', display: 'inline-block' }} />
+                                        ✅ {safeProgress.completed}
+                                    </span>
+                                )}
+                                {categories.map(cat => {
+                                    const count = errorBreakdown[cat.key] || 0;
+                                    if (count === 0) return null;
+                                    return (
+                                        <span key={cat.key} style={{ fontSize: '0.72em', display: 'flex', alignItems: 'center', gap: 4, color: cat.color, fontWeight: 600 }}>
+                                            <span style={{ width: 8, height: 8, borderRadius: 2, background: cat.color, display: 'inline-block' }} />
+                                            {cat.icon} {cat.label}: {count}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* ═══════════════ Thread Monitor ═══════════════ */}
