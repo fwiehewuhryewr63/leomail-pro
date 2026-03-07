@@ -743,51 +743,51 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
             await page.mouse.up()
             ctx._log("[PX] Released button")
 
-            # Wait for response / page change
-            await _human_delay(3, 6)
+            # ── Progressive success check: poll every 2s for up to 12s ──
+            # MS can take 8-10s to process the PX hold and redirect.
+            # A single 3-6s wait caused FALSE NEGATIVES — page redirected AFTER we gave up.
+            for check_i in range(6):  # 6 checks × 2s = 12s max
+                await asyncio.sleep(2.0)
+                current_url = page.url
+                current_text = ""
+                try:
+                    current_text = await page.inner_text("body")
+                except Exception:
+                    pass
 
-            # ── Check if challenge passed ──
-            current_url = page.url
-            current_text = ""
-            try:
-                current_text = await page.inner_text("body")
-            except Exception:
-                pass
+                # 1. URL changed (page advanced past challenge)
+                if current_url != pre_url:
+                    ctx._log(f"[PX] URL changed after {(check_i+1)*2}s: {current_url[:80]} — SOLVED!")
+                    await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
+                    return True
 
-            # Success indicators:
-            # 1. URL changed (page advanced past challenge)
-            if current_url != pre_url:
-                ctx._log(f"[PX] URL changed: {pre_url[:60]} → {current_url[:60]} — SOLVED!")
-                await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
-                return True
+                # 2. Challenge text gone (multi-language check)
+                lower_text = current_text.lower()
+                _PX_STILL_SHOWING = [
+                    "press and hold", "prove you're human",
+                    "pressione e segure", "provar que você",
+                    "mantén presionado", "demuestra que eres",
+                    "gedrückt halten", "appuyez et maintenez",
+                    "tieni premuto", "houd ingedrukt",
+                    "basılı tutun", "naciśnij i przytrzymaj",
+                ]
+                challenge_still_showing = any(kw in lower_text for kw in _PX_STILL_SHOWING)
+                if not challenge_still_showing:
+                    ctx._log(f"[PX] Challenge text gone after {(check_i+1)*2}s — appears solved!")
+                    await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
+                    return True
 
-            # 2. Challenge text gone (multi-language check)
-            lower_text = current_text.lower()
-            _PX_STILL_SHOWING = [
-                "press and hold", "prove you're human",
-                "pressione e segure", "provar que você",
-                "mantén presionado", "demuestra que eres",
-                "gedrückt halten", "appuyez et maintenez",
-                "tieni premuto", "houd ingedrukt",
-                "basılı tutun", "naciśnij i przytrzymaj",
-            ]
-            challenge_still_showing = any(kw in lower_text for kw in _PX_STILL_SHOWING)
-            if not challenge_still_showing:
-                ctx._log("[PX] Challenge text gone — appears solved!")
-                await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
-                return True
+                # 3. Enforcement iframe gone
+                iframe_count = await page.locator('iframe[src*="hsprotect"]').count()
+                if iframe_count == 0:
+                    ctx._log(f"[PX] Enforcement iframe gone after {(check_i+1)*2}s — challenge passed!")
+                    await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
+                    return True
 
-            # 3. Check if enforcement iframe is gone (challenge dismissed)
-            iframe_count = await page.locator('iframe[src*="hsprotect"]').count()
-            if iframe_count == 0:
-                ctx._log("[PX] Enforcement iframe gone — challenge passed!")
-                await _debug_screenshot(page, f"{ctx.username}_px_solved", ctx._log)
-                return True
-
-            # Still on challenge page — screenshot and retry
-            ctx._log(f"[PX] Still on challenge page after attempt {attempt}")
+            # Still on challenge page after 12s — screenshot and retry
+            ctx._log(f"[PX] Still on challenge page after attempt {attempt} (12s wait)")
             await _debug_screenshot(page, f"{ctx.username}_px_retry{attempt}", ctx._log)
-            await _human_delay(2, 4)
+            await _human_delay(1, 2)
 
         except Exception as e:
             ctx._log(f"[PX] Error on attempt {attempt}: {str(e)[:100]}")
@@ -797,10 +797,36 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
 
 
 async def step_8_post_prompts(page, ctx: RegContext):
-    """Step 8: Handle post-captcha prompts (Stay signed in?, promo pages)."""
+    """Step 8: Handle post-captcha prompts (Stay signed in?, privacy notice, promo pages)."""
     await _human_delay(2, 4)
 
-    # "Stay signed in?"
+    # ── Microsoft Privacy Notice page ──
+    # After successful registration, MS redirects to:
+    #   https://privacynotice.account.microsoft.com/notice?ru=...
+    # This page has Accept/Continue buttons that MUST be clicked or the flow hangs.
+    if "privacynotice" in page.url.lower() or "privacy" in page.url.lower():
+        ctx._log("[OK] Privacy notice page detected — accepting...")
+        privacy_btn = await _wait_for_any(page, [
+            'button[id*="accept"]', 'button[id*="Accept"]',
+            'input[type="submit"]', 'button[type="submit"]',
+            'button:has-text("Accept")', 'button:has-text("Continue")',
+            'button:has-text("Принять")', 'button:has-text("Aceptar")',
+            'button:has-text("Akzeptieren")', 'button:has-text("Accepter")',
+            'button:has-text("Accetta")', 'button:has-text("Aceitar")',
+            'a:has-text("Accept")', 'a:has-text("Continue")',
+            '#id__0',  # common MS button ID
+        ], timeout=10000)
+        if privacy_btn:
+            await _human_click(page, privacy_btn)
+            ctx._log("[OK] Privacy notice accepted")
+            await _human_delay(3, 6)
+        else:
+            # Try pressing Enter as fallback
+            ctx._log("[WARN] No privacy button found — pressing Enter")
+            await page.keyboard.press("Enter")
+            await _human_delay(3, 5)
+
+    # ── "Stay signed in?" prompt ──
     stay_signed_in = await _wait_for_any(page, [
         '#KmsiBanner', '#acceptButton', 'button:has-text("Yes")',
         'input[value="Yes"]', '#idSIButton9',
@@ -810,7 +836,25 @@ async def step_8_post_prompts(page, ctx: RegContext):
         await _human_click(page, stay_signed_in)
         await _human_delay(3, 5)
 
-    # Promo pages
+    # ── Second privacy check (can appear AFTER stay-signed-in) ──
+    if "privacynotice" in page.url.lower() or "privacy" in page.url.lower():
+        ctx._log("[OK] Privacy notice page (round 2) — accepting...")
+        privacy_btn2 = await _wait_for_any(page, [
+            'button[id*="accept"]', 'button[id*="Accept"]',
+            'input[type="submit"]', 'button[type="submit"]',
+            'button:has-text("Accept")', 'button:has-text("Continue")',
+            'a:has-text("Accept")', 'a:has-text("Continue")',
+            '#id__0',
+        ], timeout=8000)
+        if privacy_btn2:
+            await _human_click(page, privacy_btn2)
+            ctx._log("[OK] Privacy notice accepted (round 2)")
+            await _human_delay(3, 6)
+        else:
+            await page.keyboard.press("Enter")
+            await _human_delay(3, 5)
+
+    # ── Promo/skip pages ──
     skip_promo = await _wait_for_any(page, [
         'button:has-text("Skip")', 'a:has-text("Skip")',
         'button:has-text("Пропустить")', 'a:has-text("Пропустить")',
@@ -835,7 +879,9 @@ async def step_9_verify_success(page, ctx: RegContext) -> bool:
         success_indicators = [
             "outlook.live.com", "signup.live.com/signup?sru",
             "/MailSetup", "account.microsoft.com",
+            "privacynotice.account.microsoft.com",
             "outlook.office.com", "outlook.office365.com",
+            "login.live.com",  # post-registration redirect
         ]
         if any(ind in final_url for ind in success_indicators):
             registration_success = True
