@@ -76,6 +76,8 @@ export default function Birth() {
         setRunning(true);
         setRunningProvider(provider); // track which provider is actually running
         setResult(null);
+        setErrorBreakdown(null);  // Reset old error data
+        setSuccessRate(null);
         setProgress({ completed: 0, total: parseInt(quantity) || 0, failed: 0, retrying: 0, queued: parseInt(quantity) || 0 });
         fetch(`${API}/birth/start`, {
             method: 'POST',
