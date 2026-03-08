@@ -263,7 +263,7 @@ export default function Dashboard() {
             })()}
 
             {/* ═══ 5 STAT CARDS ═══ */}
-            <div className="stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
+            <div className="dash-stats stagger">
                 {/* ACCOUNTS */}
                 <ClickCard to="/accounts" style={{ padding: '14px 16px', borderLeft: '3px solid #10B981' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -332,7 +332,7 @@ export default function Dashboard() {
             </div>
 
             {/* ═══ MIDDLE ROW: Chart + Providers ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className="dash-grid">
                 {/* Activity Chart with Period Selector */}
                 <div className="card" style={{ padding: '16px 18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -384,7 +384,7 @@ export default function Dashboard() {
             </div>
 
             {/* ═══ BOTTOM ROW: Resources + Activity ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="dash-grid">
                 {/* Resource Status */}
                 <div className="card" style={{ padding: '16px 18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -457,7 +457,7 @@ export default function Dashboard() {
             </div>
 
             {/* ═══ ALERTS + WARMUP ROW ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12, marginBottom: 12 }}>
+            <div className="dash-grid" style={{ marginTop: 12 }}>
                 {/* System Alerts */}
                 <div className="card" style={{ padding: '16px 18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -556,7 +556,7 @@ export default function Dashboard() {
             </div>
 
             {/* ═══ COST TRACKER ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className="dash-grid">
                 {/* Session Costs */}
                 <div className="card" style={{ padding: '16px 18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
