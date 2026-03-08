@@ -79,9 +79,9 @@ export default function CampaignDetail() {
 
     return (
         <div className="page">
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OPERATIONS / CAMPAIGNS</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => navigate('/campaigns')}>
+            <div className="page-header">
+                <div className="page-breadcrumb">OPERATIONS / CAMPAIGNS</div>
+                <h2 className="page-title" style={{ cursor: 'pointer' }} onClick={() => navigate('/campaigns')}>
                     <ArrowLeft size={18} /> {c.name}
                     <span style={{
                         fontSize: '0.42em', fontWeight: 700, padding: '3px 10px', borderRadius: 12,
@@ -103,7 +103,7 @@ export default function CampaignDetail() {
             </div>
 
             {/* Stats cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
+            <div className="dash-stats" style={{ marginBottom: 16 }}>
                 <StatBox label="Sent" value={c.total_sent || 0} color="var(--success)" icon={Mail} />
                 <StatBox label="Errors" value={c.total_errors || 0} color="var(--danger)" icon={AlertTriangle} />
                 <StatBox label="Acc Born" value={c.accounts_born || 0} color="var(--info)" icon={Users} />
@@ -153,7 +153,7 @@ export default function CampaignDetail() {
             {preflight && (
                 <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
                     <div style={{ fontSize: '0.75em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 10 }}>Pre-flight Check</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <div className="config-row-3" style={{ gap: 10 }}>
                         <PFItem label="Templates" status={preflight.templates?.status} detail={`${preflight.templates?.count || 0} active`} />
                         <PFItem label="Links" status={preflight.links?.status} detail={`${preflight.links?.count || 0} active`} />
                         <PFItem label="Recipients" status={preflight.recipients?.status} detail={`${preflight.recipients?.count || 0} unsent`} />

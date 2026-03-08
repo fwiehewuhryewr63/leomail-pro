@@ -90,11 +90,13 @@ export default function Logs() {
     return (
         <div className="page">
             {/* ═══ HEADER ═══ */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>MONITORING / LOGS</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <TermIcon size={22} /> System Logs
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">MONITORING / LOGS</div>
+                    <h2 className="page-title">
+                        <TermIcon size={22} /> System Logs
+                    </h2>
+                </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: '0.75em', color: 'var(--text-muted)', fontWeight: 600 }}>
                         {total} total lines
@@ -103,7 +105,7 @@ export default function Logs() {
             </div>
 
             {/* ═══ STAT CARDS ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+            <div className="config-row-4" style={{ marginBottom: 20 }}>
                 {[
                     { label: 'TOTAL', value: logs.length, color: '#10B981' },
                     { label: 'INFO', value: levelCounts.INFO || 0, color: '#3B82F6' },

@@ -105,11 +105,13 @@ export default function Names() {
     return (
         <div className="page">
             {/* ═══ HEADER ═══ */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>RESOURCES / NAMES</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <UserCircle size={22} /> Name Packs
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">RESOURCES / NAMES</div>
+                    <h2 className="page-title">
+                        <UserCircle size={22} /> Name Packs
+                    </h2>
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary" onClick={() => fileRef.current?.click()}
                         style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
@@ -124,7 +126,7 @@ export default function Names() {
             </div>
 
             {/* ═══ STAT CARDS ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+            <div className="config-row-3" style={{ marginBottom: 20 }}>
                 {[
                     { label: 'PACKS', value: packs.length, color: '#10B981' },
                     { label: 'TOTAL NAMES', value: totalNames.toLocaleString(), color: '#10B981' },
@@ -142,12 +144,12 @@ export default function Names() {
                 <div className="card" style={{ marginBottom: 16, padding: '16px 20px' }}>
                     <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                         <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Pack Name</label>
+                            <label className="form-label">Pack Name</label>
                             <input className="form-input" value={pasteName} onChange={e => setPasteName(e.target.value)}
                                 placeholder="Optional..." style={{ marginTop: 4 }} />
                         </div>
                     </div>
-                    <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Names (First,Last — one per line)</label>
+                    <label className="form-label">Names (First,Last — one per line)</label>
                     <textarea className="form-input" value={pasteText} onChange={e => setPasteText(e.target.value)}
                         placeholder={"John,Smith\nEmily,Johnson\nMichael,Brown"}
                         rows={6} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', marginTop: 4 }} />

@@ -107,11 +107,13 @@ export default function Templates() {
     return (
         <div className="page">
             {/* ═══ HEADER ═══ */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>RESOURCES / TEMPLATES</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <FileText size={22} /> Templates
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">RESOURCES / TEMPLATES</div>
+                    <h2 className="page-title">
+                        <FileText size={22} /> Templates
+                    </h2>
+                </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                     {[
                         { id: 'list', label: 'List', icon: <FileText size={13} /> },
@@ -129,7 +131,7 @@ export default function Templates() {
             </div>
 
             {/* ═══ STAT CARDS ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+            <div className="config-row-3" style={{ marginBottom: 16 }}>
                 {[
                     { label: 'TEMPLATES', value: totalTemplates, color: '#10B981' },
                     { label: 'PACKS', value: totalPacks, color: '#06B6D4' },
@@ -184,7 +186,7 @@ export default function Templates() {
                                         <Trash2 size={11} /> Delete Pack
                                     </button>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                <div className="config-row-3" style={{ gap: 8 }}>
                                     {packTemplates.map(tmpl => (
                                         <TemplateGridCard key={tmpl.id} tmpl={tmpl} onView={viewTemplate} onDelete={deleteTemplate}
                                             hasLink={hasLink} hasPersonalization={hasPersonalization} formatDate={formatDate} />
@@ -200,7 +202,7 @@ export default function Templates() {
                                         STANDALONE TEMPLATES
                                     </div>
                                 )}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                <div className="config-row-3" style={{ gap: 8 }}>
                                     {noPack.map(tmpl => (
                                         <TemplateGridCard key={tmpl.id} tmpl={tmpl} onView={viewTemplate} onDelete={deleteTemplate}
                                             hasLink={hasLink} hasPersonalization={hasPersonalization} formatDate={formatDate} />
@@ -219,11 +221,11 @@ export default function Templates() {
                         <Plus size={16} style={{ color: '#10B981' }} /> Create Template
                     </div>
                     <div style={{ marginBottom: 14 }}>
-                        <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Name</label>
+                        <label className="form-label">Name</label>
                         <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Offer USA #1..." style={{ marginTop: 4 }} />
                     </div>
                     <div style={{ marginBottom: 14 }}>
-                        <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        <label className="form-label">
                             Subject Line
                             <span style={{ fontSize: '0.9em', color: 'var(--text-muted)', marginLeft: 8, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
                                 Use {`{{LINK}}`}, {`{{USERNAME}}`}, {`{{NAME}}`}
@@ -233,7 +235,7 @@ export default function Templates() {
                             placeholder="Hey {{USERNAME}}, check this out" style={{ marginTop: 4 }} />
                     </div>
                     <div style={{ marginBottom: 14 }}>
-                        <label style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Body (HTML)</label>
+                        <label className="form-label">Body (HTML)</label>
                         <textarea className="form-input" value={body} onChange={e => setBody(e.target.value)}
                             placeholder={'<p>Hi {{NAME}},</p>\n<p>Click here: {{LINK}}</p>'} rows={10}
                             style={{ marginTop: 4, fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }} />
@@ -303,7 +305,7 @@ export default function Templates() {
                             {importResult.error ? (
                                 <div style={{ color: 'var(--danger)', fontSize: '0.85em' }}>{importResult.error}</div>
                             ) : (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <div className="config-row-2" style={{ gap: 10 }}>
                                     <div style={{ textAlign: 'center', padding: 14, borderRadius: 8, background: 'rgba(16,185,129,0.06)' }}>
                                         <div style={{ fontSize: '1.6em', fontWeight: 900, color: '#10B981' }}>{importResult.imported}</div>
                                         <div style={{ fontSize: '0.65em', color: 'var(--text-muted)' }}>IMPORTED</div>
