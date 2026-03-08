@@ -149,11 +149,13 @@ export default function Farms() {
 
     return (
         <div className="page">
-            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>FARMS</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-block' }}>
-                    <Database size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Farms
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">FARMS</div>
+                    <h2 className="page-title">
+                        <Database size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Farms
+                    </h2>
+                </div>
                 <button onClick={() => setShowCreate(!showCreate)} style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px',
                     fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 8,
@@ -168,11 +170,11 @@ export default function Farms() {
                 <div className="card" style={{ marginBottom: 14, padding: '16px 20px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr auto', gap: 10, alignItems: 'end' }}>
                         <div>
-                            <label style={{ fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--accent)', marginBottom: 5, display: 'block' }}>Farm Name</label>
+                            <label className="form-label" style={{ color: 'var(--accent)' }}>Farm Name</label>
                             <input className="form-input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Gmail US Farm..." />
                         </div>
                         <div>
-                            <label style={{ fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 5, display: 'block' }}>Description</label>
+                            <label className="form-label">Description</label>
                             <input className="form-input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optional..." />
                         </div>
                         <button onClick={createFarm} disabled={!newName.trim()} style={{

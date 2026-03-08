@@ -221,39 +221,32 @@ export default function Settings() {
 
     return (
         <div className="page">
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>SYSTEM / SETTINGS</div>
-            <h2 className="page-title" style={{ margin: '0 0 20px', borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <SettingsIcon size={22} /> Settings
-            </h2>
+            <div className="page-header">
+                <div className="page-breadcrumb">SYSTEM / SETTINGS</div>
+                <h2 className="page-title">
+                    <SettingsIcon size={22} /> Settings
+                </h2>
+            </div>
 
             {/* ═══ CAPTCHA SERVICES ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Captcha Services</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#10B981' }}></span> Captcha Services</div>
+                <div className="config-row-3">
                     {CAPTCHA_SERVICES.map(svc => <ServiceCard key={svc.key} svc={svc} />)}
                 </div>
             </div>
 
             {/* ═══ SMS PROVIDERS ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#06B6D4' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>SMS Providers</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#06B6D4' }}></span> SMS Providers</div>
+                <div className="config-row-3">
                     {SMS_SERVICES.map(svc => <ServiceCard key={svc.key} svc={svc} />)}
                 </div>
             </div>
 
             {/* ═══ PROXY PROVIDERS (API) ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Providers (API)</span>
-                </div>
+                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#8B5CF6' }}></span> Proxy Providers (API)</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                     {PROXY_API_SERVICES.map(svc => {
                         const status = getStatus(svc);
@@ -391,12 +384,9 @@ export default function Settings() {
 
             {/* PROXY LIMITS */}
             <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Proxy Limits</span>
-                </div>
+                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#F59E0B' }}></span> Proxy Limits</div>
                 <div className="card" style={{ padding: '20px 24px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+                    <div className="config-row-4">
                         {PROXY_PROVIDERS.map(p => (
                             <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                                 <ProviderLogo provider={p.id} size={32} />
@@ -420,12 +410,9 @@ export default function Settings() {
 
 
             <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Data Portability</span>
-                </div>
+                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#8B5CF6' }}></span> Data Portability</div>
                 <div className="card" style={{ padding: '20px 24px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="config-row-2">
                         <div>
                             <button className="btn btn-primary" style={{ width: '100%', padding: '12px 16px', fontSize: '0.9em', fontWeight: 700 }}
                                 onClick={async () => {
@@ -481,10 +468,7 @@ export default function Settings() {
 
             {/* ═══ SYSTEM UPDATE ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B5CF6' }} />
-                    <span style={{ fontSize: '0.82em', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)' }}>System Update</span>
-                </div>
+                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#8B5CF6' }}></span> System Update</div>
                 <div className="card" style={{ padding: '16px 20px' }}>
                     {/* Version + Check */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

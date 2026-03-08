@@ -161,12 +161,13 @@ export default function Accounts() {
 
     return (
         <div className="page">
-            {/* Header */}
-            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>ACCOUNTS</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-block' }}>
-                    <Users size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Accounts
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">ACCOUNTS</div>
+                    <h2 className="page-title">
+                        <Users size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Accounts
+                    </h2>
+                </div>
                 <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.1em' }}>{total} total</span>
             </div>
 
@@ -386,7 +387,7 @@ export default function Accounts() {
                         </div>
 
                         {/* Info grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
+                        <div className="config-row-3" style={{ marginBottom: 16 }}>
                             {[
                                 { label: 'Status', value: STATUS_BADGES[detailAccount.status]?.label || detailAccount.status, color: STATUS_BADGES[detailAccount.status]?.color },
                                 { label: 'Provider', value: detailAccount.provider?.toUpperCase() },
@@ -458,7 +459,7 @@ export default function Accounts() {
                         <div style={{ fontWeight: 700, fontSize: '1em', marginBottom: 12 }}>
                             <Zap size={16} /> Change status of {selected.size} accounts
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div className="config-row-2" style={{ gap: 6 }}>
                             {Object.entries(STATUS_BADGES).map(([key, badge]) => (
                                 <button key={key} onClick={() => bulkStatus(key)}
                                     style={{

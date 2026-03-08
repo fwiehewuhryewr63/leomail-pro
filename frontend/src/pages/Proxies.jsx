@@ -149,11 +149,13 @@ export default function Proxies() {
     return (
         <div className="page">
             {/* Header + actions */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>NETWORK / PROXIES</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <Shield size={22} /> Proxies
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">NETWORK / PROXIES</div>
+                    <h2 className="page-title">
+                        <Shield size={22} /> Proxies
+                    </h2>
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary" onClick={() => setShowUpload(!showUpload)}
                         style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>Import</button>
@@ -167,7 +169,7 @@ export default function Proxies() {
             </div>
 
             {/* ═══ Stat Cards ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+            <div className="dash-stats" style={{ marginBottom: 20 }}>
                 {[
                     { label: 'Total', value: total, color: '#10B981', filterKey: null },
                     { label: 'Free', value: alive, color: '#10B981', filterKey: 'active' },
@@ -450,11 +452,11 @@ export default function Proxies() {
                     onClick={() => { setEditingId(null); setEditData({}); }}>
                     <div className="card" style={{ width: 420, padding: '24px 28px' }} onClick={e => e.stopPropagation()}>
                         <div style={{ fontWeight: 800, marginBottom: 16 }}>Edit Proxy</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <div className="config-row-2fr1fr" style={{ marginBottom: 12 }}>
                             <div><label className="form-label">Host</label><input className="form-input" value={editData.host} onChange={e => setEditData({ ...editData, host: e.target.value })} /></div>
                             <div><label className="form-label">Port</label><input className="form-input" type="number" value={editData.port} onChange={e => setEditData({ ...editData, port: e.target.value })} /></div>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                        <div className="config-row-2" style={{ marginBottom: 16 }}>
                             <div><label className="form-label">Username</label><input className="form-input" value={editData.username} onChange={e => setEditData({ ...editData, username: e.target.value })} /></div>
                             <div><label className="form-label">Password</label><input className="form-input" type="password" value={editData.password} onChange={e => setEditData({ ...editData, password: e.target.value })} /></div>
                         </div>
