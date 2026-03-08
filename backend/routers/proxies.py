@@ -48,9 +48,14 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "use_YA": (p.use_yahoo or 0) + (p.use_aol or 0),
             "use_OH": (p.use_outlook or 0) + (p.use_hotmail or 0),
             "use_PT": p.use_protonmail or 0,
+            "fail_G": getattr(p, 'fail_gmail', 0) or 0,
+            "fail_YA": (getattr(p, 'fail_yahoo', 0) or 0) + (getattr(p, 'fail_aol', 0) or 0),
+            "fail_OH": (getattr(p, 'fail_outlook', 0) or 0) + (getattr(p, 'fail_hotmail', 0) or 0),
+            "fail_PT": getattr(p, 'fail_protonmail', 0) or 0,
             "bound_to": bound_to,
             "source": getattr(p, 'source', 'manual') or 'manual',
             "last_check": p.last_check.isoformat() if p.last_check else None,
+            "last_used": p.last_used_at.isoformat() if getattr(p, 'last_used_at', None) else None,
             "expires_at": p.expires_at.isoformat() if p.expires_at else None,
         })
     return result
@@ -484,6 +489,12 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
         Proxy.use_outlook: 0,
         Proxy.use_hotmail: 0,
         Proxy.use_protonmail: 0,
+        Proxy.fail_gmail: 0,
+        Proxy.fail_yahoo: 0,
+        Proxy.fail_aol: 0,
+        Proxy.fail_outlook: 0,
+        Proxy.fail_hotmail: 0,
+        Proxy.fail_protonmail: 0,
         Proxy.use_count: 0,
     }, synchronize_session=False)
     db.commit()

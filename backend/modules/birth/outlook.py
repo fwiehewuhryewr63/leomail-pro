@@ -71,16 +71,71 @@ async def step_0_warmup(page, ctx: RegContext):
 
 
 async def step_1_navigate(page, ctx: RegContext, proxy, db):
-    """Step 1: Navigate to signup.live.com. Checks: dead proxy, block signals."""
-    ctx._log("Opening registration page...")
+    """Step 1: Cookie warmup → referrer chain → signup.live.com.
+    
+    Cookie warmup: visit bing.com + microsoft.com to build natural MUID/ANON cookies.
+    Referrer chain: go to outlook.com → click 'Create free account' → signup.live.com.
+    This simulates a real user who was browsing Microsoft services before signing up.
+    """
+    # ── Cookie warmup: bing → microsoft (shared Microsoft cookie ecosystem) ──
+    ctx._log("Cookie warmup: building natural browsing history...")
+    warmup_sites = [
+        ("https://www.bing.com", 3, 7),
+        ("https://www.microsoft.com", 2, 5),
+    ]
+    for url, delay_min, delay_max in warmup_sites:
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await random_scroll(page, "down")
+            await _human_delay(delay_min, delay_max)
+        except Exception as warmup_e:
+            logger.debug(f"[Outlook] Cookie warmup skipped for {url}: {warmup_e}")
+    
+    # ── Referrer chain: outlook.com → 'Create account' → signup ──
+    ctx._log("Navigating via outlook.com referrer chain...")
+    signup_reached = False
     try:
-        await page.goto(
-            "https://signup.live.com/signup",
-            wait_until="domcontentloaded",
-            timeout=60000,
-        )
-    except Exception as nav_e:
-        logger.warning(f"[Outlook] Navigation error: {nav_e}")
+        await page.goto("https://outlook.com", wait_until="domcontentloaded", timeout=30000)
+        await _human_delay(2, 4)
+        await random_mouse_move(page, steps=3)
+        
+        # Find 'Create free account' link (multi-locale)
+        signup_link_selectors = [
+            'a:has-text("Create free account")',
+            'a:has-text("Sign up")',
+            'a:has-text("Create account")',
+            'a:has-text("Создайте бесплатную учетную запись")',
+            'a:has-text("Crear cuenta gratuita")',
+            'a:has-text("Crie uma conta gratuita")',
+            'a:has-text("Kostenloses Konto erstellen")',
+            'a:has-text("Créer un compte gratuit")',
+            'a[href*="signup"]',
+        ]
+        signup_link = await _wait_for_any(page, signup_link_selectors, timeout=8000)
+        if signup_link:
+            ctx._log("Found 'Create account' link — clicking...")
+            await _human_click(page, signup_link)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=30000)
+            except Exception:
+                pass
+            signup_reached = True
+        else:
+            ctx._log("Create account link not found — direct navigation")
+    except Exception as ref_e:
+        logger.debug(f"[Outlook] Referrer chain skipped: {ref_e}")
+    
+    # ── Fallback: direct navigation to signup ──
+    if not signup_reached or "signup.live.com" not in (page.url or ""):
+        ctx._log("Opening registration page directly...")
+        try:
+            await page.goto(
+                "https://signup.live.com/signup",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
+        except Exception as nav_e:
+            logger.warning(f"[Outlook] Navigation error: {nav_e}")
 
     # Reading pause: real humans read the page before typing (3-6 seconds)
     await _human_delay(3, 6)
@@ -717,31 +772,42 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
 
             ctx._log(f"[PX] Found via {found_via} — bbox: {bbox['width']:.0f}x{bbox['height']:.0f} at ({bbox['x']:.0f},{bbox['y']:.0f})")
 
-            # Move mouse naturally first
-            await random_mouse_move(page, steps=random.randint(2, 4))
+            # Move mouse naturally first — pre-PX warm movements
+            await random_mouse_move(page, steps=random.randint(3, 5))
             await _human_delay(0.5, 1.5)
 
             # Click position: center of the target with small random offset
-            x = bbox['x'] + bbox['width'] * random.uniform(0.35, 0.65)
-            y = bbox['y'] + bbox['height'] * random.uniform(0.35, 0.65)
+            cx = bbox['x'] + bbox['width'] * random.uniform(0.35, 0.65)
+            cy = bbox['y'] + bbox['height'] * random.uniform(0.35, 0.65)
 
-            ctx._log(f"[PX] Pressing and holding at ({x:.0f}, {y:.0f})...")
+            ctx._log(f"[PX] Pressing and holding at ({cx:.0f}, {cy:.0f})...")
 
             # Move to target smoothly
-            await page.mouse.move(x, y, steps=random.randint(8, 16))
+            await page.mouse.move(cx, cy, steps=random.randint(8, 16))
             await _human_delay(0.3, 0.6)
 
             # Mouse down (start press)
             await page.mouse.down()
 
-            # Hold for 15-18 seconds (PerimeterX requires LONG holds — 15s+ passes more often)
-            hold_duration = random.uniform(15.0, 18.0)
-            ctx._log(f"[PX] Holding for {hold_duration:.1f}s...")
-            await asyncio.sleep(hold_duration)
+            # Hold for 13-21 seconds with MICRO-JITTER (real hands shake)
+            hold_duration = random.uniform(13.0, 21.0)
+            ctx._log(f"[PX] Holding for {hold_duration:.1f}s with micro-jitter...")
+            elapsed = 0.0
+            while elapsed < hold_duration:
+                # Micro-jitter: ±2px every 300-600ms (simulates hand tremor)
+                jitter_x = cx + random.randint(-2, 2)
+                jitter_y = cy + random.randint(-2, 2)
+                await page.mouse.move(jitter_x, jitter_y)
+                step = random.uniform(0.3, 0.6)
+                await asyncio.sleep(step)
+                elapsed += step
 
             # Mouse up (release)
             await page.mouse.up()
             ctx._log("[PX] Released button")
+
+            # Post-PX pause: don't rush after solving (3-6s natural pause)
+            await _human_delay(3, 6)
 
             # ── Progressive success check: poll every 2s for up to 12s ──
             # MS can take 8-10s to process the PX hold and redirect.

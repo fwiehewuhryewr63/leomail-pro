@@ -1,6 +1,7 @@
 """
 Leomail v4 - Proxy Manager
 1 proxy = 1 account (hard binding). Auto-reassign on proxy death.
+Per-provider usage: success (use_*) + fail (fail_*) both count toward limit.
 """
 import random
 import asyncio
@@ -243,36 +244,52 @@ class ProxyManager:
         """Get SQLAlchemy filter for provider GROUP limit.
         Groups: Yahoo+AOL (YA, limit 3), Outlook+Hotmail (OH, limit 3), Gmail (G, limit 1),
         ProtonMail (PT, limit 3).
+        Counts BOTH successes (use_*) and failures (fail_*) toward the limit.
         """
         provider = provider.lower()
         if provider in ('yahoo', 'aol'):
-            return (Proxy.use_yahoo + Proxy.use_aol) < ProxyManager.YA_LIMIT
+            return (Proxy.use_yahoo + Proxy.use_aol + Proxy.fail_yahoo + Proxy.fail_aol) < ProxyManager.YA_LIMIT
         elif provider in ('outlook', 'hotmail'):
-            return (Proxy.use_outlook + Proxy.use_hotmail) < ProxyManager.OH_LIMIT
+            return (Proxy.use_outlook + Proxy.use_hotmail + Proxy.fail_outlook + Proxy.fail_hotmail) < ProxyManager.OH_LIMIT
         elif provider == 'gmail':
-            return Proxy.use_gmail < ProxyManager.GMAIL_LIMIT
+            return (Proxy.use_gmail + Proxy.fail_gmail) < ProxyManager.GMAIL_LIMIT
         elif provider == 'protonmail':
-            return Proxy.use_protonmail < ProxyManager.PT_LIMIT
+            return (Proxy.use_protonmail + Proxy.fail_protonmail) < ProxyManager.PT_LIMIT
         return None
 
     @staticmethod
     def _is_exhausted(proxy: Proxy) -> bool:
         """Check if ALL provider groups are at their limit.
         Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3).
+        Counts BOTH successes and failures toward the limit.
         Returns True only if ALL groups are exhausted.
         """
-        g_exhausted = (proxy.use_gmail or 0) >= ProxyManager.GMAIL_LIMIT
-        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= ProxyManager.YA_LIMIT
-        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= ProxyManager.OH_LIMIT
-        pt_exhausted = (proxy.use_protonmail or 0) >= ProxyManager.PT_LIMIT
+        g_exhausted = ((proxy.use_gmail or 0) + (proxy.fail_gmail or 0)) >= ProxyManager.GMAIL_LIMIT
+        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0) + (proxy.fail_yahoo or 0) + (proxy.fail_aol or 0)) >= ProxyManager.YA_LIMIT
+        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0) + (proxy.fail_outlook or 0) + (proxy.fail_hotmail or 0)) >= ProxyManager.OH_LIMIT
+        pt_exhausted = ((proxy.use_protonmail or 0) + (proxy.fail_protonmail or 0)) >= ProxyManager.PT_LIMIT
         return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
-        """Increment the per-provider usage counter and total use_count."""
+        """Increment the per-provider SUCCESS counter and total use_count.
+        Called ONLY after successful registration."""
         attr = f"use_{provider.lower()}"
         if hasattr(proxy, attr):
             setattr(proxy, attr, (getattr(proxy, attr) or 0) + 1)
         proxy.use_count = (proxy.use_count or 0) + 1
+        proxy.total_births = (proxy.total_births or 0) + 1
+        proxy.last_used_at = datetime.utcnow()
+        self.db.commit()
+
+    def increment_provider_fail(self, proxy: Proxy, provider: str):
+        """Increment the per-provider FAIL counter.
+        Called when registration attempt fails (proxy error, block, captcha, etc).
+        Failures count toward the provider usage limit to avoid retrying burned proxies."""
+        attr = f"fail_{provider.lower()}"
+        if hasattr(proxy, attr):
+            setattr(proxy, attr, (getattr(proxy, attr) or 0) + 1)
+        proxy.total_fails = (proxy.total_fails or 0) + 1
+        proxy.last_used_at = datetime.utcnow()
         self.db.commit()
 
     def bind_proxy_to_account(self, proxy: Proxy, account: Account):
@@ -489,7 +506,7 @@ class ProxyManager:
 
     def reset_all_counters(self) -> dict:
         """
-        Reset ALL per-provider usage counters on all proxies.
+        Reset ALL per-provider usage AND fail counters on all proxies.
         Re-activates EXHAUSTED proxies back to ACTIVE.
         Use when starting fresh or when all counters have maxed out.
         """
@@ -506,6 +523,12 @@ class ProxyManager:
             p.use_outlook = 0
             p.use_hotmail = 0
             p.use_protonmail = 0
+            p.fail_gmail = 0
+            p.fail_yahoo = 0
+            p.fail_aol = 0
+            p.fail_outlook = 0
+            p.fail_hotmail = 0
+            p.fail_protonmail = 0
             p.use_count = 0
             p.last_used_at = None
             if p.status == ProxyStatus.EXHAUSTED:
@@ -518,7 +541,7 @@ class ProxyManager:
         return {"reset": count, "reactivated": reactivated}
 
     def reset_single_proxy_counters(self, proxy_id: int) -> dict:
-        """Reset usage counters for a single proxy."""
+        """Reset usage AND fail counters for a single proxy."""
         proxy = self.db.query(Proxy).filter(Proxy.id == proxy_id).first()
         if not proxy:
             return {"status": "error", "message": "Proxy not found"}
@@ -528,6 +551,12 @@ class ProxyManager:
         proxy.use_outlook = 0
         proxy.use_hotmail = 0
         proxy.use_protonmail = 0
+        proxy.fail_gmail = 0
+        proxy.fail_yahoo = 0
+        proxy.fail_aol = 0
+        proxy.fail_outlook = 0
+        proxy.fail_hotmail = 0
+        proxy.fail_protonmail = 0
         proxy.use_count = 0
         proxy.last_used_at = None
         if proxy.status == ProxyStatus.EXHAUSTED:

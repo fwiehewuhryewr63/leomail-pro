@@ -124,15 +124,25 @@ export default function Proxies() {
         setEditingId(null); setEditData({}); loadProxies();
     };
 
-    /* ── Usage cell color based on count ── */
-    const usageCell = (count) => {
-        const c = count || 0;
+    /* ── Usage cell: green=success, red=fail ── */
+    const usageSplitCell = (success, fail, limit) => {
+        const total = success + fail;
         let bg = 'transparent';
-        let color = 'var(--text-muted)';
-        if (c >= 4) { bg = 'rgba(239,68,68,0.15)'; color = '#EF4444'; }
-        else if (c >= 3) { bg = 'rgba(245,158,11,0.15)'; color = '#F59E0B'; }
-        else if (c >= 1) { bg = 'rgba(16,185,129,0.12)'; color = '#10B981'; }
-        return { background: bg, color, fontWeight: c > 0 ? 700 : 400 };
+        if (total >= limit) bg = 'rgba(245,158,11,0.10)';
+        else if (total > 0) bg = 'rgba(16,185,129,0.04)';
+        return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                {total === 0 ? (
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>
+                ) : (
+                    <>
+                        <span style={{ color: '#10B981', fontWeight: 700 }}>{success}</span>
+                        {fail > 0 && <span style={{ color: '#EF4444', fontWeight: 700 }}>+{fail}</span>}
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/{limit}</span>
+                    </>
+                )}
+            </span>
+        );
     };
 
     /* ── GEO flag helper ── */
@@ -400,21 +410,25 @@ export default function Proxies() {
                                         {p.response_time_ms ? `${p.response_time_ms}ms` : '—'}
                                     </td>
 
-                                    {/* Per-provider usage cells: G, Y/A, O/H, P */}
+                                    {/* Per-provider usage cells: G, Y/A, O/H, P — green=success, red=fail */}
                                     {[
-                                        { key: 'G', limit: 1 },
-                                        { key: 'YA', limit: 3 },
-                                        { key: 'OH', limit: 3 },
-                                        { key: 'PT', limit: 3 },
-                                    ].map(({ key, limit }) => {
-                                        const cnt = p[`use_${key}`] || 0;
-                                        const style = usageCell(cnt);
+                                        { key: 'G', failKey: 'fail_G', limit: 1 },
+                                        { key: 'YA', failKey: 'fail_YA', limit: 3 },
+                                        { key: 'OH', failKey: 'fail_OH', limit: 3 },
+                                        { key: 'PT', failKey: 'fail_PT', limit: 3 },
+                                    ].map(({ key, failKey, limit }) => {
+                                        const success = p[`use_${key}`] || 0;
+                                        const fail = p[failKey] || 0;
+                                        const total = success + fail;
+                                        let bg = 'transparent';
+                                        if (total >= limit) bg = 'rgba(245,158,11,0.10)';
+                                        else if (total > 0) bg = 'rgba(16,185,129,0.04)';
                                         return (
                                             <td key={key} style={{
                                                 ...tdStyle, textAlign: 'center', fontSize: '0.85em',
-                                                ...style, padding: '8px 4px', borderRadius: 0,
+                                                background: bg, padding: '8px 4px', borderRadius: 0,
                                             }}>
-                                                {cnt > 0 ? `${cnt}/${limit}` : '—'}
+                                                {usageSplitCell(success, fail, limit)}
                                             </td>
                                         );
                                     })}

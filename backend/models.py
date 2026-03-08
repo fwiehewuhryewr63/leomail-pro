@@ -100,6 +100,14 @@ class Proxy(Base):
     use_protonmail = Column(Integer, default=0)
     use_tuta = Column(Integer, default=0)  # DEPRECATED: Tuta provider removed, kept for DB schema compat
     
+    # Per-provider FAIL counters (failures also count toward provider usage limit)
+    fail_gmail = Column(Integer, default=0)
+    fail_yahoo = Column(Integer, default=0)
+    fail_aol = Column(Integer, default=0)
+    fail_outlook = Column(Integer, default=0)
+    fail_hotmail = Column(Integer, default=0)
+    fail_protonmail = Column(Integer, default=0)
+    
     source = Column(String, default="manual")  # manual, asocks, proxycheap
     external_id = Column(String, nullable=True)  # ID from proxy provider for dedup
     

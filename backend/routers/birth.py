@@ -445,9 +445,9 @@ async def run_birth_task(request: BirthRequest):
                                 await asyncio.sleep(5)
                                 continue
 
-                        # Increment per-provider usage counter
-                        if proxy:
-                            proxy_manager.increment_provider_usage(proxy, request.provider)
+                        # NOTE: Usage counter is incremented AFTER success/fail, not here.
+                        # Success → increment_provider_usage() (line ~547)
+                        # Fail → increment_provider_fail() (line ~583)
 
                         thread_log = ThreadLog(
                             task_id=task.id,
@@ -544,6 +544,8 @@ async def run_birth_task(request: BirthRequest):
                             if proxy:
                                 proxy_manager.bind_proxy_to_account(proxy, account)
                                 proxies_in_use.discard(proxy.id)  # Bound to account — no longer in contention
+                                # Increment SUCCESS counter (only after confirmed registration)
+                                proxy_manager.increment_provider_usage(proxy, request.provider)
 
                             farm.accounts.append(account)
                             thread_log.status = "done"
@@ -580,15 +582,11 @@ async def run_birth_task(request: BirthRequest):
                                           or "unusual activity" in err_msg):
                                 proxy_blacklist.add(proxy.id)
                                 logger.info(f"[Birth] Proxy {proxy.host} blacklisted for this task (err: {err_msg[:80]})")
-                                # Increment usage counter by 1 (NOT max out)
-                                # Proxy survives multiple E500s before hitting limit
-                                provider_lower = request.provider.lower()
-                                attr = f"use_{provider_lower}"
-                                if hasattr(proxy, attr):
-                                    current = getattr(proxy, attr) or 0
-                                    setattr(proxy, attr, current + 1)
-                                    db.commit()
-                                    logger.info(f"[Birth] Proxy {proxy.host}: {attr} incremented to {current + 1} (proxy error for {request.provider})")
+
+                            # Increment FAIL counter for this proxy+provider
+                            # (counts toward limit — burned proxy won't be reused for same provider)
+                            if proxy:
+                                proxy_manager.increment_provider_fail(proxy, request.provider)
 
                             # Smart retry: blacklist country if SMS actually timed out
                             # (NOT for "no numbers" or user cancel - only real delivery failure)

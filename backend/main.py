@@ -206,6 +206,13 @@ async def _startup():
                 "external_id": "VARCHAR",
                 "asn": "VARCHAR",
                 "asn_type": "VARCHAR",
+                # Per-provider FAIL counters (v4.5.55+)
+                "fail_gmail": "INTEGER DEFAULT 0",
+                "fail_yahoo": "INTEGER DEFAULT 0",
+                "fail_aol": "INTEGER DEFAULT 0",
+                "fail_outlook": "INTEGER DEFAULT 0",
+                "fail_hotmail": "INTEGER DEFAULT 0",
+                "fail_protonmail": "INTEGER DEFAULT 0",
             }
             for col, col_type in proxy_extra.items():
                 if col not in proxy_cols2:
