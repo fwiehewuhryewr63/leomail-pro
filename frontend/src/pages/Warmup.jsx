@@ -48,8 +48,8 @@ export default function Warmup() {
         try {
             const [statusRes, farmsRes, tplRes] = await Promise.all([
                 fetch(`${API}/warmup/status`),
-                fetch(`${API}/farms`),
-                fetch(`${API}/templates`),
+                fetch(`${API}/farms/`),
+                fetch(`${API}/templates/`),
             ]);
             if (statusRes.ok) setStatus(await statusRes.json());
             if (farmsRes.ok) {
