@@ -13,10 +13,7 @@ const PHASES = [
     { id: 5, label: 'Phase 5', emails: '50-100 emails/day', min: 50, max: 100, color: '#e74c3c', defaultDays: 9 },
 ];
 
-const labelStyle = {
-    fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)',
-    letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6, display: 'block',
-};
+
 
 export default function Warmup() {
     /* ── Config state ── */
@@ -121,30 +118,26 @@ export default function Warmup() {
     return (
         <div className="page">
             {/* Header */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OPERATIONS / WARM-UP</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <div className="page-header">
+                <div className="page-breadcrumb">OPERATIONS / WARM-UP</div>
+                <h2 className="page-title">
                     <Flame size={22} /> Warm-up Engine
-                    {isRunning && <span style={{
-                        fontSize: '0.45em', fontWeight: 700, padding: '3px 10px', borderRadius: 12,
-                        background: 'rgba(16,185,129,0.15)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)',
-                        marginLeft: 8, animation: 'pulse 1.5s infinite',
-                    }}>● ACTIVE</span>}
+                    {isRunning && <span className="active-badge">● ACTIVE</span>}
                 </h2>
             </div>
 
             {/* ═══════════════ Config Card ═══════════════ */}
             <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981' }} />
+                <div className="card-section-header">
+                    <span className="card-section-dot" style={{ background: '#10B981' }} />
                     Configuration
                 </div>
 
                 {/* ── Row 1: Farms + Phase ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="config-row-2fr1fr">
                     {/* Farms multi-select */}
                     <div>
-                        <label style={labelStyle}>Farms</label>
+                        <label className="form-label">Farms</label>
                         <div className="form-input" onClick={() => setFarmsOpen(!farmsOpen)}
                             style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px' }}>
                             <span>{selectedFarms.length > 0 ? `${selectedFarms.length} selected` : 'All farms (default)'}</span>
@@ -177,7 +170,7 @@ export default function Warmup() {
 
                     {/* Phase selector */}
                     <div>
-                        <label style={labelStyle}>Phase</label>
+                        <label className="form-label">Phase</label>
                         <select className="form-input" value={phase} onChange={e => setPhase(parseInt(e.target.value))}
                             style={{ fontSize: '1.05em', padding: '10px 14px', cursor: 'pointer' }}
                             disabled={isRunning}>
@@ -189,9 +182,9 @@ export default function Warmup() {
                 </div>
 
                 {/* ── Row 2: Days + Threads + Templates + Links ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="config-row-4">
                     <div>
-                        <label style={labelStyle}>Days</label>
+                        <label className="form-label">Days</label>
                         <input className="form-input" type="text" inputMode="numeric" value={days}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }}
                             onFocus={e => e.target.select()}
@@ -200,7 +193,7 @@ export default function Warmup() {
                             disabled={isRunning} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Threads</label>
+                        <label className="form-label">Threads</label>
                         <input className="form-input" type="text" inputMode="numeric" value={threads}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }}
                             onFocus={e => e.target.select()}
@@ -209,7 +202,7 @@ export default function Warmup() {
                             disabled={isRunning} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Templates</label>
+                        <label className="form-label">Templates</label>
                         <div className="form-input" onClick={() => setTemplatesOpen(!templatesOpen)}
                             style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px' }}>
                             <span style={{ fontSize: '0.95em' }}>{selectedTemplates.length > 0 ? `${selectedTemplates.length} selected` : 'Built-in'}</span>
@@ -238,7 +231,7 @@ export default function Warmup() {
                         )}
                     </div>
                     <div>
-                        <label style={labelStyle}>Links <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none' }}>(optional)</span></label>
+                        <label className="form-label">Links <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none' }}>(optional)</span></label>
                         <div className="form-input" onClick={() => setLinksOpen(!linksOpen)}
                             style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px' }}>
                             <span style={{ fontSize: '0.95em' }}>{selectedLinks.length > 0 ? `${selectedLinks.length} selected` : 'None'}</span>
@@ -269,9 +262,9 @@ export default function Warmup() {
                 </div>
 
                 {/* ── Row 3: Warmup Features ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="config-row-4">
                     <div>
-                        <label style={labelStyle}>Emails / Day <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none' }}>(0 = auto)</span></label>
+                        <label className="form-label">Emails / Day <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none' }}>(0 = auto)</span></label>
                         <input className="form-input" type="text" inputMode="numeric" value={emailsPerDay}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }}
                             onFocus={e => e.target.select()}
@@ -284,7 +277,7 @@ export default function Warmup() {
                     { label: 'Spam Rescue', state: enableSpamRescue, setter: setEnableSpamRescue, color: '#EF4444' },
                     ].map(({ label, state, setter, color }) => (
                         <div key={label}>
-                            <label style={labelStyle}>{label}</label>
+                            <label className="form-label">{label}</label>
                             <div className="form-input" onClick={() => !isRunning && setter(!state)}
                                 style={{
                                     cursor: isRunning ? 'default' : 'pointer', display: 'flex', alignItems: 'center',
@@ -325,7 +318,7 @@ export default function Warmup() {
                 )}
 
                 {/* ── Buttons: START / STOP ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="engine-actions">
                     <button className="btn-start" onClick={startWarmup} disabled={isRunning || loading}>
                         <Play size={18} /> {loading ? 'Starting...' : 'START'}
                     </button>
@@ -337,15 +330,9 @@ export default function Warmup() {
 
             {/* ═══════════════ Live Status ═══════════════ */}
             {isRunning && (
-                <div className="card" style={{
-                    padding: '14px 20px', marginBottom: 16,
-                    background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)',
-                }}>
+                <div className="card engine-status-bar">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                            width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)',
-                            animation: 'pulse 1.5s infinite',
-                        }} />
+                        <div className="engine-status-dot" />
                         <span style={{ fontWeight: 700, color: 'var(--accent)' }}>Warming...</span>
                         <span style={{ color: 'var(--text-secondary)', fontSize: '0.88em' }}>
                             Sent: {stats.total_sent || 0} | Replied: {stats.total_replied || 0} | Starred: {stats.total_starred || 0} | Spam Rescued: {stats.total_spam_rescued || 0} | Errors: {stats.total_errors || 0} | Accounts: {stats.accounts_processed || 0}
@@ -363,8 +350,8 @@ export default function Warmup() {
             {/* ═══════════════ Phase Distribution ═══════════════ */}
             {totalPhaseAccs > 0 && (
                 <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#06B6D4' }} />
+                    <div className="card-section-header">
+                        <span className="card-section-dot" style={{ background: '#06B6D4' }} />
                         Phase Distribution
                     </div>
 
@@ -418,8 +405,8 @@ export default function Warmup() {
             {/* ═══════════════ Accounts Table ═══════════════ */}
             {topAccounts.length > 0 && (
                 <div className="card" style={{ padding: '20px 24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B' }} />
+                    <div className="card-section-header">
+                        <span className="card-section-dot" style={{ background: '#F59E0B' }} />
                         Accounts in Warm-up ({topAccounts.length})
                     </div>
                     <div style={{ overflowX: 'auto' }}>

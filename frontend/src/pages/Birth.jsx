@@ -152,12 +152,14 @@ export default function Birth() {
     return (
         <div className="page">
             {/* Header */}
-            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>AUTOREG</div>
-            <h2 className="page-title" style={{ margin: '0 0 20px', borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-block' }}>Autoreg</h2>
+            <div className="page-header">
+                <div className="page-breadcrumb">AUTOREG</div>
+                <h2 className="page-title">Autoreg</h2>
+            </div>
 
             {/* ═══════════════ Config Section ═══════════════ */}
             <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Config</div>
+                <div className="card-section-header">Config</div>
 
                 {/* ── Provider Cards ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PROVIDERS.length}, 1fr)`, gap: 10, marginBottom: 24 }}>
@@ -195,15 +197,15 @@ export default function Birth() {
                 </div>
 
                 {/* ── Farm + Quantity row ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="config-row-2">
                     <div>
-                        <label style={labelStyle}>Farm</label>
+                        <label className="form-label">Farm</label>
                         <input className="form-input" type="text" placeholder="Auto-create new farm" value={_farmName}
                             onChange={e => _setFarmName(e.target.value)}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Quantity</label>
+                        <label className="form-label">Quantity</label>
                         <input className="form-input" type="text" inputMode="numeric" value={quantity}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }}
                             onFocus={e => e.target.select()}
@@ -213,9 +215,9 @@ export default function Birth() {
                 </div>
 
                 {/* ── Threads + Name Pack row ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+                <div className="config-row-2" style={{ marginBottom: 20 }}>
                     <div>
-                        <label style={labelStyle}>Threads</label>
+                        <label className="form-label">Threads</label>
                         <input className="form-input" type="text" inputMode="numeric" value={threads}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }}
                             onFocus={e => e.target.select()}
@@ -223,7 +225,7 @@ export default function Birth() {
                             onBlur={e => setThreads(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Name Pack</label>
+                        <label className="form-label">Name Pack</label>
                         <div className="form-input" onClick={() => setPacksOpen(!packsOpen)}
                             style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px' }}>
                             <span>{selectedNamePacks.length > 0 ? `${selectedNamePacks.length} selected` : 'Select...'}</span>
@@ -257,7 +259,7 @@ export default function Birth() {
 
                 {/* ── Buttons: START / STOP ── */}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="engine-actions">
                     <button className="btn-start" onClick={startBirth} disabled={running}>
                         <Play size={16} /> START
                     </button>
@@ -364,7 +366,7 @@ export default function Birth() {
 
             {/* ═══════════════ Thread Monitor ═══════════════ */}
             <div className="card" style={{ padding: '16px 24px' }}>
-                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Thread monitor</div>
+                <div className="card-section-header">Thread monitor</div>
 
                 {!running && safeProgress.total === 0 ? (
                     <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: '0.85em' }}>
@@ -476,9 +478,3 @@ export default function Birth() {
         </div>
     );
 }
-
-/* ── Styles ── */
-const labelStyle = {
-    fontSize: '0.68em', fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 6, display: 'block',
-};

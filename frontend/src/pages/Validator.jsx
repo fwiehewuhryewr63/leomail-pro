@@ -135,12 +135,14 @@ export default function Validator() {
     return (
         <div className="page">
             {/* Header */}
-            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>VALIDATOR</div>
-            <h2 className="page-title" style={{ margin: '0 0 20px', borderBottom: '2px solid var(--teal)', paddingBottom: 8, display: 'inline-block' }}>Account Validator</h2>
+            <div className="page-header">
+                <div className="page-breadcrumb">VALIDATOR</div>
+                <h2 className="page-title">Account Validator</h2>
+            </div>
 
             {/* ═══════════════ Upload Section ═══════════════ */}
             <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Upload</div>
+                <div className="card-section-header">Upload</div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: uploadResult ? '1fr 1fr' : '1fr', gap: 20 }}>
                     {/* Drop Zone */}
@@ -203,17 +205,17 @@ export default function Validator() {
 
             {/* ═══════════════ Config Section ═══════════════ */}
             <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Config</div>
+                <div className="card-section-header">Config</div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="config-row-2">
                     <div>
-                        <label style={labelStyle}>Farm</label>
+                        <label className="form-label">Farm</label>
                         <input className="form-input" type="text" placeholder="Auto-create new farm"
                             value={farmName} onChange={e => setFarmName(e.target.value)}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }} />
                     </div>
                     <div>
-                        <label style={labelStyle}>Threads</label>
+                        <label className="form-label">Threads</label>
                         <input className="form-input" type="text" inputMode="numeric" value={threads}
                             style={{ fontSize: '1.05em', padding: '10px 14px' }}
                             onFocus={e => e.target.select()}
@@ -223,13 +225,13 @@ export default function Validator() {
                 </div>
 
                 {/* Toggles */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+                <div className="config-row-2" style={{ marginBottom: 20 }}>
                     <Toggle label="Skip existing accounts" checked={skipExisting} onChange={setSkipExisting} />
                     <Toggle label="Save session after login" checked={saveSession} onChange={setSaveSession} />
                 </div>
 
                 {/* Buttons */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="engine-actions">
                     <button className="btn-start" onClick={startValidation} disabled={running || !uploadResult}>
                         <Play size={16} /> START
                     </button>
@@ -258,7 +260,7 @@ export default function Validator() {
 
             {/* ═══════════════ Thread Monitor ═══════════════ */}
             <div className="card" style={{ padding: '16px 24px' }}>
-                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Results</div>
+                <div className="card-section-header">Results</div>
 
                 {!running && completed === 0 ? (
                     <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: '0.85em' }}>
@@ -379,9 +381,3 @@ function Toggle({ label, checked, onChange }) {
         </div>
     );
 }
-
-/* ── Styles ── */
-const labelStyle = {
-    fontSize: '0.68em', fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 6, display: 'block',
-};

@@ -178,11 +178,13 @@ export default function Campaigns() {
     return (
         <div className="page">
             {/* Header */}
-            <div style={{ fontSize: '0.6em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OPERATIONS / CAMPAIGNS</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <Rocket size={22} /> Campaigns
-                </h2>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <div className="page-breadcrumb">OPERATIONS / CAMPAIGNS</div>
+                    <h2 className="page-title">
+                        <Rocket size={22} /> Campaigns
+                    </h2>
+                </div>
                 <button onClick={() => setShowCreate(!showCreate)} style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px',
                     fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 20,
@@ -236,7 +238,7 @@ export default function Campaigns() {
                     </div>
 
                     {/* Row: Templates + Links + Recipients */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
+                    <div className="config-row-3" style={{ marginBottom: 14 }}>
                         <ResourceList label="Templates" color={ACCENT.templates} icon="📝"
                             items={templates} selected={selectedTemplates} setSelected={setSelectedTemplates}
                             emptyText="No templates"
@@ -295,7 +297,7 @@ export default function Campaigns() {
             )}
 
             {/* ═══════════════ Campaign Cards ═══════════════ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            <div className="dash-grid">
                 {campaigns.map(c => {
                     const pct = c.recipients_total > 0 ? Math.round(c.recipients_sent / c.recipients_total * 100) : 0;
                     const sColor = STATUS_COLOR[c.status] || '#888';
