@@ -67,6 +67,17 @@ async def proxy_stats(db: Session = Depends(get_db)):
     return pm.get_stats()
 
 
+@router.get("/limits")
+async def get_proxy_limits():
+    """Return current proxy usage limits per provider group."""
+    return {
+        "G": ProxyManager.GMAIL_LIMIT,
+        "YA": ProxyManager.YA_LIMIT,
+        "OH": ProxyManager.OH_LIMIT,
+        "PT": ProxyManager.PT_LIMIT,
+    }
+
+
 @router.post("/{proxy_id}/move-to-active")
 async def move_to_active(proxy_id: int, db: Session = Depends(get_db)):
     """Move a dead/exhausted/expired proxy back to active pool."""

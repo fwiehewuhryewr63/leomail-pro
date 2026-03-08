@@ -5,6 +5,7 @@ import { API } from '../api';
 export default function Proxies() {
     const [proxies, setProxies] = useState([]);
     const [stats, setStats] = useState({});
+    const [proxyLimits, setProxyLimits] = useState({ G: 1, YA: 3, OH: 3, PT: 3 });
     const [filter, setFilter] = useState(null);
     const [showUpload, setShowUpload] = useState(false);
     const [uploadText, setUploadText] = useState('');
@@ -35,6 +36,7 @@ export default function Proxies() {
     const loadProxies = () => {
         fetch(`${API}/proxies/`).then(r => r.json()).then(setProxies).catch(() => { /* ignore */ });
         fetch(`${API}/proxies/stats`).then(r => r.json()).then(setStats).catch(() => { /* ignore */ });
+        fetch(`${API}/proxies/limits`).then(r => r.json()).then(d => { if (d && typeof d === 'object') setProxyLimits(d); }).catch(() => { /* ignore */ });
     };
     useEffect(() => { loadProxies(); }, []);
 
@@ -412,10 +414,10 @@ export default function Proxies() {
 
                                     {/* Per-provider usage cells: G, Y/A, O/H, P — green=success, red=fail */}
                                     {[
-                                        { key: 'G', failKey: 'fail_G', limit: 1 },
-                                        { key: 'YA', failKey: 'fail_YA', limit: 3 },
-                                        { key: 'OH', failKey: 'fail_OH', limit: 3 },
-                                        { key: 'PT', failKey: 'fail_PT', limit: 3 },
+                                        { key: 'G', failKey: 'fail_G', limit: proxyLimits.G || 1 },
+                                        { key: 'YA', failKey: 'fail_YA', limit: proxyLimits.YA || 3 },
+                                        { key: 'OH', failKey: 'fail_OH', limit: proxyLimits.OH || 3 },
+                                        { key: 'PT', failKey: 'fail_PT', limit: proxyLimits.PT || 3 },
                                     ].map(({ key, failKey, limit }) => {
                                         const success = p[`use_${key}`] || 0;
                                         const fail = p[failKey] || 0;

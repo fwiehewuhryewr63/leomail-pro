@@ -582,9 +582,13 @@ export default function Settings() {
 
             {/* ═══ SAVE SETTINGS ═══ */}
             <button className="btn btn-primary" onClick={() => {
+                const body = {};
+                PROXY_PROVIDERS.forEach(p => {
+                    body[p.backendKey] = parseInt(proxyLimits[p.id]) || 3;
+                });
                 fetch(`${API}/settings/`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(rawSettings)
+                    body: JSON.stringify(body)
                 }).then(() => loadSettings());
             }} style={{
                 width: '100%', padding: '14px', fontSize: '1em', fontWeight: 700,
