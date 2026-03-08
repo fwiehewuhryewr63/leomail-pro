@@ -6,6 +6,7 @@ Per-provider usage: success (use_*) + fail (fail_*) both count toward limit.
 import random
 import asyncio
 from datetime import datetime, timedelta
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from loguru import logger
 from ..models import Proxy, ProxyStatus, Account
@@ -245,16 +246,18 @@ class ProxyManager:
         Groups: Yahoo+AOL (YA, limit 3), Outlook+Hotmail (OH, limit 3), Gmail (G, limit 1),
         ProtonMail (PT, limit 3).
         Counts BOTH successes (use_*) and failures (fail_*) toward the limit.
+        Uses coalesce() for NULL safety on fail_* columns.
         """
+        _c = func.coalesce  # shorthand
         provider = provider.lower()
         if provider in ('yahoo', 'aol'):
-            return (Proxy.use_yahoo + Proxy.use_aol + Proxy.fail_yahoo + Proxy.fail_aol) < ProxyManager.YA_LIMIT
+            return (_c(Proxy.use_yahoo, 0) + _c(Proxy.use_aol, 0) + _c(Proxy.fail_yahoo, 0) + _c(Proxy.fail_aol, 0)) < ProxyManager.YA_LIMIT
         elif provider in ('outlook', 'hotmail'):
-            return (Proxy.use_outlook + Proxy.use_hotmail + Proxy.fail_outlook + Proxy.fail_hotmail) < ProxyManager.OH_LIMIT
+            return (_c(Proxy.use_outlook, 0) + _c(Proxy.use_hotmail, 0) + _c(Proxy.fail_outlook, 0) + _c(Proxy.fail_hotmail, 0)) < ProxyManager.OH_LIMIT
         elif provider == 'gmail':
-            return (Proxy.use_gmail + Proxy.fail_gmail) < ProxyManager.GMAIL_LIMIT
+            return (_c(Proxy.use_gmail, 0) + _c(Proxy.fail_gmail, 0)) < ProxyManager.GMAIL_LIMIT
         elif provider == 'protonmail':
-            return (Proxy.use_protonmail + Proxy.fail_protonmail) < ProxyManager.PT_LIMIT
+            return (_c(Proxy.use_protonmail, 0) + _c(Proxy.fail_protonmail, 0)) < ProxyManager.PT_LIMIT
         return None
 
     @staticmethod
