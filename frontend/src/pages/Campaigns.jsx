@@ -126,7 +126,7 @@ export default function Campaigns() {
     const [selectedLinkPacks, setSelectedLinkPacks] = useState([]);
     const navigate = useNavigate();
 
-    const load = () => fetch(`${API}/campaigns/`).then(r => r.json()).then(setCampaigns).catch(() => { });
+    const load = () => fetch(`${API}/campaigns`).then(r => r.json()).then(setCampaigns).catch(() => { });
     useEffect(() => {
         load();
         const iv = setInterval(load, 10000);
@@ -153,7 +153,7 @@ export default function Campaigns() {
                 emails_per_day_min: form.emails_per_day,
                 emails_per_day_max: form.emails_per_day,
             };
-            const r = await fetch(`${API}/campaigns/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const r = await fetch(`${API}/campaigns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             const d = await r.json();
             if (d.id) { setShowCreate(false); load(); navigate(`/campaigns/${d.id}`); }
         } finally { setLoading(false); }
