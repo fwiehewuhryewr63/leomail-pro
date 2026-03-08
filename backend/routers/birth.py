@@ -689,6 +689,10 @@ async def run_birth_task(request: BirthRequest):
                                 thread_log.status = "error"
                                 thread_log.error_message = f"{'[RETRY] Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
                                 thread_log.error_category = classify_error(thread_log.error_message)
+                            # Increment FAIL counter even on crashes/exceptions
+                            # (proxy that consistently crashes should hit its limit)
+                            if proxy:
+                                proxy_manager.increment_provider_fail(proxy, request.provider)
                             db.commit()
                         except Exception:
                             pass
