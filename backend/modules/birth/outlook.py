@@ -146,16 +146,19 @@ async def step_1_navigate(page, ctx: RegContext, proxy, db):
     # Pre-check: proxy alive?
     current_url = page.url or ""
     if "chrome-error" in current_url or "about:blank" == current_url:
-        ctx._err(f"[ERR] Proxy DEAD - page failed to load (URL: {current_url})")
         if proxy:
             try:
-                proxy.status = ProxyStatus.DEAD
                 proxy.fail_count = (proxy.fail_count or 0) + 1
+                if proxy.fail_count >= 3:
+                    proxy.status = ProxyStatus.DEAD
+                    logger.warning(f"Proxy marked DEAD after {proxy.fail_count} consecutive failures: {proxy.host}:{proxy.port}")
+                else:
+                    logger.info(f"Proxy temp fail #{proxy.fail_count}/3: {proxy.host}:{proxy.port} (will retry with different proxy)")
                 db.commit()
-                logger.warning(f"Proxy marked DEAD during birth: {proxy.host}:{proxy.port}")
             except Exception:
                 pass
-        raise FatalError("E501", f"Proxy dead: {current_url}")
+        ctx._err(f"[ERR] Proxy navigation failed (URL: {current_url})")
+        raise RecoverableError("E501", f"Proxy navigation failed: {current_url}")
 
     # Check for error/block pages
     if "error" in current_url.split("?")[0].lower() or "blocked" in current_url.lower():
