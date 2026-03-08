@@ -220,7 +220,7 @@ export default function Farms() {
                                     <div>
                                         <div style={{ fontWeight: 600, fontSize: '0.95em', display: 'flex', alignItems: 'center', gap: 8 }}>
                                             {farm.name}
-                                            <span style={{ fontSize: '0.72em', fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: 'rgba(6,182,212,0.12)', color: '#06b6d4' }}>{farm.accounts_count} accounts</span>
+                                            <span style={{ fontSize: '0.72em', fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: 'rgba(6,182,212,0.12)', color: '#06b6d4' }}>{farm.accounts_count} {farm.accounts_count === 1 ? 'account' : 'accounts'}</span>
                                         </div>
                                         {farm.description && <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 2 }}>{farm.description}</div>}
                                     </div>
@@ -241,7 +241,7 @@ export default function Farms() {
                                             </span>
                                         );
                                     })}
-                                    {(!farm.status_breakdown || Object.keys(farm.status_breakdown).length === 0) && (
+                                    {(!farm.statuses || Object.keys(farm.statuses).length === 0) && (
                                         <span style={{ fontSize: '0.62em', color: 'var(--text-muted)' }}>No accounts</span>
                                     )}
                                 </div>
@@ -271,7 +271,7 @@ export default function Farms() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <div>
                                 <div style={{ fontWeight: 700, fontSize: '1.1em' }}>{farmDetail.name}</div>
-                                <div style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>{farmDetail.accounts?.length || 0} accounts</div>
+                                <div style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>{farmDetail.accounts?.length || 0} {(farmDetail.accounts?.length || 0) === 1 ? 'account' : 'accounts'}</div>
                             </div>
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                                 <button className="btn btn-sm" onClick={() => setShowImport(true)} style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
