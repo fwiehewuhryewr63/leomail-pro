@@ -31,7 +31,7 @@ from .config import init_directories, load_config
 
 # Import routers
 from .routers import dashboard, birth, settings, proxies, farms, templates, databases, links, geo, resources
-from .routers import sms, human_engine, errors, names, work, logs, stats, campaigns, export
+from .routers import sms, human_engine, errors, names, work, logs, stats, campaigns, export, accounts
 from .routers import engine as engine_router
 from .routers import warmup, update, validator
 
@@ -63,7 +63,7 @@ _all_routers = [
     geo.router, resources.router, sms.router, human_engine.router,
     errors.router, names.router, work.router, logs.router,
     stats.router, campaigns.router, export.router, engine_router.router,
-    warmup.router, update.router, validator.router,
+    warmup.router, update.router, validator.router, accounts.router,
 ]
 for _r in _all_routers:
     app.router.routes.extend(_r.routes)
