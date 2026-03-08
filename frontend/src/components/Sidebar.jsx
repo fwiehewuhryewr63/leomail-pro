@@ -7,32 +7,31 @@ import {
     ScanSearch
 } from 'lucide-react';
 
-// Menu structure with logical groups (separator = null item)
 const NAV_ITEMS = [
-    // Group 1: Overview
-    { to: '/', icon: LayoutDashboard, label: 'dashboard', end: true },
-    { to: '/birth', icon: Baby, label: 'autoreg' },
-    { to: '/validator', icon: ScanSearch, label: 'validator' },
-    null, // separator
-    // Group 2: Email Operations
-    { to: '/warmup', icon: Flame, label: 'warm-up' },
-    { to: '/campaigns', icon: Rocket, label: 'campaigns' },
-    null, // separator
-    // Group 3: Resources
-    { to: '/farms', icon: Boxes, label: 'farms' },
-    { to: '/accounts', icon: Users, label: 'accounts' },
-    { to: '/names', icon: UserCircle, label: 'names' },
-    { to: '/proxies', icon: Shield, label: 'proxies' },
-    null, // separator
-    // Group 4: Content
-    { to: '/templates', icon: FileText, label: 'templates' },
-    { to: '/links', icon: Link, label: 'links' },
-    { to: '/databases', icon: Database, label: 'recipients' },
-    null, // separator
-    // Group 5: System
-    { to: '/threads', icon: Terminal, label: 'threads' },
-    { to: '/logs', icon: Monitor, label: 'logs' },
-    { to: '/settings', icon: Settings, label: 'settings' },
+    // Overview
+    { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
+    { to: '/birth', icon: Baby, label: 'Autoreg' },
+    { to: '/validator', icon: ScanSearch, label: 'Validator' },
+    null,
+    // Email Operations
+    { to: '/warmup', icon: Flame, label: 'Warm-up' },
+    { to: '/campaigns', icon: Rocket, label: 'Campaigns' },
+    null,
+    // Resources
+    { to: '/farms', icon: Boxes, label: 'Farms' },
+    { to: '/accounts', icon: Users, label: 'Accounts' },
+    { to: '/names', icon: UserCircle, label: 'Names' },
+    { to: '/proxies', icon: Shield, label: 'Proxies' },
+    null,
+    // Content
+    { to: '/templates', icon: FileText, label: 'Templates' },
+    { to: '/links', icon: Link, label: 'Links' },
+    { to: '/databases', icon: Database, label: 'Recipients' },
+    null,
+    // System
+    { to: '/threads', icon: Terminal, label: 'Threads' },
+    { to: '/logs', icon: Monitor, label: 'Logs' },
+    { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Sidebar({ status, updateAvailable }) {
@@ -41,6 +40,7 @@ export default function Sidebar({ status, updateAvailable }) {
             {/* Logo */}
             <div className="sidebar-logo">
                 <img src="/logo.png" alt="Leomail" className="sidebar-logo-img" />
+                <span className="sidebar-brand">Leomail</span>
             </div>
 
             {/* Nav */}
@@ -52,16 +52,11 @@ export default function Sidebar({ status, updateAvailable }) {
                     return (
                         <NavLink key={item.to} to={item.to}
                             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                            end={item.end}
-                            style={{ position: 'relative' }}>
-                            <item.icon size={22} />
+                            end={item.end}>
+                            <item.icon size={18} />
                             <span className="nav-label">{item.label}</span>
-                            {item.label === 'settings' && updateAvailable && (
-                                <span style={{
-                                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                                    width: 8, height: 8, borderRadius: '50%', background: '#EF4444',
-                                    animation: 'pulse 2s infinite',
-                                }} />
+                            {item.label === 'Settings' && updateAvailable && (
+                                <span className="nav-update-dot" />
                             )}
                         </NavLink>
                     );
@@ -71,7 +66,7 @@ export default function Sidebar({ status, updateAvailable }) {
             {/* Footer */}
             <div className="sidebar-footer">
                 <div className={`status-dot ${status === 'online' ? 'online' : ''}`} />
-                <span>{status === 'online' ? 'online' : 'offline'}</span>
+                <span>{status === 'online' ? 'Connected' : 'Offline'}</span>
             </div>
         </div>
     );
