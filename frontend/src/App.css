@@ -1547,3 +1547,434 @@ input[type="checkbox"] {
     font-size: 1.1em;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   PREMIUM DESIGN SYSTEM v2 — Enhanced Components
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Page Header — Unified breadcrumb + title ── */
+.page-header {
+  margin-bottom: 20px;
+}
+
+.page-header .page-breadcrumb {
+  font-size: 0.62em;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  opacity: 0.7;
+}
+
+.page-header .page-title {
+  font-size: 1.35em;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid transparent;
+  border-image: var(--gradient-primary) 1;
+  margin-bottom: 0;
+}
+
+/* ── Section Header — Card section titles ── */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.section-header svg {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.section-header .section-title {
+  font-size: 0.88em;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+
+.section-header .section-subtitle {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.section-header .section-badge {
+  margin-left: auto;
+  font-size: 0.7em;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+/* ── Stat Card — Top-row statistics ── */
+.stat-card {
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stat-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gradient-primary);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.stat-card:hover::after {
+  opacity: 0.6;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-hover), 0 0 30px rgba(16, 185, 129, 0.04);
+}
+
+.stat-value {
+  font-size: 2em;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.stat-label {
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+
+/* ── Skeleton Loading — Animated placeholders ── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-text {
+  height: 12px;
+  margin-bottom: 8px;
+  width: 80%;
+}
+
+.skeleton-number {
+  height: 28px;
+  width: 60px;
+  margin-bottom: 6px;
+}
+
+.skeleton-card {
+  height: 90px;
+  border-radius: var(--radius-md);
+}
+
+.skeleton-chart {
+  height: 180px;
+  border-radius: var(--radius-md);
+}
+
+@keyframes skeleton-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Pill Tabs — Period/filter selectors ── */
+.pill-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.pill-tab {
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.72em;
+  font-weight: 700;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
+.pill-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pill-tab.active {
+  background: var(--accent);
+  color: #000;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+/* ── Info Row — Key-value pair ── */
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  transition: all 0.15s ease;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-row:hover {
+  padding-left: 4px;
+}
+
+.info-row .info-label {
+  font-size: 0.82em;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.info-row .info-value {
+  font-size: 0.88em;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Metric Bar — Thin horizontal progress ── */
+.metric-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.metric-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.metric-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  animation: shimmer-bar 2.5s ease-in-out infinite;
+}
+
+/* ── Glow Border — Animated gradient border on hover ── */
+.glow-card {
+  position: relative;
+}
+
+.glow-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--gradient-primary);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+  filter: blur(1px);
+}
+
+.glow-card:hover::before {
+  opacity: 0.3;
+}
+
+/* ── Empty State — Centered placeholder ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty-state svg {
+  opacity: 0.2;
+  margin-bottom: 12px;
+}
+
+.empty-state .empty-title {
+  font-size: 0.9em;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.empty-state .empty-desc {
+  font-size: 0.78em;
+  font-weight: 500;
+  max-width: 280px;
+}
+
+/* ── Stagger Animation — Cards fade in with delay ── */
+.stagger > * {
+  animation: stagger-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 50ms; }
+.stagger > *:nth-child(3) { animation-delay: 100ms; }
+.stagger > *:nth-child(4) { animation-delay: 150ms; }
+.stagger > *:nth-child(5) { animation-delay: 200ms; }
+.stagger > *:nth-child(6) { animation-delay: 250ms; }
+.stagger > *:nth-child(7) { animation-delay: 300ms; }
+.stagger > *:nth-child(8) { animation-delay: 350ms; }
+
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Enhanced Page — More breathing room ── */
+.page {
+  padding-bottom: 40px;
+}
+
+/* ── Enhanced Card — Increased padding, inner glow ── */
+.card {
+  padding: 18px 20px;
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* ── Enhanced Body Glow — Stronger ambient ── */
+body::before {
+  background:
+    radial-gradient(ellipse at 15% 30%, rgba(16, 185, 129, 0.035) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 20%, rgba(99, 102, 241, 0.025) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 85%, rgba(139, 92, 246, 0.02) 0%, transparent 40%),
+    radial-gradient(ellipse at 70% 60%, rgba(6, 182, 212, 0.018) 0%, transparent 35%);
+}
+
+/* ── Enhanced Sidebar Active — Stronger glow ── */
+.nav-item.active {
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: inset 0 0 12px rgba(16, 185, 129, 0.06);
+}
+
+.nav-item.active::before {
+  width: 3px;
+  height: 24px;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.nav-item:hover {
+  transform: scale(1.02);
+}
+
+.nav-item:hover svg {
+  transform: scale(1.1);
+}
+
+/* ── Sidebar Logo Pulse ── */
+.sidebar-logo-img {
+  transition: all 0.3s ease;
+}
+
+.sidebar-logo:hover .sidebar-logo-img {
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.4));
+  transform: scale(1.08);
+}
+
+/* ── Interactive Checkboxes — Glow on check ── */
+input[type="checkbox"]:checked {
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+/* ── Data Table Enhancement — Striped rows ── */
+.data-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+/* ── Select/Dropdown — Premium styling ── */
+select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2364748B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+/* ── Smoother Modal Transitions ── */
+.modal-overlay {
+  animation: modalBgIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-content {
+  animation: modalIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Focus Ring — Visible keyboard focus ── */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Tooltip hover ── */
+[title] {
+  cursor: help;
+}
+
+/* ── Premium scrollbar for cards ── */
+.card::-webkit-scrollbar {
+  width: 4px;
+}
+
+.card::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.12);
+  border-radius: 4px;
+}
+
+/* ── Animated gradient text shimmer ── */
+.gradient-text-animated {
+  background: linear-gradient(90deg, #10B981, #06B6D4, #6366F1, #8B5CF6, #10B981);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 3s linear infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}

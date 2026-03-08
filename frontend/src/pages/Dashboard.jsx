@@ -216,14 +216,16 @@ export default function Dashboard() {
     return (
         <div className="page">
             {/* ═══ HEADER ═══ */}
-            <div style={{ fontSize: '0.65em', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>OVERVIEW / DASHBOARD</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h2 className="page-title" style={{ margin: 0, borderBottom: '2px solid var(--accent)', paddingBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <LayoutDashboard size={22} /> Dashboard
-                </h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75em', color: 'var(--text-muted)' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 8px rgba(16,185,129,0.6)' }} />
-                    Updated {timeAgo}
+            <div className="page-header">
+                <div className="page-breadcrumb">OVERVIEW / DASHBOARD</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 className="page-title">
+                        <LayoutDashboard size={22} /> Dashboard
+                    </h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75em', color: 'var(--text-muted)' }}>
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 8px rgba(16,185,129,0.6)' }} />
+                        Updated {timeAgo}
+                    </div>
                 </div>
             </div>
 
@@ -261,7 +263,7 @@ export default function Dashboard() {
             })()}
 
             {/* ═══ 5 STAT CARDS ═══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
+            <div className="stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
                 {/* ACCOUNTS */}
                 <ClickCard to="/accounts" style={{ padding: '14px 16px', borderLeft: '3px solid #10B981' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -338,14 +340,10 @@ export default function Dashboard() {
                         <span style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--text-primary)' }}>Activity</span>
                         <span style={{ fontSize: '0.7em', color: 'var(--text-muted)' }}>accounts + emails</span>
                         {/* Period selector */}
-                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: 2 }}>
+                        <div className="pill-tabs" style={{ marginLeft: 'auto' }}>
                             {PERIODS.map(p => (
-                                <button key={p.days} onClick={() => changePeriod(p.days)} style={{
-                                    padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer',
-                                    fontSize: '0.72em', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.2s',
-                                    background: period === p.days ? 'var(--accent)' : 'transparent',
-                                    color: period === p.days ? '#000' : 'var(--text-muted)',
-                                }}>
+                                <button key={p.days} onClick={() => changePeriod(p.days)}
+                                    className={`pill-tab${period === p.days ? ' active' : ''}`}>
                                     {p.label}
                                 </button>
                             ))}
