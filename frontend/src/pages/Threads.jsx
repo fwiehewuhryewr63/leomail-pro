@@ -242,16 +242,19 @@ export default function Threads() {
             {/* Left: Thread list */}
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <h2 style={{ margin: 0, fontSize: '1.3em', fontWeight: 300, fontStyle: 'italic', color: 'var(--text-primary)' }}>
-                        Threads
-                        {running > 0 && (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.45em', padding: '2px 10px', borderRadius: 20, color: '#10B981', fontWeight: 700, marginLeft: 10 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 5px #10B981', animation: 'pulse 1.5s infinite' }} />
-                                {running} active
-                            </span>
-                        )}
-                    </h2>
+                <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                        <div className="page-breadcrumb">MONITORING / THREADS</div>
+                        <h2 className="page-title">
+                            Threads
+                            {running > 0 && (
+                                <span className="active-badge">
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 5px #10B981', animation: 'pulse 1.5s infinite' }} />
+                                    {running} active
+                                </span>
+                            )}
+                        </h2>
+                    </div>
                     <button className="btn" onClick={clearThreads} style={{ padding: '4px 12px', fontSize: '0.78em', fontWeight: 600, border: '1px solid var(--border-default)', background: 'transparent' }}>
                         Clear
                     </button>
@@ -259,7 +262,7 @@ export default function Threads() {
 
                 {/* Stats — only show when threads are active */}
                 {running > 0 && (
-                    <div className="card" style={{ padding: '6px 14px', marginBottom: 10, fontSize: '0.8em', color: 'var(--text-secondary)', display: 'flex', gap: 10 }}>
+                    <div className="engine-status-bar">
                         <span style={{ color: '#10B981', fontWeight: 700 }}>{done} ✓</span>
                         <span style={{ color: 'var(--text-muted)' }}>·</span>
                         <span style={{ color: '#EF4444', fontWeight: 700 }}>{failed} ✗</span>
