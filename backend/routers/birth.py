@@ -490,6 +490,7 @@ async def run_birth_task(request: BirthRequest):
                             if not has_sms_chain:
                                 thread_log.status = "error"
                                 thread_log.error_message = "Gmail requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
+                                thread_log.error_category = "sms"
                                 db.commit()
                                 return
                             account = await register_single_gmail(
@@ -502,6 +503,7 @@ async def run_birth_task(request: BirthRequest):
                             if not has_sms_chain:
                                 thread_log.status = "error"
                                 thread_log.error_message = "Yahoo requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
+                                thread_log.error_category = "sms"
                                 db.commit()
                                 return
                             account = await register_single_yahoo(
@@ -514,6 +516,7 @@ async def run_birth_task(request: BirthRequest):
                             if not has_sms_chain:
                                 thread_log.status = "error"
                                 thread_log.error_message = "AOL requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
+                                thread_log.error_category = "sms"
                                 db.commit()
                                 return
                             account = await register_single_aol(
@@ -532,6 +535,7 @@ async def run_birth_task(request: BirthRequest):
                         else:
                             thread_log.status = "error"
                             thread_log.error_message = f"Provider '{request.provider}' not supported"
+                            thread_log.error_category = "unknown"
                             db.commit()
                             return
 
