@@ -337,14 +337,26 @@ class CampaignRunner:
 
                 # Check if session is valid (not redirected to login)
                 if "signin" in page.url or "login" in page.url or "account" in page.url:
-                    logger.warning(f"Campaign send[{worker_id}] {email}: session expired / not logged in")
-                    account_dead = True
-                    if account_id:
-                        acc = db.query(Account).filter(Account.id == account_id).first()
-                        if acc:
-                            acc.status = AccountStatus.DEAD
-                            db.commit()
-                    continue
+                    logger.info(f"Campaign send[{worker_id}] {email}: session expired, attempting re-login...")
+                    from .browser_relogin import browser_relogin
+                    relogin_ok = await browser_relogin(page, provider, email, password)
+                    if relogin_ok:
+                        # Save new session for future use
+                        try:
+                            if account_id and hasattr(bm, 'save_session'):
+                                await bm.save_session(context, account_id)
+                            logger.info(f"Campaign send[{worker_id}] {email}: re-login successful, session saved")
+                        except Exception as se:
+                            logger.warning(f"Campaign send[{worker_id}] {email}: session save after re-login failed: {se}")
+                    else:
+                        logger.warning(f"Campaign send[{worker_id}] {email}: re-login failed, marking dead")
+                        account_dead = True
+                        if account_id:
+                            acc = db.query(Account).filter(Account.id == account_id).first()
+                            if acc:
+                                acc.status = AccountStatus.DEAD
+                                db.commit()
+                        continue
 
                 # ── Send loop (reuses same browser page) ──
                 while (

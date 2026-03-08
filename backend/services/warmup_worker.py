@@ -295,14 +295,25 @@ async def warmup_single_account(
 
         # Check if session is valid (not redirected to login)
         if is_login_page(page.url):
-            logger.warning(f"[WARN] {account.email}: session expired / not logged in")
-            account.health_score = max(0, (account.health_score or 100) - 20)
-            try:
-                db.commit()
-            except Exception:
-                pass
-            result["errors"] += 1
-            return result
+            logger.info(f"[Warmup] {account.email}: session expired, attempting re-login...")
+            from ..modules.browser_relogin import browser_relogin
+            relogin_ok = await browser_relogin(page, provider, account.email, account.password)
+            if relogin_ok:
+                # Save new session for future use
+                try:
+                    await bm.save_session(context, account.id)
+                    logger.info(f"[Warmup] {account.email}: re-login successful, session saved")
+                except Exception as se:
+                    logger.warning(f"[Warmup] {account.email}: session save after re-login failed: {se}")
+            else:
+                logger.warning(f"[Warmup] {account.email}: re-login failed, skipping")
+                account.health_score = max(0, (account.health_score or 100) - 20)
+                try:
+                    db.commit()
+                except Exception:
+                    pass
+                result["errors"] += 1
+                return result
 
         # ── Send emails to peers (peer-to-peer warming) ──
         for i in range(remaining):
