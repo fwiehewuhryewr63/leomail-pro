@@ -94,7 +94,7 @@
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   color-scheme: dark;
   line-height: 1.5;
 }
@@ -1436,9 +1436,23 @@ textarea {
     width: 56px;
   }
 
-  .sidebar-logo h1,
-  .sidebar-logo span,
-  .nav-item span {
+  .sidebar-brand,
+  .nav-label {
+    display: none;
+  }
+
+  .sidebar-logo {
+    justify-content: center;
+    padding: 12px 8px;
+  }
+
+  .nav-item {
+    justify-content: center;
+    padding: 10px 8px;
+    gap: 0;
+  }
+
+  .sidebar-footer span {
     display: none;
   }
 
@@ -1447,8 +1461,13 @@ textarea {
     padding: 14px;
   }
 
-  .stats-grid {
+  .stats-grid,
+  .dash-stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dash-grid {
+    grid-template-columns: 1fr;
   }
 
   .section-label {
