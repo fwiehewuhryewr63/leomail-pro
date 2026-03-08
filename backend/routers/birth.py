@@ -194,13 +194,19 @@ async def run_birth_task(request: BirthRequest):
             return {"status": "error", "message": task.stop_reason}
 
         # Create farm - auto-generate descriptive name: Date - Provider - GEO(names) - Lvl0
+        geo_label = "MIX"  # default — used later for auto-buy geo detection
         if request.farm_name:
             farm_name = request.farm_name
+            # Still need geo_label for auto-buy — derive from name packs
+            if request.name_pack_ids:
+                name_packs_for_label = db.query(NamePack).filter(NamePack.id.in_(request.name_pack_ids)).all()
+                if name_packs_for_label:
+                    pack_names = [p.name for p in name_packs_for_label]
+                    geo_label = " + ".join(pack_names)[:30]
         else:
             date_str = datetime.now().strftime('%Y.%m.%d')
             provider_label = request.provider.capitalize()
             # GEO from name packs (language/region of names), NOT proxy geo
-            geo_label = "MIX"
             if request.name_pack_ids:
                 name_packs_for_label = db.query(NamePack).filter(NamePack.id.in_(request.name_pack_ids)).all()
                 if name_packs_for_label:
