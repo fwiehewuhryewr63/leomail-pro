@@ -241,7 +241,7 @@ export default function Farms() {
                                             </span>
                                         );
                                     })}
-                                    {(!farm.statuses || Object.keys(farm.statuses).length === 0) && (
+                                    {(farm.accounts_count || 0) === 0 && (
                                         <span style={{ fontSize: '0.62em', color: 'var(--text-muted)' }}>No accounts</span>
                                     )}
                                 </div>
