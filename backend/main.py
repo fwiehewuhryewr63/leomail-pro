@@ -213,6 +213,9 @@ async def _startup():
                 "fail_outlook": "INTEGER DEFAULT 0",
                 "fail_hotmail": "INTEGER DEFAULT 0",
                 "fail_protonmail": "INTEGER DEFAULT 0",
+                # Web.de counters (v4.5.60+)
+                "use_webde": "INTEGER DEFAULT 0",
+                "fail_webde": "INTEGER DEFAULT 0",
             }
             for col, col_type in proxy_extra.items():
                 if col not in proxy_cols2:
@@ -365,7 +368,8 @@ async def _startup():
     if "yahoo_aol" in pl: _PM.YA_LIMIT = max(1, pl["yahoo_aol"])
     if "outlook_hotmail" in pl: _PM.OH_LIMIT = max(1, pl["outlook_hotmail"])
     if "protonmail" in pl: _PM.PT_LIMIT = max(1, pl["protonmail"])
-    logger.info(f"Proxy limits: Gmail={_PM.GMAIL_LIMIT}, YA={_PM.YA_LIMIT}, OH={_PM.OH_LIMIT}, PT={_PM.PT_LIMIT}")
+    if "webde" in pl: _PM.WD_LIMIT = max(1, pl["webde"])
+    logger.info(f"Proxy limits: Gmail={_PM.GMAIL_LIMIT}, YA={_PM.YA_LIMIT}, OH={_PM.OH_LIMIT}, PT={_PM.PT_LIMIT}, WD={_PM.WD_LIMIT}")
 
     proxy_cfg = config.get("proxy_monitor", {})
     interval = max(60, proxy_cfg.get("check_interval_sec", 120))

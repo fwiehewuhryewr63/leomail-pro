@@ -350,6 +350,7 @@ DOMAIN_PROVIDER = {
     "outlook.com": "outlook", "outlook.de": "outlook", "outlook.fr": "outlook",
     "hotmail.com": "hotmail", "hotmail.co.uk": "hotmail", "hotmail.fr": "hotmail",
     "live.com": "outlook", "msn.com": "outlook",
+    "web.de": "webde",
 }
 
 

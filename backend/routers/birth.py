@@ -32,6 +32,7 @@ from ..modules.birth.gmail import register_single_gmail
 from ..modules.birth.yahoo import register_single_yahoo
 from ..modules.birth.aol import register_single_aol
 from ..modules.birth.protonmail import register_single_protonmail
+from ..modules.birth.webde import register_single_webde
 from ..modules.birth._helpers import get_sms_chain as _get_sms_chain
 from ..services.proxy_providers import tiered_auto_buy
 from ..modules.birth._helpers import get_captcha_provider as _get_captcha_provider
@@ -124,7 +125,7 @@ async def run_birth_task(request: BirthRequest):
             db.commit()
 
         # Validate provider
-        valid_providers = ['yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'gmail']
+        valid_providers = ['yahoo', 'aol', 'outlook', 'hotmail', 'protonmail', 'gmail', 'webde']
         if request.provider.lower() not in valid_providers:
             return {"status": "error", "message": f"Unknown provider: {request.provider}. Valid: {valid_providers}"}
 
@@ -538,6 +539,19 @@ async def run_birth_task(request: BirthRequest):
                                 ACTIVE_PAGES=ACTIVE_PAGES,
                                 BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
                             )
+                        elif request.provider == "webde":
+                            if not has_sms_chain:
+                                thread_log.status = "error"
+                                thread_log.error_message = "Web.de requires SMS provider (configure 5SIM/Grizzly/SimSMS in Settings)"
+                                thread_log.error_category = "sms"
+                                db.commit()
+                                return
+                            account = await register_single_webde(
+                                browser_manager, proxy,
+                                worker_name_pool, captcha, db, thread_log,
+                                ACTIVE_PAGES=ACTIVE_PAGES,
+                                BIRTH_CANCEL_EVENT=BIRTH_CANCEL_EVENT,
+                            )
                         else:
                             thread_log.status = "error"
                             thread_log.error_message = f"Provider '{request.provider}' not supported"
@@ -787,7 +801,7 @@ def _get_task_analytics(task, db):
     # Extract provider from task details
     task_provider = None
     if task.details:
-        for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail']:
+        for p in ['outlook', 'gmail', 'yahoo', 'aol', 'hotmail', 'protonmail', 'webde']:
             if p in task.details.lower():
                 task_provider = p
                 break

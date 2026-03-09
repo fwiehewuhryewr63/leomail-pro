@@ -841,6 +841,10 @@ async def post_registration_warmup(page, provider: str = "yahoo", duration_secon
             ("https://mail.google.com/mail/u/0/#inbox", "Gmail Inbox"),
             ("https://mail.google.com/mail/u/0/#settings/general", "Gmail Settings"),
         ],
+        "webde": [
+            ("https://web.de/email/", "Web.de Mail Inbox"),
+            ("https://web.de/email/#.strstrstrstr.1", "Web.de Settings"),
+        ],
     }
 
     pages_to_visit = PROVIDER_PAGES.get(provider.lower(), PROVIDER_PAGES["yahoo"])

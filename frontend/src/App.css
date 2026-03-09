@@ -1223,53 +1223,9 @@ textarea.form-input {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PROVIDER LOGOS — color coding for dashboard
+   PROVIDER COLORS — managed in src/utils/providers.js
+   Single source of truth for all provider brand colors.
    ═══════════════════════════════════════════════════════════ */
-.provider-gmail {
-  color: #EA4335;
-}
-
-.provider-yahoo {
-  color: #6001D2;
-}
-
-.provider-outlook {
-  color: #0078D4;
-}
-
-.provider-hotmail {
-  color: #0078D4;
-}
-
-.provider-aol {
-  color: #FF6B00;
-}
-
-.provider-protonmail {
-  color: #6D4AFF;
-}
-
-
-.provider-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 0.72em;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  border: 1px solid currentColor;
-  opacity: 0.85;
-}
-
-.provider-badge::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
 
 /* ═══════════════════════════════════════════════════════════
    ANIMATIONS
@@ -2375,46 +2331,7 @@ select.form-input {
   min-width: 24px;
 }
 
-/* Provider select card */
-.provider-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px 8px;
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-  border: 2px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.02);
-}
 
-.provider-card:hover {
-  border-color: var(--border-hover);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.provider-card.selected {
-  border-color: var(--accent);
-}
-
-.provider-card .provider-check {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #000;
-  font-size: 0.7em;
-  font-weight: 900;
-}
 
 /* Engine page empty state */
 .engine-empty {

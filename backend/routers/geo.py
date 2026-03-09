@@ -37,4 +37,7 @@ async def get_providers():
         {"id": "aol", "name": "AOL", "simsms_service": "pm", "difficulty": 1,
          "mobile_only": False, "proxy_type": "any",
          "description": "Easiest provider. Any proxy."},
+        {"id": "webde", "name": "Web.de", "simsms_service": "ot", "difficulty": 2,
+         "mobile_only": False, "proxy_type": "residential",
+         "description": "German provider. SMS verification. Residential proxy."},
     ]

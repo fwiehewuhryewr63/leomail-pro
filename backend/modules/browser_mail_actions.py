@@ -168,6 +168,13 @@ async def mark_as_starred(page, provider: str, email_index: int) -> bool:
                 '[aria-label*="tar"]',
                 'button[title*="tar"]',
             ], timeout=3000)
+        elif provider == "webde":
+            star, _ = await _wait_for_any(item, [
+                'button[aria-label*="terne"]',
+                'button[aria-label*="star"]',
+                'button[title*="Kennzeichnung"]',
+                '[aria-label*="Kennzeich"]',
+            ], timeout=3000)
         else:
             return False
 
@@ -192,7 +199,7 @@ async def mark_as_important(page, provider: str, email_index: int) -> bool:
     Yahoo/AOL/Proton don't have native 'important' markers.
     """
     try:
-        if provider in ("yahoo", "aol", "proton", "protonmail"):
+        if provider in ("yahoo", "aol", "proton", "protonmail", "webde"):
             # These providers don't have an important marker — use star instead
             return await mark_as_starred(page, provider, email_index)
 
@@ -320,6 +327,13 @@ async def _navigate_to_inbox(page, provider: str):
             'a[title="Inbox"]',
             '[href="/inbox"]',
         ], timeout=5000)
+    elif provider == "webde":
+        loc, _ = await _wait_for_any(page, [
+            'a:has-text("Posteingang")',
+            '[aria-label="Posteingang"]',
+            'a[title="Posteingang"]',
+            'a:has-text("Inbox")',
+        ], timeout=5000)
     else:
         return
 
@@ -355,6 +369,13 @@ async def _navigate_to_spam(page, provider: str):
             'a[title="Spam"]',
             '[href="/spam"]',
         ], timeout=5000)
+    elif provider == "webde":
+        loc, _ = await _wait_for_any(page, [
+            'a:has-text("Spam")',
+            '[aria-label="Spam"]',
+            'a[title="Spam"]',
+            'a:has-text("Junk")',
+        ], timeout=5000)
     else:
         return
 
@@ -388,6 +409,14 @@ async def _get_email_list_items(page, provider: str) -> list:
             '[data-testid="message-item"]',
             '[data-testid="message-item:unread"]',
             'div[data-element-id]',
+        ]
+    elif provider == "webde":
+        selectors = [
+            'tr[class*="mail-list"]',
+            'li[class*="mail-item"]',
+            'div[data-testid="mail-item"]',
+            'tr[class*="item"]',
+            'a[class*="mail-list"]',
         ]
     else:
         return []
@@ -439,6 +468,13 @@ async def _go_back_to_inbox(page, provider: str):
             '[aria-label="Back"]',
             '[data-testid="navigation-link:inbox"]',
         ], timeout=3000)
+    elif provider == "webde":
+        loc, _ = await _wait_for_any(page, [
+            'a:has-text("Posteingang")',
+            'button[aria-label*="Zurück"]',
+            'button[aria-label="Back"]',
+            '[aria-label="Posteingang"]',
+        ], timeout=3000)
     else:
         return
 
@@ -471,6 +507,13 @@ async def _click_reply_button(page, provider: str) -> bool:
         selectors = [
             '[data-testid="toolbar:reply"]',
             'button[aria-label="Reply"]',
+            'button:has-text("Reply")',
+        ]
+    elif provider == "webde":
+        selectors = [
+            'button:has-text("Antworten")',
+            'button[aria-label*="Antworten"]',
+            'button[title*="Antworten"]',
             'button:has-text("Reply")',
         ]
     else:
@@ -506,6 +549,12 @@ async def _type_reply_text(page, provider: str, text: str) -> bool:
         selectors = [
             '[data-testid="composer:body"] [contenteditable="true"]',
             'div[contenteditable="true"]',
+        ]
+    elif provider == "webde":
+        selectors = [
+            'div[contenteditable="true"]',
+            '[aria-label*="Nachricht"]',
+            'div[role="textbox"]',
         ]
     else:
         return False
@@ -543,6 +592,13 @@ async def _click_send_button(page, provider: str) -> bool:
             '[data-testid="composer:send-button"]',
             'button:has-text("Send")',
         ]
+    elif provider == "webde":
+        selectors = [
+            'button:has-text("Senden")',
+            'button[aria-label*="Senden"]',
+            'button[title*="Senden"]',
+            'button:has-text("Send")',
+        ]
     else:
         return False
 
@@ -578,6 +634,13 @@ async def _click_not_spam(page, provider: str) -> bool:
             'button:has-text("Move to inbox")',
             '[data-testid="toolbar:moveto"]',
             'button:has-text("Not spam")',
+        ]
+    elif provider == "webde":
+        selectors = [
+            'button:has-text("Kein Spam")',
+            'button:has-text("Nicht Spam")',
+            'button:has-text("Not spam")',
+            'button:has-text("In Posteingang")',
         ]
     else:
         return False

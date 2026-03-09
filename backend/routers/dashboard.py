@@ -458,6 +458,7 @@ async def autoreg_analytics(db: Session = Depends(get_db)):
         "gmail.com": "gmail", "yahoo.com": "yahoo", "aol.com": "aol",
         "outlook.com": "outlook", "hotmail.com": "hotmail",
         "proton.me": "proton", "protonmail.com": "proton",
+        "web.de": "webde",
     }
 
     for period_name, period_start in periods.items():

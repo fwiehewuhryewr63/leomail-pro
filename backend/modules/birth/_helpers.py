@@ -224,6 +224,10 @@ EMAIL_PROVIDER_SMS_RULES = {
     "protonmail": {
         "mode": "none",
     },
+    "webde": {
+        "mode": "flexible",
+        "countries": SMS_ALL_TIERS,  # Web.de: any country, cheap first
+    },
 }
 
 
@@ -1814,6 +1818,7 @@ _BLOCK_URL_PATTERNS = {
     "outlook": ["account.live.com/recover", "account.live.com/identity"],
     "gmail": ["accounts.google.com/speedbump", "accounts.google.com/challenge"],
     "protonmail": [],
+    "webde": [],
 }
 
 

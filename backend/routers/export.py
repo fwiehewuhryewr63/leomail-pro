@@ -49,6 +49,7 @@ def export_all(db: Session = Depends(get_db)):
             "use_outlook": p.use_outlook,
             "use_hotmail": p.use_hotmail,
             "use_protonmail": getattr(p, 'use_protonmail', 0),
+            "use_webde": getattr(p, 'use_webde', 0),
         })
 
     data = {
@@ -98,6 +99,7 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
             use_outlook=p.get("use_outlook", p.get("use_OH", 0)),
             use_hotmail=p.get("use_hotmail", 0),
             use_protonmail=p.get("use_protonmail", p.get("use_PT", 0)),
+            use_webde=p.get("use_webde", 0),
         )
         db.add(proxy)
         imported["proxies"] += 1

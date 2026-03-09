@@ -202,6 +202,7 @@ export default function Accounts() {
                     <option value="yahoo">Yahoo</option>
                     <option value="aol">AOL</option>
                     <option value="protonmail">Proton</option>
+                    <option value="webde">Web.de</option>
                 </select>
                 <select className="form-input" value={farmFilter} onChange={e => setFarmFilter(e.target.value)}
                     style={{ width: 150, fontSize: '0.82em', cursor: 'pointer' }}>

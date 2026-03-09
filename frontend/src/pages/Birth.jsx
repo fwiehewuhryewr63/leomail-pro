@@ -4,15 +4,17 @@ import {
 } from 'lucide-react';
 import { API } from '../api';
 import { ProviderLogo } from '../components/ProviderLogos';
+import { PROVIDER_COLORS } from '../utils/providers';
 
 /* ── Provider definitions ── */
 const PROVIDERS = [
-    { id: 'gmail', name: 'Gmail', color: '#EA4335', sms: 'simsms' },
-    { id: 'yahoo', name: 'Yahoo', color: '#6001D2', sms: 'simsms' },
-    { id: 'aol', name: 'AOL', color: '#FF6B00', sms: 'simsms' },
-    { id: 'outlook', name: 'Outlook', color: '#0078D4', sms: 'simsms' },
-    { id: 'hotmail', name: 'Hotmail', color: '#0078D4', sms: 'simsms' },
-    { id: 'protonmail', name: 'ProtonMail', color: '#6D4AFF', noSms: true },
+    { id: 'gmail', name: 'Gmail', color: PROVIDER_COLORS.gmail, sms: 'simsms' },
+    { id: 'yahoo', name: 'Yahoo', color: PROVIDER_COLORS.yahoo, sms: 'simsms' },
+    { id: 'aol', name: 'AOL', color: PROVIDER_COLORS.aol, sms: 'simsms' },
+    { id: 'outlook', name: 'Outlook', color: PROVIDER_COLORS.outlook, sms: 'simsms' },
+    { id: 'hotmail', name: 'Hotmail', color: PROVIDER_COLORS.hotmail, sms: 'simsms' },
+    { id: 'protonmail', name: 'ProtonMail', color: PROVIDER_COLORS.protonmail, noSms: true },
+    { id: 'webde', name: 'Web.de', color: PROVIDER_COLORS.webde, sms: 'simsms' },
 ];
 
 

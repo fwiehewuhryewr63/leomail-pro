@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Shield, Upload, Trash2, RefreshCw, CheckCircle, XCircle, Clock, WifiOff, Edit3, Unlink, Save, X, Zap, Link2 } from 'lucide-react';
 import { API } from '../api';
+import { PROVIDER_COLORS, providerBg, PROXY_COLUMNS } from '../utils/providers';
 
 export default function Proxies() {
     const [proxies, setProxies] = useState([]);
     const [stats, setStats] = useState({});
-    const [proxyLimits, setProxyLimits] = useState({ G: 1, YA: 3, OH: 3, PT: 3 });
+    const [proxyLimits, setProxyLimits] = useState({ G: 1, YA: 3, OH: 3, PT: 3, WD: 3 });
     const [filter, setFilter] = useState(null);
     const [showUpload, setShowUpload] = useState(false);
     const [uploadText, setUploadText] = useState('');
@@ -315,20 +316,16 @@ export default function Proxies() {
                                 <th style={thStyle}>Geo</th>
                                 <th style={thStyle}>Bound</th>
                                 <th style={thStyle}>Speed</th>
-                                {[
-                                    { label: 'G', color: '#EA4335', bg: 'rgba(234,67,53,0.15)' },
-                                    { label: 'Y/A', color: '#6001D2', bg: 'rgba(96,1,210,0.15)' },
-                                    { label: 'O/H', color: '#0078D4', bg: 'rgba(0,120,212,0.15)' },
-                                    { label: 'P', color: '#6D4AFF', bg: 'rgba(109,74,255,0.15)' },
-                                ].map(b => (
-                                    <th key={b.label} style={{ ...thStyle, textAlign: 'center', padding: '8px 4px' }}>
+                                {PROXY_COLUMNS.map(col => (
+                                    <th key={col.label} style={{ ...thStyle, textAlign: 'center', padding: '8px 4px' }}>
                                         <span style={{
                                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                            width: b.label.length > 1 ? 32 : 22, height: 22, borderRadius: 6,
-                                            background: b.bg, color: b.color,
+                                            width: col.label.length > 1 ? 32 : 22, height: 22, borderRadius: 6,
+                                            background: providerBg(col.providerKey),
+                                            color: PROVIDER_COLORS[col.providerKey],
                                             fontSize: '0.85em', fontWeight: 900, letterSpacing: 0,
-                                            border: `1px solid ${b.color}33`,
-                                        }}>{b.label}</span>
+                                            border: `1px solid ${PROVIDER_COLORS[col.providerKey]}33`,
+                                        }}>{col.label}</span>
                                     </th>
                                 ))}
                                 <th style={thStyle}>Last Used</th>
@@ -413,20 +410,16 @@ export default function Proxies() {
                                     </td>
 
                                     {/* Per-provider usage cells: G, Y/A, O/H, P — green=success, red=fail */}
-                                    {[
-                                        { key: 'G', failKey: 'fail_G', limit: proxyLimits.G || 1 },
-                                        { key: 'YA', failKey: 'fail_YA', limit: proxyLimits.YA || 3 },
-                                        { key: 'OH', failKey: 'fail_OH', limit: proxyLimits.OH || 3 },
-                                        { key: 'PT', failKey: 'fail_PT', limit: proxyLimits.PT || 3 },
-                                    ].map(({ key, failKey, limit }) => {
-                                        const success = p[`use_${key}`] || 0;
-                                        const fail = p[failKey] || 0;
+                                    {PROXY_COLUMNS.map(col => {
+                                        const success = p[`use_${col.dataKey}`] || 0;
+                                        const fail = p[col.failKey] || 0;
+                                        const limit = proxyLimits[col.limitKey] || col.defaultLimit;
                                         const total = success + fail;
                                         let bg = 'transparent';
                                         if (total >= limit) bg = 'rgba(245,158,11,0.10)';
                                         else if (total > 0) bg = 'rgba(16,185,129,0.04)';
                                         return (
-                                            <td key={key} style={{
+                                            <td key={col.label} style={{
                                                 ...tdStyle, textAlign: 'center', fontSize: '0.85em',
                                                 background: bg, padding: '8px 4px', borderRadius: 0,
                                             }}>

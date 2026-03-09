@@ -135,6 +135,7 @@ class ProxyManager:
     YA_LIMIT = 3      # Yahoo+AOL combined limit
     OH_LIMIT = 3      # Outlook+Hotmail combined limit
     PT_LIMIT = 3      # ProtonMail limit
+    WD_LIMIT = 3      # Web.de limit (per-proxy tracking needs migration)
 
     def get_unbound_proxy(self, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
@@ -216,7 +217,7 @@ class ProxyManager:
             def _pool_usage_key(p):
                 total = sum(getattr(p, f, 0) or 0 for f in (
                     'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
-                    'use_hotmail', 'use_protonmail'))
+                    'use_hotmail', 'use_protonmail', 'use_webde'))
                 return (total, random.random())
             proxies.sort(key=_pool_usage_key)
             if provider:
@@ -237,6 +238,7 @@ class ProxyManager:
             'outlook': Proxy.use_outlook,
             'hotmail': Proxy.use_hotmail,
             'protonmail': Proxy.use_protonmail,
+            'webde': Proxy.use_webde,
         }
         return mapping.get(provider.lower())
 
@@ -258,6 +260,8 @@ class ProxyManager:
             return (_c(Proxy.use_gmail, 0) + _c(Proxy.fail_gmail, 0)) < ProxyManager.GMAIL_LIMIT
         elif provider == 'protonmail':
             return (_c(Proxy.use_protonmail, 0) + _c(Proxy.fail_protonmail, 0)) < ProxyManager.PT_LIMIT
+        elif provider == 'webde':
+            return (_c(Proxy.use_webde, 0) + _c(Proxy.fail_webde, 0)) < ProxyManager.WD_LIMIT
         return None
 
     @staticmethod
@@ -271,7 +275,8 @@ class ProxyManager:
         ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0) + (proxy.fail_yahoo or 0) + (proxy.fail_aol or 0)) >= ProxyManager.YA_LIMIT
         oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0) + (proxy.fail_outlook or 0) + (proxy.fail_hotmail or 0)) >= ProxyManager.OH_LIMIT
         pt_exhausted = ((proxy.use_protonmail or 0) + (proxy.fail_protonmail or 0)) >= ProxyManager.PT_LIMIT
-        return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted
+        wd_exhausted = ((proxy.use_webde or 0) + (proxy.fail_webde or 0)) >= ProxyManager.WD_LIMIT
+        return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted and wd_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
         """Increment the per-provider SUCCESS counter and total use_count.
@@ -334,7 +339,7 @@ class ProxyManager:
         def _usage_key(p):
             total = sum(getattr(p, f, 0) or 0 for f in (
                 'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
-                'use_hotmail', 'use_protonmail'))
+                'use_hotmail', 'use_protonmail', 'use_webde'))
             return (total, random.random())
         candidates.sort(key=_usage_key)
 
@@ -426,7 +431,7 @@ class ProxyManager:
         def _usage_key(p):
             total = sum(getattr(p, f, 0) or 0 for f in (
                 'use_yahoo', 'use_aol', 'use_gmail', 'use_outlook',
-                'use_hotmail', 'use_protonmail'))
+                'use_hotmail', 'use_protonmail', 'use_webde'))
             return (total, random.random())
         candidates.sort(key=_usage_key)
 
@@ -526,12 +531,14 @@ class ProxyManager:
             p.use_outlook = 0
             p.use_hotmail = 0
             p.use_protonmail = 0
+            p.use_webde = 0
             p.fail_gmail = 0
             p.fail_yahoo = 0
             p.fail_aol = 0
             p.fail_outlook = 0
             p.fail_hotmail = 0
             p.fail_protonmail = 0
+            p.fail_webde = 0
             p.use_count = 0
             p.last_used_at = None
             if p.status == ProxyStatus.EXHAUSTED:
@@ -554,12 +561,14 @@ class ProxyManager:
         proxy.use_outlook = 0
         proxy.use_hotmail = 0
         proxy.use_protonmail = 0
+        proxy.use_webde = 0
         proxy.fail_gmail = 0
         proxy.fail_yahoo = 0
         proxy.fail_aol = 0
         proxy.fail_outlook = 0
         proxy.fail_hotmail = 0
         proxy.fail_protonmail = 0
+        proxy.fail_webde = 0
         proxy.use_count = 0
         proxy.last_used_at = None
         if proxy.status == ProxyStatus.EXHAUSTED:

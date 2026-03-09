@@ -55,7 +55,7 @@ async def active_threads(db: Session = Depends(get_db)):
         tasks_map = {t.id: t for t in tasks}
 
     # Known providers
-    PROVIDERS = ["gmail", "yahoo", "aol", "outlook", "hotmail", "protonmail"]
+    PROVIDERS = ["gmail", "yahoo", "aol", "outlook", "hotmail", "protonmail", "webde"]
 
     result = []
     for t in threads:

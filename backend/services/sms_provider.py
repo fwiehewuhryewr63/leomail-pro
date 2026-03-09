@@ -46,6 +46,7 @@ GRIZZLY_SERVICE_CODES = {
     "hotmail": "mm",     # Microsoft / Hotmail
     "yahoo": "mb",       # Yahoo (sms-activate standard)
     "aol": "pm",         # AOL
+    "webde": "ot",       # Web.de (other)
     "yandex": "ya",      # Yandex
     "mail_ru": "ma",     # Mail.ru
     "any": "ot",         # Any other service

@@ -113,6 +113,11 @@ async def _verify_inbox_loaded(page, provider: str, timeout: int = 15000) -> boo
             '[data-testid="sidebar:compose"]',
             'button:has-text("New message")',
         ],
+        "webde": [
+            'button:has-text("Neue E-Mail")',
+            'button:has-text("E-Mail schreiben")',
+            'a:has-text("Posteingang")',
+        ],
     }
 
     selectors = inbox_indicators.get(provider, inbox_indicators.get("outlook", []))
@@ -530,6 +535,85 @@ async def _relogin_proton(page, email: str, password: str) -> bool:
     return True
 
 
+# ── Web.de ────────────────────────────────────────────────────────────────────
+
+async def _relogin_webde(page, email: str, password: str) -> bool:
+    """
+    Re-login to Web.de via browser.
+    Flow: Navigate to web.de login → email → password → submit
+    """
+    logger.info(f"[Re-Login] Web.de: starting re-login for {email}")
+
+    # Navigate to login page
+    try:
+        await page.goto("https://web.de", wait_until="domcontentloaded", timeout=20000)
+        await human_delay(2, 4)
+    except Exception as e:
+        logger.warning(f"[Re-Login] Web.de navigation failed: {e}")
+        return False
+
+    # Check for 2FA/CAPTCHA
+    if await _detect_2fa_or_captcha(page):
+        logger.warning("[Re-Login] Web.de: 2FA/CAPTCHA detected — cannot auto-relogin")
+        return False
+
+    # Find and fill email field
+    email_selectors = [
+        'input[name="username"]', 'input[name="email"]',
+        'input[id="username"]', 'input[id="email"]',
+        'input[type="email"]',
+        'input[placeholder*="E-Mail"]', 'input[placeholder*="Benutzername"]',
+        'input[autocomplete="username"]',
+    ]
+    email_field = await _wait_for_any(page, email_selectors, timeout=8000)
+    if not email_field:
+        logger.warning("[Re-Login] Web.de: email field not found")
+        return False
+
+    await human_fill(page, email_field, email)
+    await human_delay(0.5, 1.5)
+
+    # Find and fill password field
+    pwd_selectors = [
+        'input[name="password"]', 'input[name="passwort"]',
+        'input[type="password"]',
+        'input[placeholder*="Passwort"]', 'input[placeholder*="Password"]',
+    ]
+    pwd_field = await _wait_for_any(page, pwd_selectors, timeout=5000)
+    if not pwd_field:
+        logger.warning("[Re-Login] Web.de: password field not found")
+        return False
+
+    await human_fill(page, pwd_field, password)
+    await human_delay(0.5, 1.0)
+
+    # Submit login
+    submit_selectors = [
+        'button:has-text("Login")',
+        'button:has-text("Anmelden")',
+        'button:has-text("Einloggen")',
+        'button[type="submit"]',
+        'input[type="submit"]',
+    ]
+    submit_btn = await _wait_for_any(page, submit_selectors, timeout=5000)
+    if submit_btn:
+        await human_click(page, submit_btn)
+    else:
+        await page.keyboard.press("Enter")
+    await human_delay(5, 10)
+
+    # Check for login errors
+    try:
+        page_text = await page.inner_text("body")
+        if any(x in page_text.lower() for x in ["falsch", "incorrect", "fehler", "ungültig"]):
+            logger.warning(f"[Re-Login] Web.de: login error detected")
+            return False
+    except Exception:
+        pass
+
+    return True
+
+
 # ── Main dispatcher ──────────────────────────────────────────────────────────
 
 async def browser_relogin(page, provider: str, email: str, password: str) -> bool:
@@ -559,6 +643,8 @@ async def browser_relogin(page, provider: str, email: str, password: str) -> boo
             ok = await _relogin_gmail(page, email, password)
         elif provider in ("proton", "protonmail"):
             ok = await _relogin_proton(page, email, password)
+        elif provider == "webde":
+            ok = await _relogin_webde(page, email, password)
         else:
             logger.warning(f"[Re-Login] Unsupported provider: {provider}")
             return False

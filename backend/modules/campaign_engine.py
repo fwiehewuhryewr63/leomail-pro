@@ -42,6 +42,7 @@ PROVIDER_DAILY_LIMITS = {
     "yahoo": 20, "aol": 20,
     "outlook": 30, "hotmail": 30,
     "gmail": 25, "proton": 15,
+    "webde": 20,
 }
 DEFAULT_DAILY_LIMIT = 25
 
@@ -326,6 +327,7 @@ class CampaignRunner:
                     "outlook": "https://outlook.live.com/mail",
                     "hotmail": "https://outlook.live.com/mail",
                     "proton": "https://mail.proton.me",
+                    "webde": "https://web.de/email/",
                 }
                 mail_url = MAIL_URLS.get(provider, "https://mail.yahoo.com/")
                 try:

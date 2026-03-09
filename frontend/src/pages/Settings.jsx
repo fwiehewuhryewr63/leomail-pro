@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { API } from '../api';
+import { PROVIDER_COLORS } from '../utils/providers';
 import { ProviderLogo } from '../components/ProviderLogos';
 
 /* ── Service definitions ── */
@@ -21,10 +22,11 @@ const SMS_SERVICES = [
 ];
 
 const PROXY_PROVIDERS = [
-    { id: 'gmail', name: 'Gmail', color: '#EA4335', backendKey: 'gmail_proxy_limit', configKey: 'gmail' },
-    { id: 'yahoo_aol', name: 'Yahoo + AOL', color: '#6001D2', backendKey: 'yahoo_aol_proxy_limit', configKey: 'yahoo_aol' },
-    { id: 'outlook_hotmail', name: 'Outlook + Hotmail', color: '#0078D4', backendKey: 'outlook_hotmail_proxy_limit', configKey: 'outlook_hotmail' },
-    { id: 'protonmail', name: 'ProtonMail', color: '#6D4AFF', backendKey: 'protonmail_proxy_limit', configKey: 'protonmail' },
+    { id: 'gmail', name: 'Gmail', color: PROVIDER_COLORS.gmail, backendKey: 'gmail_proxy_limit', configKey: 'gmail' },
+    { id: 'yahoo_aol', name: 'Yahoo + AOL', color: PROVIDER_COLORS.yahoo, backendKey: 'yahoo_aol_proxy_limit', configKey: 'yahoo_aol' },
+    { id: 'outlook_hotmail', name: 'Outlook + Hotmail', color: PROVIDER_COLORS.outlook, backendKey: 'outlook_hotmail_proxy_limit', configKey: 'outlook_hotmail' },
+    { id: 'protonmail', name: 'ProtonMail', color: PROVIDER_COLORS.protonmail, backendKey: 'protonmail_proxy_limit', configKey: 'protonmail' },
+    { id: 'webde', name: 'Web.de', color: PROVIDER_COLORS.webde, backendKey: 'webde_proxy_limit', configKey: 'webde' },
 ];
 
 const PROXY_API_SERVICES = [

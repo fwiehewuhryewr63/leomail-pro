@@ -63,6 +63,7 @@ PROVIDER_MAP = {
     "protonmail.com": "protonmail",
     "proton.me": "protonmail",
     "pm.me": "protonmail",
+    "web.de": "webde",
 }
 
 
@@ -551,6 +552,7 @@ async def _validate_single_account(
         "outlook": "imap-mail.outlook.com",
         "hotmail": "imap-mail.outlook.com",
         "protonmail": None,  # ProtonMail doesn't support standard IMAP
+        "webde": "imap.web.de",
     }
 
     server = IMAP_SERVERS.get(provider)

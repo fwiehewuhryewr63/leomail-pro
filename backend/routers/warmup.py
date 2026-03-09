@@ -193,7 +193,7 @@ async def cost_tracking(db: Session = Depends(get_db)):
     total_sent = db.query(func.sum(Account.total_emails_sent)).scalar() or 0
 
     # Estimate SMS costs (Yahoo, AOL, Gmail all use SMS for verification)
-    SMS_PROVIDERS = {"gmail", "yahoo", "aol"}
+    SMS_PROVIDERS = {"gmail", "yahoo", "aol", "webde"}
     sms_accounts = db.query(Account).filter(Account.provider.in_(SMS_PROVIDERS)).count()
     sms_cost_estimate = round(sms_accounts * 0.10, 2)
 

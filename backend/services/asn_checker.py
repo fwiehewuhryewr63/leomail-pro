@@ -284,6 +284,7 @@ SERVICE_ACCEPTS = {
     "outlook":    {"residential", "mobile"},              # Outlook: residential/mobile only (datacenter fails PX captcha)
     "hotmail":    {"residential", "mobile"},              # Hotmail: same as Outlook
     "protonmail": {"residential", "mobile", "datacenter"},  # Protonmail: accepts all
+    "webde":      {"residential", "mobile"},              # Web.de: residential/mobile only
 }
 
 

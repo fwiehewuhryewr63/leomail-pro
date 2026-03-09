@@ -17,6 +17,7 @@ SERVICE_CODES = {
     "hotmail": "mm",     # Microsoft
     "yahoo": "mb",       # Yahoo
     "aol": "pm",         # AOL
+    "webde": "ot",       # Web.de (other)
     "mail_ru": "ma",     # Mail.ru
     "any": "ot",         # Any other
 }

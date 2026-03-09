@@ -27,6 +27,7 @@ SIMSMS_SERVICES = {
     "hotmail": "mm",    # Microsoft
     "yahoo": "mb",      # Yahoo
     "aol": "pm",        # AOL
+    "webde": "ot",      # Web.de (other)
 }
 
 # Full country database

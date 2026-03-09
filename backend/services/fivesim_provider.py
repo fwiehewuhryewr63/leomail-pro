@@ -23,6 +23,7 @@ FIVESIM_PRODUCTS = {
     "hotmail": "microsoft",
     "yahoo": "yahoo",
     "aol": "aol",
+    "webde": "other",
     "any": "other",
 }
 

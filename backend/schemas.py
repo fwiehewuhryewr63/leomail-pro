@@ -6,7 +6,7 @@ from datetime import datetime
 # === Registration ===
 
 class RegistrationRequest(BaseModel):
-    provider: str = "outlook"  # gmail, outlook, yahoo, aol, hotmail
+    provider: str = "outlook"  # gmail, outlook, yahoo, aol, hotmail, protonmail, webde
     quantity: int = 1
     threads: int = 1
     proxy_id: Optional[int] = None  # If None, auto-rotate

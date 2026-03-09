@@ -5,6 +5,7 @@ import {
     BarChart3, AlertTriangle, Clock, DollarSign, X, Send, TrendingUp
 } from 'lucide-react';
 import { API } from '../api';
+import { PROVIDER_COLORS, domainToColor } from '../utils/providers';
 import { ProviderLogo } from '../components/ProviderLogos';
 
 /* ── SVG mini sparkline ── */
@@ -164,12 +165,13 @@ export default function Dashboard() {
     /* Provider distribution */
     const byProvider = s.by_provider || {};
     const providers = [
-        { id: 'gmail', name: 'Gmail', color: '#EA4335' },
-        { id: 'yahoo', name: 'Yahoo', color: '#6001D2' },
-        { id: 'outlook', name: 'Outlook', color: '#0078D4' },
-        { id: 'protonmail', name: 'ProtonMail', color: '#6D4AFF' },
-        { id: 'aol', name: 'AOL', color: '#FF6B00' },
-        { id: 'hotmail', name: 'Hotmail', color: '#0078D4' },
+        { id: 'gmail', name: 'Gmail', color: PROVIDER_COLORS.gmail },
+        { id: 'yahoo', name: 'Yahoo', color: PROVIDER_COLORS.yahoo },
+        { id: 'outlook', name: 'Outlook', color: PROVIDER_COLORS.outlook },
+        { id: 'protonmail', name: 'ProtonMail', color: PROVIDER_COLORS.protonmail },
+        { id: 'aol', name: 'AOL', color: PROVIDER_COLORS.aol },
+        { id: 'hotmail', name: 'Hotmail', color: PROVIDER_COLORS.hotmail },
+        { id: 'webde', name: 'Web.de', color: PROVIDER_COLORS.webde },
     ];
     const providerDist = providers.map(p => ({
         ...p,
@@ -426,12 +428,7 @@ export default function Dashboard() {
                                 const msg = a.message || '—';
                                 const emailMatch = msg.match(/[\w.-]+@([\w.-]+)/i);
                                 const domain = emailMatch ? emailMatch[1].toLowerCase() : '';
-                                const provColor = domain.includes('gmail') ? '#EA4335'
-                                    : domain.includes('yahoo') ? '#6001D2'
-                                        : domain.includes('outlook') || domain.includes('hotmail') ? '#0078D4'
-                                            : domain.includes('proton') ? '#6D4AFF'
-                                                : domain.includes('aol') ? '#FF6B00'
-                                                    : 'var(--text-secondary)';
+                                const provColor = domainToColor(domain);
                                 return (
                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82em' }}>
                                         <span style={{

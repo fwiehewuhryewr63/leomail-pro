@@ -15,6 +15,7 @@ IMAP_SERVERS = {
     "gmail":   ("imap.gmail.com", 993),
     "outlook": ("imap-mail.outlook.com", 993),
     "hotmail": ("imap-mail.outlook.com", 993),
+    "webde":   ("imap.web.de", 993),
 }
 
 

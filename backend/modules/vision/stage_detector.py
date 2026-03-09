@@ -146,11 +146,40 @@ OUTLOOK_STAGES = {
     },
 }
 
+WEBDE_STAGES = {
+    "signup_form": {
+        "keywords": ["kostenlos registrieren", "e-mail-adresse", "passwort", "vorname", "nachname", "web.de"],
+        "min_matches": 2,
+        "description": "Web.de signup form",
+    },
+    "phone_verify": {
+        "keywords": ["handynummer", "sms-code", "bestätigungscode", "code eingeben", "verifizierung"],
+        "min_matches": 1,
+        "description": "SMS verification",
+    },
+    "captcha": {
+        "keywords": ["recaptcha", "robot", "sicherheitsabfrage", "captcha"],
+        "min_matches": 1,
+        "description": "CAPTCHA",
+    },
+    "success": {
+        "keywords": ["willkommen", "posteingang", "web.de", "erfolgreich"],
+        "min_matches": 1,
+        "description": "Registration successful",
+    },
+    "error_blocked": {
+        "keywords": ["versuchen sie es später", "blockiert", "gesperrt", "fehler"],
+        "min_matches": 2,
+        "description": "Blocked",
+    },
+}
+
 PROVIDER_STAGES = {
     "yahoo": YAHOO_STAGES,
     "aol": AOL_STAGES,
     "gmail": GMAIL_STAGES,
     "outlook": OUTLOOK_STAGES,
+    "webde": WEBDE_STAGES,
 }
 
 

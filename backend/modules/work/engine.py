@@ -277,6 +277,7 @@ class WorkSession:
                 "outlook": "https://outlook.live.com/mail",
                 "hotmail": "https://outlook.live.com/mail",
                 "proton": "https://mail.proton.me",
+                "webde": "https://web.de/email/",
             }
             mail_url = mail_urls.get(provider, "https://mail.yahoo.com/")
             await page.goto(mail_url, wait_until="domcontentloaded", timeout=30000)
@@ -337,6 +338,8 @@ class WorkSession:
                         await self._send_gmail(page, recipient["email"], subject, body)
                     elif provider == "proton":
                         await self._send_proton(page, recipient["email"], subject, body)
+                    elif provider == "webde":
+                        await self._send_webde(page, recipient["email"], subject, body)
 
                     self.sent_count += 1
                     self.consecutive_errors = 0
@@ -605,6 +608,14 @@ class WorkSession:
         )
         await asyncio.sleep(random.uniform(2, 5))
 
+    # ───────────────────────────────────────────────────
+    #  WEB.DE SENDER
+    # ───────────────────────────────────────────────────
+
+    async def _send_webde(self, page, to_email: str, subject: str, body: str):
+        """Compose and send in Web.de — delegates to shared browser_mail_sender."""
+        from ..browser_mail_sender import browser_send_webde
+        await browser_send_webde(page, to_email, subject, body)
 
 
 # ─────────────────────────────────────────────────────────
@@ -753,6 +764,8 @@ async def run_work_task(
                 return "hotmail"
             elif "outlook" in domain or "live.com" in domain or "msn" in domain:
                 return "outlook"
+            elif "web.de" in domain:
+                return "webde"
             return "other"
 
         per_account = max(1, len(all_recipients) // len(accounts))

@@ -18,6 +18,7 @@ MAIL_URLS = {
     "hotmail": "https://outlook.live.com/mail",
     "protonmail": "https://mail.proton.me",
     "proton": "https://mail.proton.me",
+    "webde": "https://web.de/email/",
 }
 
 
@@ -36,6 +37,8 @@ async def browser_compose_send(page, provider: str, to_email: str, subject: str,
         await browser_send_gmail(page, to_email, subject, body)
     elif provider in ("proton", "protonmail"):
         await browser_send_proton(page, to_email, subject, body)
+    elif provider == "webde":
+        await browser_send_webde(page, to_email, subject, body)
     else:
         raise Exception(f"Browser send not implemented for provider: {provider}")
 
@@ -199,10 +202,122 @@ async def browser_send_proton(page, to_email: str, subject: str, body: str):
     await asyncio.sleep(random.uniform(2, 5))
 
 
+# ── Web.de ────────────────────────────────────────────────────────────────────
+
+async def browser_send_webde(page, to_email: str, subject: str, body: str):
+    """Compose and send in Web.de Mail via browser."""
+    # Click compose button — Web.de uses German labels
+    compose_selectors = [
+        'button:has-text("Neue E-Mail")',
+        'button:has-text("E-Mail schreiben")',
+        'a:has-text("E-Mail schreiben")',
+        'button:has-text("Schreiben")',
+        'button[aria-label="Neue E-Mail"]',
+        'button[aria-label="E-Mail schreiben"]',
+        '[data-testid="compose"]',
+    ]
+    compose_clicked = False
+    for sel in compose_selectors:
+        try:
+            btn = page.locator(sel).first
+            if await btn.is_visible(timeout=2000):
+                await btn.click()
+                compose_clicked = True
+                break
+        except Exception:
+            continue
+    if not compose_clicked:
+        raise Exception("Web.de compose button not found")
+    await asyncio.sleep(random.uniform(1.5, 3))
+
+    # To field
+    to_selectors = [
+        'input[name="to"]', 'input[aria-label="An"]',
+        'input[placeholder*="An"]', 'input[placeholder*="Empfänger"]',
+        'input[type="email"]',
+    ]
+    to_field = None
+    for sel in to_selectors:
+        try:
+            el = page.locator(sel).first
+            if await el.is_visible(timeout=1500):
+                to_field = el
+                break
+        except Exception:
+            continue
+    if not to_field:
+        raise Exception("Web.de 'To' field not found")
+    await to_field.click()
+    await to_field.type(to_email, delay=random.randint(30, 60))
+    await asyncio.sleep(random.uniform(0.5, 1))
+    await page.keyboard.press("Tab")
+    await asyncio.sleep(random.uniform(0.3, 0.8))
+
+    # Subject
+    subj_selectors = [
+        'input[name="subject"]', 'input[aria-label="Betreff"]',
+        'input[placeholder*="Betreff"]', 'input[placeholder*="Subject"]',
+    ]
+    for sel in subj_selectors:
+        try:
+            el = page.locator(sel).first
+            if await el.is_visible(timeout=1500):
+                await el.click()
+                await el.type(subject, delay=random.randint(20, 50))
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(random.uniform(0.3, 1))
+
+    # Body
+    body_selectors = [
+        '[contenteditable="true"]',
+        'div[aria-label="Nachrichtentext"]',
+        'div[aria-label="Message body"]',
+        'iframe[id*="editor"]',
+    ]
+    for sel in body_selectors:
+        try:
+            el = page.locator(sel).first
+            if await el.is_visible(timeout=1500):
+                await el.click()
+                if "<" in body:
+                    await page.evaluate(
+                        "(el, html) => el.innerHTML = html",
+                        [await el.element_handle(), body],
+                    )
+                else:
+                    await el.type(body, delay=random.randint(10, 30))
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(random.uniform(0.5, 2))
+
+    # Send button
+    send_selectors = [
+        'button:has-text("Senden")',
+        'button:has-text("Send")',
+        'button[aria-label="Senden"]',
+        'button[type="submit"]',
+    ]
+    for sel in send_selectors:
+        try:
+            btn = page.locator(sel).first
+            if await btn.is_visible(timeout=1500):
+                await btn.click()
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(random.uniform(2, 4))
+
+
 # ── Session validation helper ─────────────────────────────────────────────────
 
 def is_login_page(url: str) -> bool:
     """Check if current URL indicates we're on a login/signin page (session expired)."""
-    login_indicators = ["signin", "login", "account.live", "accounts.google", "signup"]
+    login_indicators = [
+        "signin", "login", "account.live", "accounts.google", "signup",
+        "registrierung.web.de",
+    ]
     url_lower = url.lower()
     return any(ind in url_lower for ind in login_indicators)

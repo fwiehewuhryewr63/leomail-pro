@@ -358,6 +358,10 @@ AUTO_BUY_TIERS = {
         ("asocks", "residential"),
         ("proxycheap", "residential"),
     ],
+    "webde": [
+        ("asocks", "residential"),
+        ("proxycheap", "residential"),
+    ],
     "default": [
         ("asocks", "residential"),
         ("proxycheap", "residential"),
