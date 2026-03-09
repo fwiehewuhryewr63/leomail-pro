@@ -1219,24 +1219,29 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
     def _elapsed():
         return asyncio.get_event_loop().time() - start
 
-    # ── Step 1: Navigate to inbox ──
-    try:
-        await page.goto("https://outlook.live.com/mail/0/inbox",
-                        wait_until="domcontentloaded", timeout=25000)
-        await _human_delay(3, 6)
-        ctx._log("[POST-REG] Inbox page loaded")
+    # ── Step 1: Navigate to inbox (skip if step_9 already put us there) ──
+    current_url = page.url.lower()
+    if "outlook.live.com/mail" in current_url or "outlook.office" in current_url:
+        ctx._log("[POST-REG] Already on inbox (from step_9 verification) — skipping navigation")
         inbox_loaded = True
-    except Exception as e:
-        ctx._log(f"[POST-REG] Inbox load error: {str(e)[:80]}")
-        # Fallback: try base URL
+    else:
         try:
-            await page.goto("https://outlook.live.com/mail/",
-                            wait_until="domcontentloaded", timeout=20000)
-            await _human_delay(3, 5)
+            await page.goto("https://outlook.live.com/mail/0/inbox",
+                            wait_until="domcontentloaded", timeout=25000)
+            await _human_delay(3, 6)
+            ctx._log("[POST-REG] Inbox page loaded")
             inbox_loaded = True
-        except Exception:
-            ctx._log("[POST-REG] Could not reach inbox — skipping warmup")
-            return
+        except Exception as e:
+            ctx._log(f"[POST-REG] Inbox load error: {str(e)[:80]}")
+            # Fallback: try base URL
+            try:
+                await page.goto("https://outlook.live.com/mail/",
+                                wait_until="domcontentloaded", timeout=20000)
+                await _human_delay(3, 5)
+                inbox_loaded = True
+            except Exception:
+                ctx._log("[POST-REG] Could not reach inbox — skipping warmup")
+                return
 
     # ── Step 2: Dismiss onboarding prompts ──
     # MS shows multiple prompts for new accounts: Welcome, Get app, Theme, etc.
