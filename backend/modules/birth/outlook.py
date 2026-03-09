@@ -1169,14 +1169,15 @@ async def step_9_verify_success(page, ctx: RegContext) -> bool:
                 await _debug_screenshot(page, f"step9_FAIL_login_{ctx.username}", ctx._log)
                 raise RecoverableError("E503", f"Inbox unreachable — redirected to {final_url[:80]}")
 
-        # Check for hard error text
-        hard_fail = ["something went wrong", "unable to create", "account was not created",
-                     "we're sorry", "suspended", "locked"]
-        for fail in hard_fail:
-            if fail in page_text:
-                ctx._err(f"[FAIL] Error text: '{fail}'")
-                await _debug_screenshot(page, f"step9_FAIL_text_{ctx.username}", ctx._log)
-                raise RecoverableError("E503", f"MS error: '{fail}' at {final_url[:80]}")
+        # Check for hard error text (only if still not resolved)
+        if not inbox_loaded:
+            hard_fail = ["something went wrong", "unable to create", "account was not created",
+                         "we're sorry", "suspended", "locked"]
+            for fail in hard_fail:
+                if fail in page_text:
+                    ctx._err(f"[FAIL] Error text: '{fail}'")
+                    await _debug_screenshot(page, f"step9_FAIL_text_{ctx.username}", ctx._log)
+                    raise RecoverableError("E503", f"MS error: '{fail}' at {final_url[:80]}")
 
         # Unknown page — screenshot and accept cautiously
         if not inbox_loaded:
