@@ -936,14 +936,69 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 4) ->
 
 
 async def step_8_post_prompts(page, ctx: RegContext):
-    """Step 8: Handle post-captcha prompts (Stay signed in?, privacy notice, promo pages)."""
+    """Step 8: Handle post-captcha prompts.
+    Handles: passkey errors, privacy notice, stay signed in, promo pages.
+    ALWAYS screenshots for debugging."""
     await _human_delay(2, 4)
+    await _debug_screenshot(page, f"step8_entry_{ctx.username}", ctx._log)
+    current_url = page.url.lower()
+    ctx._log(f"[step8] URL: {current_url[:120]}")
+
+    # ── Passkey prompt / error page ──
+    # Microsoft now shows "We couldn't create a passkey" or asks to create a passkey.
+    # This appears at login.live.com AFTER captcha. Must be dismissed/skipped.
+    try:
+        page_text = (await page.locator('body').inner_text(timeout=5000))[:2000].lower()
+    except Exception:
+        page_text = ""
+
+    passkey_indicators = [
+        "passkey", "couldn't create a passkey", "create a passkey",
+        "skip for now", "not now", "do this later",
+    ]
+    if any(pk in page_text for pk in passkey_indicators) or "passkey" in current_url:
+        ctx._log("[PASSKEY] Passkey prompt/error detected — dismissing...")
+        await _debug_screenshot(page, f"passkey_page_{ctx.username}", ctx._log)
+        # Try to find skip/dismiss/continue buttons
+        passkey_dismiss = await _wait_for_any(page, [
+            'button:has-text("Skip")', 'a:has-text("Skip")',
+            'button:has-text("skip for now")', 'a:has-text("skip for now")',
+            'button:has-text("Not now")', 'a:has-text("Not now")',
+            'button:has-text("Do this later")', 'a:has-text("Do this later")',
+            'button:has-text("Continue")', 'a:has-text("Continue")',
+            'button:has-text("No")', 'a:has-text("No thanks")',
+            'button[id*="decline"]', 'button[id*="skip"]', 'button[id*="cancel"]',
+            '#cancelButton', '#declineButton', '#skipButton',
+            'button[type="button"]',  # generic dismiss
+        ], timeout=5000)
+        if passkey_dismiss:
+            await _human_click(page, passkey_dismiss)
+            ctx._log("[PASSKEY] Dismissed passkey prompt")
+            await _human_delay(3, 6)
+        else:
+            # Try pressing Escape then Enter
+            ctx._log("[PASSKEY] No dismiss button found — trying keyboard")
+            await page.keyboard.press("Escape")
+            await _human_delay(1, 2)
+            await page.keyboard.press("Enter")
+            await _human_delay(3, 5)
+        # Re-check page state after passkey dismissal
+        current_url = page.url.lower()
+        ctx._log(f"[step8] URL after passkey: {current_url[:120]}")
+
+    # ── Check for FATAL error pages (account NOT created) ──
+    fatal_error_indicators = [
+        "something went wrong", "we couldn't create", "unable to create",
+        "account was not created", "try again later", "we're sorry",
+        "this account has been suspended", "this account is locked",
+    ]
+    if any(fe in page_text for fe in fatal_error_indicators):
+        ctx._err(f"[FAIL] Fatal error on page: {page_text[:200]}")
+        await _debug_screenshot(page, f"fatal_error_{ctx.username}", ctx._log)
+        raise RecoverableError("E503", f"MS rejected account: {page_text[:100]}")
 
     # ── Microsoft Privacy Notice page ──
-    # After successful registration, MS redirects to:
-    #   https://privacynotice.account.microsoft.com/notice?ru=...
-    # This page has Accept/Continue buttons that MUST be clicked or the flow hangs.
-    if "privacynotice" in page.url.lower() or "privacy" in page.url.lower():
+    if "privacynotice" in current_url or "privacy" in current_url:
         ctx._log("[OK] Privacy notice page detected — accepting...")
         privacy_btn = await _wait_for_any(page, [
             'button[id*="accept"]', 'button[id*="Accept"]',
@@ -953,14 +1008,13 @@ async def step_8_post_prompts(page, ctx: RegContext):
             'button:has-text("Akzeptieren")', 'button:has-text("Accepter")',
             'button:has-text("Accetta")', 'button:has-text("Aceitar")',
             'a:has-text("Accept")', 'a:has-text("Continue")',
-            '#id__0',  # common MS button ID
+            '#id__0',
         ], timeout=10000)
         if privacy_btn:
             await _human_click(page, privacy_btn)
             ctx._log("[OK] Privacy notice accepted")
             await _human_delay(3, 6)
         else:
-            # Try pressing Enter as fallback
             ctx._log("[WARN] No privacy button found — pressing Enter")
             await page.keyboard.press("Enter")
             await _human_delay(3, 5)
@@ -976,7 +1030,8 @@ async def step_8_post_prompts(page, ctx: RegContext):
         await _human_delay(3, 5)
 
     # ── Second privacy check (can appear AFTER stay-signed-in) ──
-    if "privacynotice" in page.url.lower() or "privacy" in page.url.lower():
+    current_url = page.url.lower()
+    if "privacynotice" in current_url or "privacy" in current_url:
         ctx._log("[OK] Privacy notice page (round 2) — accepting...")
         privacy_btn2 = await _wait_for_any(page, [
             'button[id*="accept"]', 'button[id*="Accept"]',
@@ -1007,46 +1062,95 @@ async def step_8_post_prompts(page, ctx: RegContext):
 
 
 async def step_9_verify_success(page, ctx: RegContext) -> bool:
-    """Step 9: Verify registration succeeded."""
-    ctx._log("Checking result...")
+    """Step 9: Verify registration ACTUALLY succeeded.
+    STRICT verification — checks page text for error indicators on ALL pages,
+    not just signup.live.com. Always screenshots for debugging."""
+    ctx._log("Verifying registration result...")
     await _human_delay(2, 4)
     final_url = page.url.lower()
     ctx._log(f"Final URL: {final_url}")
+    await _debug_screenshot(page, f"step9_verify_{ctx.username}", ctx._log)
 
-    registration_success = False
+    # ── FIRST: Check page text for ERRORS on ANY page ──
     try:
-        success_indicators = [
-            "outlook.live.com", "signup.live.com/signup?sru",
-            "/MailSetup", "account.microsoft.com",
-            "privacynotice.account.microsoft.com",
-            "outlook.office.com", "outlook.office365.com",
-            "login.live.com",  # post-registration redirect
-        ]
-        if any(ind in final_url for ind in success_indicators):
-            registration_success = True
-            ctx._log("[OK] URL confirms successful registration")
-        elif "signup.live.com" not in final_url:
-            registration_success = True
-            ctx._log("[OK] Left registration page")
+        page_text = (await page.locator('body').inner_text(timeout=5000))[:3000].lower()
+    except Exception:
+        page_text = ""
+
+    # Hard failure indicators — account was NOT created
+    hard_fail_indicators = [
+        "something went wrong", "couldn't create", "unable to create",
+        "account was not created", "we're sorry",
+        "this account has been suspended", "this account is locked",
+        "try again later", "temporarily unavailable",
+    ]
+    for fail_text in hard_fail_indicators:
+        if fail_text in page_text:
+            ctx._err(f"[FAIL] Error on page: '{fail_text}' — URL: {final_url}")
+            await _debug_screenshot(page, f"verify_FAIL_{ctx.username}", ctx._log)
+            raise RecoverableError("E503", f"MS rejected: '{fail_text}' at {final_url[:80]}")
+
+    # Soft fail indicators — NOT definitive but suspicious
+    # "passkey" alone is NOT a failure — MS shows passkey prompt even on success
+    if "couldn't create a passkey" in page_text:
+        # Passkey creation failed but account MAY have been created.
+        # Check if we can find the email in the page to confirm
+        if ctx.email.lower().split('@')[0] in page_text or ctx.username.lower() in page_text:
+            ctx._log("[OK] Passkey failed but email visible on page — account likely created")
         else:
-            page_text = await page.locator('body').inner_text()
-            fail_indicators = ["something went wrong", "couldn't create", "error", "blocked"]
-            if any(fi.lower() in page_text.lower() for fi in fail_indicators):
-                ctx._err("[FAIL] Page contains error indicators")
-                await _debug_screenshot(page, "outlook_error_on_page")
-            else:
-                ctx._log("[WARN] Still on signup.live.com, but no errors")
-                await _debug_screenshot(page, "outlook_still_on_signup")
-    except Exception as e:
-        ctx._log(f"Success check: error ({e}), counting as success if URL changed")
-        if "signup.live.com" not in final_url:
+            ctx._err(f"[FAIL] 'Couldn't create passkey' AND no email visible — likely rejected")
+            await _debug_screenshot(page, f"verify_passkey_fail_{ctx.username}", ctx._log)
+            raise RecoverableError("E504", f"Passkey error, account uncertain: {final_url[:80]}")
+
+    # ── THEN: Check URL for positive signals ──
+    registration_success = False
+    # Strong success indicators (inbox, account pages)
+    strong_success = [
+        "outlook.live.com/mail", "outlook.live.com/owa",
+        "/MailSetup", "account.microsoft.com",
+        "privacynotice.account.microsoft.com",
+        "outlook.office.com", "outlook.office365.com",
+    ]
+    if any(ind in final_url for ind in strong_success):
+        registration_success = True
+        ctx._log("[OK] URL confirms successful registration (inbox/account page)")
+    elif "outlook.live.com" in final_url:
+        registration_success = True
+        ctx._log("[OK] On outlook.live.com — registration succeeded")
+    elif "signup.live.com/signup" in final_url and "sru" in final_url:
+        # signup.live.com/signup?sru=... means post-registration redirect
+        registration_success = True
+        ctx._log("[OK] Post-registration redirect on signup.live.com")
+    elif "login.live.com" in final_url:
+        # login.live.com can be success OR failure (passkey error is here too)
+        # If we already passed the error checks above, it's likely success
+        if ctx.email.lower().split('@')[0] in page_text or ctx.username.lower() in page_text:
             registration_success = True
+            ctx._log("[OK] On login.live.com with email visible — likely registered")
+        else:
+            ctx._log("[WARN] On login.live.com but email not visible — uncertain")
+            await _debug_screenshot(page, f"verify_uncertain_{ctx.username}", ctx._log)
+            # Still count as potential success since we passed error checks
+            registration_success = True
+    elif "signup.live.com" not in final_url:
+        # Left signup entirely — probably success
+        registration_success = True
+        ctx._log(f"[OK] Left registration page — likely succeeded")
+    else:
+        # Still on signup.live.com — check for specific success or error
+        if "error" not in page_text and "went wrong" not in page_text:
+            ctx._log("[WARN] Still on signup.live.com, no errors detected")
+            await _debug_screenshot(page, f"verify_still_signup_{ctx.username}", ctx._log)
+        else:
+            ctx._err(f"[FAIL] Still on signup with errors")
+            await _debug_screenshot(page, f"verify_FAIL_signup_{ctx.username}", ctx._log)
 
     if not registration_success:
         ctx._err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
-        await _debug_screenshot(page, "outlook_not_confirmed")
+        await _debug_screenshot(page, f"verify_NOT_confirmed_{ctx.username}", ctx._log)
         raise FatalError("E502", f"Registration not confirmed: {final_url}")
 
+    ctx._log(f"[OK] Registration verified for {ctx.email}")
     return True
 
 
