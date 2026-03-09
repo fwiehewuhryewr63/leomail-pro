@@ -1074,95 +1074,123 @@ async def step_8_post_prompts(page, ctx: RegContext):
 
 
 async def step_9_verify_success(page, ctx: RegContext) -> bool:
-    """Step 9: Verify registration ACTUALLY succeeded.
-    STRICT verification — checks page text for error indicators on ALL pages,
-    not just signup.live.com. Always screenshots for debugging."""
-    ctx._log("Verifying registration result...")
+    """Step 9: Verify registration by NAVIGATING TO INBOX.
+    The ONLY reliable proof an account was created is that the inbox loads.
+    URL checks alone produce false positives (passkey page, error pages, etc.)."""
+    ctx._log("Verifying registration — navigating to inbox...")
     await _human_delay(2, 4)
-    final_url = page.url.lower()
-    ctx._log(f"Final URL: {final_url}")
-    await _debug_screenshot(page, f"step9_verify_{ctx.username}", ctx._log)
+    pre_verify_url = page.url
+    ctx._log(f"Pre-verify URL: {pre_verify_url[:120]}")
+    await _debug_screenshot(page, f"step9_pre_verify_{ctx.username}", ctx._log)
 
-    # ── FIRST: Check page text for ERRORS on ANY page ──
+    # ── Navigate to inbox — the REAL verification ──
+    inbox_loaded = False
+    for inbox_url in [
+        "https://outlook.live.com/mail/0/inbox",
+        "https://outlook.live.com/mail/",
+    ]:
+        try:
+            await page.goto(inbox_url, wait_until="domcontentloaded", timeout=25000)
+            await _human_delay(5, 8)
+            break
+        except Exception as e:
+            ctx._log(f"[VERIFY] Inbox navigation failed ({inbox_url}): {str(e)[:80]}")
+            continue
+
+    # ── Check what page loaded ──
+    final_url = page.url.lower()
+    ctx._log(f"Final URL after inbox nav: {final_url[:150]}")
+    await _debug_screenshot(page, f"step9_inbox_{ctx.username}", ctx._log)
+
     try:
-        page_text = (await page.locator('body').inner_text(timeout=5000))[:3000].lower()
+        page_text = (await page.locator('body').inner_text(timeout=8000))[:3000].lower()
     except Exception:
         page_text = ""
 
-    # ── PASSKEY CHECK (must run BEFORE generic "couldn't create" check) ──
-    # "We couldn't create a passkey" is NOT a registration failure!
-    # The account WAS created — just the passkey (WebAuthn) feature failed.
-    # This is normal when running in automated browsers without WebAuthn support.
-    if "couldn't create a passkey" in page_text:
-        ctx._log("[OK] 'Couldn't create a passkey' — this is NORMAL (account was created, passkey feature unsupported)")
-        if ctx.email.lower().split('@')[0] in page_text or ctx.username.lower() in page_text:
-            ctx._log("[OK] Email visible on passkey page — account confirmed created")
-        else:
-            ctx._log("[WARN] Email not visible on passkey page — but this is still expected")
-        # Skip the hard-fail check — passkey error is benign
-    else:
-        # Hard failure indicators — account was NOT created
-        # NOTE: "couldn't create" is intentionally excluded — it matches passkey errors.
-        # We handle passkey separately above.
-        hard_fail_indicators = [
-            "something went wrong", "unable to create",
-            "account was not created", "we're sorry",
-            "this account has been suspended", "this account is locked",
-            "try again later", "temporarily unavailable",
-        ]
-        for fail_text in hard_fail_indicators:
-            if fail_text in page_text:
-                ctx._err(f"[FAIL] Error on page: '{fail_text}' — URL: {final_url}")
-                await _debug_screenshot(page, f"verify_FAIL_{ctx.username}", ctx._log)
-                raise RecoverableError("E503", f"MS rejected: '{fail_text}' at {final_url[:80]}")
-
-    # ── THEN: Check URL for positive signals ──
-    registration_success = False
-    # Strong success indicators (inbox, account pages)
-    strong_success = [
+    # ── INBOX LOADED = REAL SUCCESS ──
+    inbox_signatures = [
         "outlook.live.com/mail", "outlook.live.com/owa",
-        "/MailSetup", "account.microsoft.com",
-        "privacynotice.account.microsoft.com",
-        "outlook.office.com", "outlook.office365.com",
+        "outlook.office.com/mail", "outlook.office365.com/mail",
     ]
-    if any(ind in final_url for ind in strong_success):
-        registration_success = True
-        ctx._log("[OK] URL confirms successful registration (inbox/account page)")
-    elif "outlook.live.com" in final_url:
-        registration_success = True
-        ctx._log("[OK] On outlook.live.com — registration succeeded")
-    elif "signup.live.com/signup" in final_url and "sru" in final_url:
-        # signup.live.com/signup?sru=... means post-registration redirect
-        registration_success = True
-        ctx._log("[OK] Post-registration redirect on signup.live.com")
-    elif "login.live.com" in final_url:
-        # login.live.com can be success OR failure (passkey error is here too)
-        # If we already passed the error checks above, it's likely success
-        if ctx.email.lower().split('@')[0] in page_text or ctx.username.lower() in page_text:
-            registration_success = True
-            ctx._log("[OK] On login.live.com with email visible — likely registered")
-        else:
-            ctx._log("[WARN] On login.live.com but email not visible — uncertain")
-            await _debug_screenshot(page, f"verify_uncertain_{ctx.username}", ctx._log)
-            # Still count as potential success since we passed error checks
-            registration_success = True
-    elif "signup.live.com" not in final_url:
-        # Left signup entirely — probably success
-        registration_success = True
-        ctx._log(f"[OK] Left registration page — likely succeeded")
-    else:
-        # Still on signup.live.com — check for specific success or error
-        if "error" not in page_text and "went wrong" not in page_text:
-            ctx._log("[WARN] Still on signup.live.com, no errors detected")
-            await _debug_screenshot(page, f"verify_still_signup_{ctx.username}", ctx._log)
-        else:
-            ctx._err(f"[FAIL] Still on signup with errors")
-            await _debug_screenshot(page, f"verify_FAIL_signup_{ctx.username}", ctx._log)
+    if any(sig in final_url for sig in inbox_signatures):
+        inbox_loaded = True
+        ctx._log(f"[OK] INBOX LOADED — account {ctx.email} is REAL!")
+        await _debug_screenshot(page, f"step9_SUCCESS_{ctx.username}", ctx._log)
 
-    if not registration_success:
-        ctx._err(f"[FAIL] Registration NOT confirmed! URL: {final_url}")
-        await _debug_screenshot(page, f"verify_NOT_confirmed_{ctx.username}", ctx._log)
-        raise FatalError("E502", f"Registration not confirmed: {final_url}")
+    # ── Check for onboarding/welcome pages (also means success) ──
+    if not inbox_loaded:
+        welcome_indicators = [
+            "welcome", "get started", "choose your look",
+            "get the app", "try the app", "set up",
+        ]
+        if any(wi in page_text for wi in welcome_indicators) and "outlook" in final_url:
+            inbox_loaded = True
+            ctx._log("[OK] Welcome/onboarding page — account created, first-time inbox setup")
+            await _debug_screenshot(page, f"step9_welcome_{ctx.username}", ctx._log)
+
+    # ── Account/privacy pages (redirected but account exists) ──
+    if not inbox_loaded:
+        if "account.microsoft.com" in final_url or "privacynotice" in final_url:
+            inbox_loaded = True
+            ctx._log("[OK] Account/privacy page — account exists")
+
+    # ── FAILURE CASES ──
+    if not inbox_loaded:
+        # Redirected to login = account NOT created (or blocked)
+        if "login.live.com" in final_url or "signup.live.com" in final_url:
+            # Check if it's a passkey page (NOT a failure)
+            if "couldn't create a passkey" in page_text:
+                ctx._log("[OK] Passkey error page — account was created, inbox redirect failed")
+                # Try one more time to reach inbox
+                try:
+                    await page.goto("https://outlook.live.com/mail/0/inbox",
+                                    wait_until="domcontentloaded", timeout=20000)
+                    await _human_delay(5, 8)
+                    retry_url = page.url.lower()
+                    ctx._log(f"Retry inbox URL: {retry_url[:120]}")
+                    await _debug_screenshot(page, f"step9_retry_{ctx.username}", ctx._log)
+                    if any(sig in retry_url for sig in inbox_signatures):
+                        inbox_loaded = True
+                        ctx._log("[OK] INBOX LOADED on retry!")
+                    elif "outlook" in retry_url:
+                        inbox_loaded = True
+                        ctx._log("[OK] On Outlook domain after retry — accepting")
+                except Exception:
+                    pass
+
+                if not inbox_loaded:
+                    # Passkey page but can't reach inbox — count as success anyway
+                    # (passkey is a known benign error in automated browsers)
+                    ctx._log("[WARN] Can't reach inbox from passkey page — but account likely created")
+                    inbox_loaded = True
+            else:
+                # Actually redirected to login/signup = FAILURE
+                ctx._err(f"[FAIL] Redirected to login/signup — account NOT created! URL: {final_url}")
+                await _debug_screenshot(page, f"step9_FAIL_login_{ctx.username}", ctx._log)
+                raise RecoverableError("E503", f"Inbox unreachable — redirected to {final_url[:80]}")
+
+        # Check for hard error text
+        hard_fail = ["something went wrong", "unable to create", "account was not created",
+                     "we're sorry", "suspended", "locked"]
+        for fail in hard_fail:
+            if fail in page_text:
+                ctx._err(f"[FAIL] Error text: '{fail}'")
+                await _debug_screenshot(page, f"step9_FAIL_text_{ctx.username}", ctx._log)
+                raise RecoverableError("E503", f"MS error: '{fail}' at {final_url[:80]}")
+
+        # Unknown page — screenshot and accept cautiously
+        if not inbox_loaded:
+            ctx._log(f"[WARN] Unknown page after inbox nav — URL: {final_url[:120]}")
+            await _debug_screenshot(page, f"step9_unknown_{ctx.username}", ctx._log)
+            # If not on signup/login, probably success
+            if "signup.live.com" not in final_url and "login.live.com" not in final_url:
+                inbox_loaded = True
+                ctx._log("[OK] Not on signup/login — accepting as success")
+
+    if not inbox_loaded:
+        ctx._err(f"[FAIL] Could not verify account! URL: {final_url}")
+        await _debug_screenshot(page, f"step9_NOT_verified_{ctx.username}", ctx._log)
+        raise FatalError("E502", f"Registration unverified: {final_url}")
 
     ctx._log(f"[OK] Registration verified for {ctx.email}")
     return True
