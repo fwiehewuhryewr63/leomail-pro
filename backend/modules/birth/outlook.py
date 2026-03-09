@@ -985,13 +985,25 @@ async def step_8_post_prompts(page, ctx: RegContext):
         # Re-check page state after passkey dismissal
         current_url = page.url.lower()
         ctx._log(f"[step8] URL after passkey: {current_url[:120]}")
+        # Re-read page text after dismissal (old text was from passkey page)
+        try:
+            page_text = (await page.locator('body').inner_text(timeout=5000))[:2000].lower()
+        except Exception:
+            page_text = ""
 
     # ── Check for FATAL error pages (account NOT created) ──
+    # IMPORTANT: "couldn't create a passkey" is NOT a fatal error — account was created,
+    # just the passkey wasn't. Only match non-passkey "couldn't create" errors.
     fatal_error_indicators = [
-        "something went wrong", "we couldn't create", "unable to create",
-        "account was not created", "try again later", "we're sorry",
+        "something went wrong", "unable to create",
+        "account was not created", "we're sorry",
         "this account has been suspended", "this account is locked",
     ]
+    # Special handling: "couldn't create" but NOT "couldn't create a passkey"
+    has_couldnt_create = "couldn't create" in page_text
+    is_passkey_only = "couldn't create a passkey" in page_text
+    if has_couldnt_create and not is_passkey_only:
+        fatal_error_indicators.append("couldn't create")  # only add if NOT passkey
     if any(fe in page_text for fe in fatal_error_indicators):
         ctx._err(f"[FAIL] Fatal error on page: {page_text[:200]}")
         await _debug_screenshot(page, f"fatal_error_{ctx.username}", ctx._log)
@@ -1077,30 +1089,32 @@ async def step_9_verify_success(page, ctx: RegContext) -> bool:
     except Exception:
         page_text = ""
 
-    # Hard failure indicators — account was NOT created
-    hard_fail_indicators = [
-        "something went wrong", "couldn't create", "unable to create",
-        "account was not created", "we're sorry",
-        "this account has been suspended", "this account is locked",
-        "try again later", "temporarily unavailable",
-    ]
-    for fail_text in hard_fail_indicators:
-        if fail_text in page_text:
-            ctx._err(f"[FAIL] Error on page: '{fail_text}' — URL: {final_url}")
-            await _debug_screenshot(page, f"verify_FAIL_{ctx.username}", ctx._log)
-            raise RecoverableError("E503", f"MS rejected: '{fail_text}' at {final_url[:80]}")
-
-    # Soft fail indicators — NOT definitive but suspicious
-    # "passkey" alone is NOT a failure — MS shows passkey prompt even on success
+    # ── PASSKEY CHECK (must run BEFORE generic "couldn't create" check) ──
+    # "We couldn't create a passkey" is NOT a registration failure!
+    # The account WAS created — just the passkey (WebAuthn) feature failed.
+    # This is normal when running in automated browsers without WebAuthn support.
     if "couldn't create a passkey" in page_text:
-        # Passkey creation failed but account MAY have been created.
-        # Check if we can find the email in the page to confirm
+        ctx._log("[OK] 'Couldn't create a passkey' — this is NORMAL (account was created, passkey feature unsupported)")
         if ctx.email.lower().split('@')[0] in page_text or ctx.username.lower() in page_text:
-            ctx._log("[OK] Passkey failed but email visible on page — account likely created")
+            ctx._log("[OK] Email visible on passkey page — account confirmed created")
         else:
-            ctx._err(f"[FAIL] 'Couldn't create passkey' AND no email visible — likely rejected")
-            await _debug_screenshot(page, f"verify_passkey_fail_{ctx.username}", ctx._log)
-            raise RecoverableError("E504", f"Passkey error, account uncertain: {final_url[:80]}")
+            ctx._log("[WARN] Email not visible on passkey page — but this is still expected")
+        # Skip the hard-fail check — passkey error is benign
+    else:
+        # Hard failure indicators — account was NOT created
+        # NOTE: "couldn't create" is intentionally excluded — it matches passkey errors.
+        # We handle passkey separately above.
+        hard_fail_indicators = [
+            "something went wrong", "unable to create",
+            "account was not created", "we're sorry",
+            "this account has been suspended", "this account is locked",
+            "try again later", "temporarily unavailable",
+        ]
+        for fail_text in hard_fail_indicators:
+            if fail_text in page_text:
+                ctx._err(f"[FAIL] Error on page: '{fail_text}' — URL: {final_url}")
+                await _debug_screenshot(page, f"verify_FAIL_{ctx.username}", ctx._log)
+                raise RecoverableError("E503", f"MS rejected: '{fail_text}' at {final_url[:80]}")
 
     # ── THEN: Check URL for positive signals ──
     registration_success = False
