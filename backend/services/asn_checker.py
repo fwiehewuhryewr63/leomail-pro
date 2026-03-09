@@ -34,7 +34,7 @@ DATACENTER_ASNS = {
     "AS36352",  # ColoCrossing
     "AS62567",  # DigitalOcean
     "AS200019", # AlexHost
-    "AS9009",   # M247 (huge — ASocks/PIA/etc use this)
+    # AS9009 M247 REMOVED — used by ASocks/residential providers, causes false positives
     "AS208323", # Stark Industries (VPN/proxy infra)
     "AS44477",  # Stark Industries Solutions
     "AS49981",  # WorldStream
@@ -72,20 +72,20 @@ DATACENTER_ASNS = {
     "AS398493", # Clouvider
     "AS211252", # Delis
     "AS211298", # ELFISERV
-    "AS6939",   # Hurricane Electric
-    "AS209",    # CenturyLink
-    "AS174",    # Cogent
-    "AS3257",   # GTT
-    "AS1299",   # Arelion (Telia)
-    "AS8560",   # 1&1 IONOS
+    # AS6939 Hurricane Electric REMOVED — transit provider, not strictly datacenter
+    # AS209 CenturyLink REMOVED — ISP, not datacenter
+    # AS174 Cogent REMOVED — tier-1 ISP carrier, not datacenter
+    # AS3257 GTT REMOVED — transit provider
+    # AS1299 Arelion/Telia REMOVED — tier-1 ISP carrier
+    # AS8560 1&1 IONOS REMOVED — mixed hosting+ISP, causes false positives
     "AS197540", # Netcup
     "AS395003", # Path.net
     # VPN / privacy services
     "AS212238", # Datacamp Ltd (NordVPN infra)
-    "AS9009",   # M247 (used by ExpressVPN, PIA, etc.)
+    # AS9009 M247 duplicate REMOVED
     "AS60068",  # Datacamp CDN
     "AS209103", # OVH VPS
-    "AS16509",  # AWS (used by many VPNs)
+    # AS16509 AWS duplicate (already listed above)
 }
 
 # Known IP ranges for major datacenter providers (for instant match without ASN lookup)
@@ -157,18 +157,29 @@ MOBILE_ASNS = {
 # ASN lookup (cached)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Cache for ip-api hosting field results: {ip: True/False/None}
+_hosting_cache: dict[str, bool | None] = {}
+
+
 @lru_cache(maxsize=2048)
 def _lookup_asn(ip: str) -> Optional[str]:
-    """Look up ASN for an IP address. Uses ip-api.com (free, 45 req/min)."""
+    """Look up ASN for an IP address. Uses ip-api.com (free, 45 req/min).
+    Also caches the 'hosting' field for direct datacenter detection."""
     # Method 1: ip-api.com HTTP API (always works, requests is a core dep)
     try:
         import requests
         r = requests.get(
-            f"http://ip-api.com/json/{ip}?fields=as",
+            f"http://ip-api.com/json/{ip}?fields=as,hosting,isp,org",
             timeout=5,
         )
         if r.status_code == 200:
             data = r.json()
+            # Cache the 'hosting' field — ip-api directly tells us if IP is datacenter
+            is_hosting = data.get("hosting", False)
+            _hosting_cache[ip] = is_hosting
+            if is_hosting:
+                isp = data.get("isp", "") or data.get("org", "")
+                logger.debug(f"[ASN] {ip} — ip-api says hosting=true (ISP: {isp})")
             as_str = data.get("as", "")  # "AS9009 M247 Ltd"
             if as_str:
                 asn = as_str.split()[0]  # "AS9009"
@@ -221,6 +232,10 @@ def classify_ip(ip: str, db_proxy=None) -> str:
       2. Proxy.asn_type from DB (survives restarts, no API call)
       3. ip-api.com HTTP lookup (slow, rate-limited at 45 req/min)
     
+    Uses BOTH ASN matching AND ip-api's 'hosting' field for accuracy.
+    An IP is only classified as 'datacenter' if BOTH ASN matches AND hosting=True,
+    OR if hosting=True (even if ASN is not in our list).
+    
     On API hit, saves result back to DB so future calls skip the API.
     """
     # Tier 1: in-memory cache
@@ -235,17 +250,28 @@ def classify_ip(ip: str, db_proxy=None) -> str:
     
     # Tier 3: API lookup
     result = "unknown"
-    asn = _lookup_asn(ip)
+    asn = _lookup_asn(ip)  # This also populates _hosting_cache
     if asn:
-        if asn in DATACENTER_ASNS:
-            result = "datacenter"
-        elif asn in MOBILE_ASNS:
+        is_hosting = _hosting_cache.get(ip)  # True/False/None
+        
+        if asn in MOBILE_ASNS:
             result = "mobile"
+        elif asn in DATACENTER_ASNS:
+            # ASN is in DC list — but check hosting field to reduce false positives
+            # If ip-api says hosting=False, it's likely a residential IP on a shared ASN
+            if is_hosting is False:
+                result = "residential"
+                logger.debug(f"[ASN] {ip} — ASN {asn} in DC list but hosting=False → residential")
+            else:
+                result = "datacenter"
+        elif is_hosting is True:
+            # ASN not in our list but ip-api says it's hosting
+            result = "datacenter"
         else:
             result = "residential"
     
     _ip_type_cache[ip] = result
-    logger.debug(f"[ASN] {ip} → {result} (ASN: {asn})")
+    logger.debug(f"[ASN] {ip} → {result} (ASN: {asn}, hosting={_hosting_cache.get(ip)})")
     
     # Save back to DB if proxy object provided
     if db_proxy and asn:
@@ -297,9 +323,14 @@ def is_suitable_for(ip: str, service: str, db_proxy=None) -> bool:
     ip_type = classify_ip(ip, db_proxy=db_proxy)
     
     if ip_type == "unknown":
-        # Unknown IPs: block for strict services (Yahoo/AOL/Gmail check ASN)
-        # If we can't classify it, don't risk burning it on strict providers
-        return service not in ("gmail", "yahoo", "aol")
+        # Unknown IPs: block only for strictest services (Gmail needs mobile)
+        # Yahoo/AOL: cautious block (they check ASN aggressively)
+        # Outlook: ALLOW — it's better to try than skip a potentially good proxy
+        if service in ("gmail",):
+            return False  # Gmail: mobile only, never risk unknown
+        if service in ("yahoo", "aol"):
+            return False  # Yahoo/AOL: strict ASN checking
+        return True  # Outlook, Proton, Web.de: allow unknown
     
     accepted = SERVICE_ACCEPTS.get(service.lower(), {"residential", "mobile", "datacenter"})
     return ip_type in accepted

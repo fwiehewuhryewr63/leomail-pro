@@ -353,7 +353,7 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
     country_aliases = COUNTRY_ALIASES.get(geo_code, [chosen_country]) if geo_code else [chosen_country]
     ctx._log(f"Selecting country: {chosen_country} (GEO: {proxy_geo or 'auto'})")
 
-    country_ok = await _fluent_combobox_select(page, [
+    _COUNTRY_SELECTORS = [
         '#countryDropdownId',
         'button[name="countryDropdownName"]',
         'button[aria-label*="ountry"]',
@@ -361,8 +361,11 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
         'button[aria-label*="aís"]',
         'button[aria-label*="and"]',
         'button[role="combobox"]:first-of-type',
-    ], chosen_country, "Country", ctx._log, timeout=5000, aliases=country_aliases)
+    ]
+    country_ok = await _fluent_combobox_select(page, _COUNTRY_SELECTORS,
+        chosen_country, "Country", ctx._log, timeout=5000, aliases=country_aliases)
     if not country_ok:
+        # Fallback 1: native <select> element
         old_country = await _wait_for_any(page, [
             'select[id*="Country"]', 'select[name*="Country"]',
         ], timeout=2000)
@@ -370,21 +373,31 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
             try:
                 await page.locator(old_country).first.select_option("US")
                 ctx._log("Country: selected via native select")
+                country_ok = True
             except Exception:
                 pass
+        # Fallback 2: try "United States" (most universal option)
+        if not country_ok and chosen_country != "United States":
+            ctx._log(f"[WARN] Country '{chosen_country}' failed — trying 'United States' fallback")
+            country_ok = await _fluent_combobox_select(page, _COUNTRY_SELECTORS,
+                "United States", "Country", ctx._log, timeout=5000,
+                aliases=COUNTRY_ALIASES.get("US", ["United States", "USA"]))
     await _human_delay(0.5, 1.0)
 
     # Month — use locale-aware aliases
     month_aliases = MONTH_ALIASES.get(birthday.month, [month_name])
-    month_ok = await _fluent_combobox_select(page, [
+    _MONTH_SELECTORS = [
         '#BirthMonthDropdown',
         'button[name="BirthMonth"]',
         'button[aria-label*="irth month"]',
         'button[aria-label*="есяц"]',
         'button[aria-label*="es de"]',
         'button[aria-label*="onat"]',
-    ], month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
+    ]
+    month_ok = await _fluent_combobox_select(page, _MONTH_SELECTORS,
+        month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
     if not month_ok:
+        # Fallback 1: native <select> element
         old_month = await _wait_for_any(page, [
             '#BirthMonth', 'select[name="BirthMonth"]',
         ], timeout=2000)
@@ -396,7 +409,20 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
             except Exception:
                 pass
     if not month_ok:
+        # Last resort: dismiss any stuck dropdown, wait, retry month once more
+        ctx._log("[WARN] Month selection failed — recovery attempt (dismiss + retry)")
+        try:
+            await page.keyboard.press("Escape")
+            await _human_delay(1, 2)
+            await page.mouse.click(400, 300)
+            await _human_delay(1, 2)
+        except Exception:
+            pass
+        month_ok = await _fluent_combobox_select(page, _MONTH_SELECTORS,
+            month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
+    if not month_ok:
         ctx._err(f"Failed to select month. URL: {page.url}")
+        await _debug_screenshot(page, "outlook_birthday_error", ctx._log)
         raise RecoverableError("E104", f"Month field not found at {page.url}")
     await _human_delay(0.3, 0.8)
 
@@ -620,13 +646,28 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
                         return
                     ctx._log(f"[CAPTCHA] Re-challenge still active — continuing to next round")
                     continue  # try next round instead of crash
-                ctx._err(f"[CAPTCHA] PerimeterX press-and-hold FAILED on round {captcha_round}")
-                raise CaptchaFailError("E410", f"PerimeterX press-and-hold failed (round {captcha_round})")
+                # PX failed — try FunCaptcha API solver as fallback
+                ctx._log(f"[CAPTCHA] PX press-and-hold failed — trying FunCaptcha API fallback...")
+                fc_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, ctx._log)
+                if fc_solved:
+                    ctx._log("[OK] FunCaptcha API solved the challenge after PX fail!")
+                    await _human_delay(3, 5)
+                    any_round_passed = True
+                    continue  # re-check for challenge
+                ctx._err(f"[CAPTCHA] Both PX hold AND FunCaptcha API failed on round {captcha_round}")
+                raise CaptchaFailError("E410", f"PX hold + FunCaptcha API both failed (round {captcha_round})")
         else:
-            # Unknown enforcement type (no hsprotect iframe, no known patterns)
+            # Unknown enforcement type — try FunCaptcha API solver
             ctx._log(f"[CAPTCHA] Unknown enforcement: {page_lower[:120]}")
-            ctx._err("[CAPTCHA] Unknown enforcement type — cannot solve")
-            raise CaptchaFailError("E411", "Unknown enforcement type (not press-and-hold)")
+            ctx._log("[CAPTCHA] Trying FunCaptcha API solver for unknown enforcement...")
+            fc_solved = await _detect_and_solve_funcaptcha(page, captcha_provider, ctx._log)
+            if fc_solved:
+                ctx._log("[OK] FunCaptcha API solved unknown enforcement!")
+                await _human_delay(3, 5)
+                any_round_passed = True
+                continue  # re-check for challenge
+            ctx._err("[CAPTCHA] Unknown enforcement type — FunCaptcha API also failed")
+            raise CaptchaFailError("E411", "Unknown enforcement + FunCaptcha API failed")
 
     # Exhausted all rounds
     ctx._err(f"[CAPTCHA] Failed after {MAX_CAPTCHA_ROUNDS} re-challenge rounds")
@@ -635,7 +676,7 @@ async def step_7_captcha(page, ctx: RegContext, captcha_provider):
     await block_check(page, ctx.provider, ctx, "post_captcha")
 
 
-async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) -> bool:
+async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 4) -> bool:
     """Solve PerimeterX 'Press and hold the button' challenge.
     The button loads inside an hsprotect.net iframe. Strategy:
     1. Try to find #px-captcha in main page (PerimeterX sometimes injects it directly)
@@ -792,16 +833,24 @@ async def _solve_perimeterx_hold(page, ctx: RegContext, max_retries: int = 3) ->
             # Mouse down (start press)
             await page.mouse.down()
 
-            # Hold for 13-21 seconds with MICRO-JITTER (real hands shake)
-            hold_duration = random.uniform(13.0, 21.0)
-            ctx._log(f"[PX] Holding for {hold_duration:.1f}s with micro-jitter...")
+            # Hold with ADAPTIVE duration (different per attempt for broader coverage)
+            # PX minimum threshold is ~10s — vary to find what works
+            _HOLD_RANGES = {
+                1: (10.0, 14.0),   # Attempt 1: shorter — many PX accept 10-12s
+                2: (14.0, 18.0),   # Attempt 2: medium
+                3: (18.0, 25.0),   # Attempt 3: longer — some PX need 20s+
+                4: (11.0, 16.0),   # Attempt 4: mid-range retry
+            }
+            hold_min, hold_max = _HOLD_RANGES.get(attempt, (13.0, 21.0))
+            hold_duration = random.uniform(hold_min, hold_max)
+            ctx._log(f"[PX] Holding for {hold_duration:.1f}s (attempt {attempt} range: {hold_min:.0f}-{hold_max:.0f}s)...")
             elapsed = 0.0
             while elapsed < hold_duration:
-                # Micro-jitter: ±2px every 300-600ms (simulates hand tremor)
-                jitter_x = cx + random.randint(-2, 2)
-                jitter_y = cy + random.randint(-2, 2)
+                # Micro-jitter: ±3px every 200-500ms (realistic hand tremor)
+                jitter_x = cx + random.randint(-3, 3)
+                jitter_y = cy + random.randint(-3, 3)
                 await page.mouse.move(jitter_x, jitter_y)
-                step = random.uniform(0.3, 0.6)
+                step = random.uniform(0.2, 0.5)
                 await asyncio.sleep(step)
                 elapsed += step
 
@@ -984,19 +1033,19 @@ async def step_9_verify_success(page, ctx: RegContext) -> bool:
 
 
 async def _outlook_post_reg_warmup(page, ctx: RegContext):
-    """Outlook-specific post-registration warmup (45-90s).
+    """Outlook-specific post-registration warmup (30-60s).
 
     A real user's first-time inbox experience:
     1. Dismiss onboarding prompts (Welcome wizard, "Get app", "Choose look")
     2. Land in inbox, see welcome email
     3. Open and READ the welcome email
     4. Browse settings briefly
-    5. Maybe open compose to check how it works
-    Total: 45-90s — natural first-time user pace
+    Total: 30-60s — natural first-time user pace
 
     Every step is error-tolerant — if something fails, we continue.
+    Compose step removed to reduce page loads on shared proxy bandwidth.
     """
-    duration = random.randint(45, 90)
+    duration = random.randint(30, 60)
     start = asyncio.get_event_loop().time()
     ctx._log(f"[POST-REG] Outlook first-time inbox experience ({duration}s)...")
 
@@ -1006,18 +1055,20 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
     # ── Step 1: Navigate to inbox ──
     try:
         await page.goto("https://outlook.live.com/mail/0/inbox",
-                        wait_until="domcontentloaded", timeout=60000)
+                        wait_until="domcontentloaded", timeout=25000)
         await _human_delay(3, 6)
         ctx._log("[POST-REG] Inbox page loaded")
+        inbox_loaded = True
     except Exception as e:
         ctx._log(f"[POST-REG] Inbox load error: {str(e)[:80]}")
         # Fallback: try base URL
         try:
             await page.goto("https://outlook.live.com/mail/",
-                            wait_until="domcontentloaded", timeout=45000)
+                            wait_until="domcontentloaded", timeout=20000)
             await _human_delay(3, 5)
+            inbox_loaded = True
         except Exception:
-            ctx._log("[POST-REG] Could not reach inbox — skipping")
+            ctx._log("[POST-REG] Could not reach inbox — skipping warmup")
             return
 
     # ── Step 2: Dismiss onboarding prompts ──
@@ -1098,36 +1149,24 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
                 from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
                 await random_mouse_move(page, steps=random.randint(2, 4))
                 await random_scroll(page, "down")
-                await _human_delay(2, 5)
-                await random_scroll(page, "down")
                 await _human_delay(2, 4)
-
-                # Maybe scroll back up
-                if random.random() < 0.4:
-                    await random_scroll(page, "up")
-                    await _human_delay(1, 3)
 
                 # Idle "reading" behavior
                 await idle_behavior(page, random.uniform(3, 6))
                 await random_mouse_move(page, steps=random.randint(1, 3))
 
-                # Go back to inbox
+                # Go back to inbox (click Back, not full page reload)
                 try:
                     back_btn = page.locator('button[aria-label="Back"], button[title="Back"]').first
                     if await back_btn.count() > 0:
                         await _human_click(page, 'button[aria-label="Back"], button[title="Back"]')
-                        await _human_delay(2, 4)
-                    else:
-                        await page.goto("https://outlook.live.com/mail/0/inbox",
-                                        wait_until="domcontentloaded", timeout=40000)
                         await _human_delay(2, 4)
                 except Exception:
                     pass
 
                 ctx._log("[POST-REG] Welcome email read")
             else:
-                ctx._log("[POST-REG] No emails found in inbox yet — skipping")
-                # Just browse inbox
+                ctx._log("[POST-REG] No emails found in inbox yet — browsing inbox")
                 from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
                 await random_mouse_move(page, steps=random.randint(2, 5))
                 await random_scroll(page, "down")
@@ -1137,56 +1176,29 @@ async def _outlook_post_reg_warmup(page, ctx: RegContext):
         except Exception as e:
             ctx._log(f"[POST-REG] Email read error: {str(e)[:80]}")
 
-    # ── Step 4: Visit Settings ──
-    if _elapsed() < duration * 0.8:
+    # ── Step 4: Visit Settings (skip if time is tight) ──
+    if _elapsed() < duration * 0.75:
         try:
             await page.goto("https://outlook.live.com/mail/0/options/general",
-                            wait_until="domcontentloaded", timeout=40000)
-            await _human_delay(2, 5)
+                            wait_until="domcontentloaded", timeout=25000)
+            await _human_delay(2, 4)
             from ..human_behavior import random_mouse_move, random_scroll
             await random_mouse_move(page, steps=random.randint(2, 4))
             await random_scroll(page, "down")
-            await _human_delay(2, 4)
-            await random_scroll(page, "down")
-            await _human_delay(1, 3)
+            await _human_delay(2, 3)
             ctx._log("[POST-REG] Browsed settings")
         except Exception as e:
             ctx._log(f"[POST-REG] Settings visit error: {str(e)[:80]}")
 
-    # ── Step 5: Open Compose (but don't send) ──
-    if _elapsed() < duration * 0.9 and random.random() < 0.5:
+    # ── Step 5 (Compose) REMOVED — reduces proxy bandwidth competition ──
+
+    # ── Step 5: Final idle on current page ──
+    remaining = duration - _elapsed()
+    if remaining > 3:
         try:
-            await page.goto("https://outlook.live.com/mail/0/deeplink/compose",
-                            wait_until="domcontentloaded", timeout=40000)
-            await _human_delay(3, 6)
             from ..human_behavior import random_mouse_move, idle_behavior
             await random_mouse_move(page, steps=random.randint(1, 3))
-            await idle_behavior(page, random.uniform(2, 4))
-            ctx._log("[POST-REG] Checked compose window")
-
-            # Close compose without sending (discard)
-            discard = await _wait_for_any(page, [
-                'button:has-text("Discard")', 'button[aria-label="Discard"]',
-                'button:has-text("Отмена")', 'button:has-text("Descartar")',
-            ], timeout=3000)
-            if discard:
-                await _human_click(page, discard)
-                await _human_delay(1, 3)
-        except Exception as e:
-            ctx._log(f"[POST-REG] Compose visit error: {str(e)[:80]}")
-
-    # ── Step 6: Back to inbox — final idle ──
-    remaining = duration - _elapsed()
-    if remaining > 5:
-        try:
-            await page.goto("https://outlook.live.com/mail/0/inbox",
-                            wait_until="domcontentloaded", timeout=40000)
-            await _human_delay(2, 4)
-            from ..human_behavior import random_mouse_move, random_scroll, idle_behavior
-            await random_mouse_move(page, steps=random.randint(2, 5))
-            await random_scroll(page, "down")
-            await idle_behavior(page, min(remaining - 3, random.uniform(3, 8)))
-            await random_mouse_move(page, steps=random.randint(1, 3))
+            await idle_behavior(page, min(remaining - 2, random.uniform(3, 8)))
         except Exception:
             pass
 

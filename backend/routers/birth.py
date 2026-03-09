@@ -34,7 +34,7 @@ from ..modules.birth.aol import register_single_aol
 from ..modules.birth.protonmail import register_single_protonmail
 from ..modules.birth.webde import register_single_webde
 from ..modules.birth._helpers import get_sms_chain as _get_sms_chain
-from ..services.proxy_providers import tiered_auto_buy
+# tiered_auto_buy REMOVED — proxies come from user-managed pool only
 from ..modules.birth._helpers import get_captcha_provider as _get_captcha_provider
 from ..services.engine_manager import engine_manager, EngineType
 
@@ -158,34 +158,8 @@ async def run_birth_task(request: BirthRequest):
             logger.info(f"[Birth] After counter reset: {len(proxy_pool)} proxies for {request.provider}")
 
         if not proxy_pool:
-            # ── Still empty: try auto-buy from external services ──
-            logger.warning(f"[Birth] Still no proxies after reset — attempting auto-buy...")
-            try:
-                new_proxies = await asyncio.to_thread(
-                    tiered_auto_buy,
-                    provider=request.provider,
-                    count=3,
-                    country="us",
-                )
-                if new_proxies:
-                    for np_data in new_proxies:
-                        p = Proxy(
-                            host=np_data["host"], port=np_data["port"],
-                            username=np_data.get("username", ""),
-                            password=np_data.get("password", ""),
-                            protocol=np_data.get("protocol", "http"),
-                            geo=np_data.get("geo", "US"),
-                            status=ProxyStatus.ACTIVE,
-                            source=np_data.get("source", "auto-buy"),
-                        )
-                        db.add(p)
-                    db.commit()
-                    proxy_pool = proxy_manager.get_proxy_pool(
-                        request.quantity, provider=request.provider,
-                    )
-                    logger.info(f"[Birth] Auto-bought {len(new_proxies)} proxies, pool now: {len(proxy_pool)}")
-            except Exception as buy_err:
-                logger.warning(f"[Birth] Auto-buy failed: {buy_err}")
+            # No proxies available — user must add them manually
+            logger.warning(f"[Birth] No suitable proxies for {request.provider} after counter reset — add proxies to the shared pool")
 
         if not proxy_pool:
             # ── All recovery failed — stop this task (same task, not a new one) ──
@@ -397,56 +371,19 @@ async def run_birth_task(request: BirthRequest):
                             if proxy:
                                 proxies_in_use.add(proxy.id)
                         if not proxy:
-                            # NEVER GIVE UP — auto-buy and retry until user cancels
-                            # Check cancel first
+                            # No usable proxies — handle gracefully
                             if task.id in BIRTH_CANCEL:
                                 return
-                            if proxy_blacklist or not proxy_pool:
-                                # All proxies blacklisted or pool empty — auto-buy residential
-                                logger.warning(f"[Birth] Worker {worker_id}: no usable proxies "
-                                              f"(blacklisted={len(proxy_blacklist)}, pool={len(proxy_pool)}), auto-buying residential...")
-                                bought_any = False
-                                for buy_attempt in range(3):  # 3 auto-buy attempts
-                                    if task.id in BIRTH_CANCEL:
-                                        return
-                                    try:
-                                        new_proxies = await asyncio.to_thread(
-                                            tiered_auto_buy,
-                                            provider=request.provider,
-                                            count=3,
-                                            country=auto_buy_geo,
-                                        )
-                                        if new_proxies:
-                                            for np in new_proxies:
-                                                p = Proxy(
-                                                    host=np["host"], port=np["port"],
-                                                    username=np.get("username", ""),
-                                                    password=np.get("password", ""),
-                                                    protocol=np.get("protocol", "http"),
-                                                    proxy_type=np.get("proxy_type", "residential"),
-                                                    geo=np.get("geo", "US"),
-                                                    status=ProxyStatus.ACTIVE,
-                                                    external_id=np.get("external_id", ""),
-                                                    source=np.get("source", "auto-buy"),
-                                                )
-                                                db.add(p)
-                                                db.commit()
-                                                proxy_pool.append(p)
-                                            proxy_blacklist.clear()
-                                            bought_any = True
-                                            logger.info(f"[Birth] Auto-bought {len(new_proxies)} residential proxies, retrying...")
-                                            break
-                                    except Exception as e:
-                                        logger.warning(f"[Birth] Auto-buy attempt {buy_attempt+1}/3 failed: {e}")
-                                    if buy_attempt < 2:
-                                        await asyncio.sleep(60)  # wait 60s between buy attempts
-
-                                if not bought_any:
-                                    # All buy attempts failed — cooldown + clear blacklist + retry
-                                    logger.warning(f"[Birth] Worker {worker_id}: auto-buy failed 3x, cooldown 2min then recycling proxies...")
-                                    await asyncio.sleep(120)
-                                    proxy_blacklist.clear()
+                            if proxy_blacklist and len(proxy_blacklist) >= len(proxy_pool):
+                                # All pool proxies blacklisted — cooldown, clear blacklist, retry
+                                logger.warning(f"[Birth] Worker {worker_id}: all {len(proxy_pool)} proxies blacklisted — cooldown 30s, clearing blacklist...")
+                                await asyncio.sleep(30)
+                                proxy_blacklist.clear()
                                 continue
+                            elif not proxy_pool:
+                                logger.warning(f"[Birth] Worker {worker_id}: proxy pool empty — stopping (add proxies to shared pool)")
+                                task.stop_reason = "No proxies available — add proxies to the shared pool"
+                                return
                             else:
                                 logger.warning(f"[Birth] Worker {worker_id}: no free proxy, waiting 5s...")
                                 await asyncio.sleep(5)
@@ -603,9 +540,14 @@ async def run_birth_task(request: BirthRequest):
                                 proxy_blacklist.add(proxy.id)
                                 logger.info(f"[Birth] Proxy {proxy.host} blacklisted for this task (err: {err_msg[:80]})")
 
-                            # Increment FAIL counter for this proxy+provider
-                            # (counts toward limit — burned proxy won't be reused for same provider)
-                            if proxy:
+                            # Increment FAIL counter for proxy-related errors ONLY
+                            # Captcha failures are NOT the proxy's fault — don't burn it
+                            is_proxy_error = proxy and any(x in err_msg for x in [
+                                "ip", "e500", "blocked", "e302", "e303",
+                                "e501", "e304", "can't create", "unusual activity",
+                                "something went wrong", "datacenter", "asn",
+                            ])
+                            if is_proxy_error:
                                 proxy_manager.increment_provider_fail(proxy, request.provider)
 
                             # Smart retry: blacklist country if SMS actually timed out
@@ -639,51 +581,12 @@ async def run_birth_task(request: BirthRequest):
                                     sms_round_fails[0] = 0
                                     captcha_round_fails[0] = 0
                                     if proxy_round_fails[0] >= PROXY_MAX_ROUNDS:
-                                        # NEVER STOP — auto-buy residential proxies and keep going
-                                        logger.warning(f"[Birth] {PROXY_MAX_ROUNDS} proxy failures — auto-buying fresh residential proxies...")
-                                        bought_any = False
-                                        for buy_attempt in range(3):
-                                            if task.id in BIRTH_CANCEL:
-                                                return
-                                            try:
-                                                new_proxies = await asyncio.to_thread(
-                                                    tiered_auto_buy,
-                                                    provider=request.provider,
-                                                    count=3,
-                                                    country=auto_buy_geo,
-                                                )
-                                                if new_proxies:
-                                                    for np in new_proxies:
-                                                        p = Proxy(
-                                                            host=np["host"], port=np["port"],
-                                                            username=np.get("username", ""),
-                                                            password=np.get("password", ""),
-                                                            protocol=np.get("protocol", "http"),
-                                                            proxy_type=np.get("proxy_type", "residential"),
-                                                            geo=np.get("geo", "US"),
-                                                            status=ProxyStatus.ACTIVE,
-                                                            external_id=np.get("external_id", ""),
-                                                            source=np.get("source", "auto-buy"),
-                                                        )
-                                                        db.add(p)
-                                                        db.commit()
-                                                        proxy_pool.append(p)
-                                                    proxy_blacklist.clear()
-                                                    proxy_round_fails[0] = 0
-                                                    bought_any = True
-                                                    logger.info(f"[Birth] Auto-bought {len(new_proxies)} residential proxies, continuing...")
-                                                    break
-                                            except Exception as buy_err:
-                                                logger.warning(f"[Birth] Auto-buy attempt {buy_attempt+1}/3 failed: {buy_err}")
-                                            if buy_attempt < 2:
-                                                await asyncio.sleep(60)
-                                        if not bought_any:
-                                            # Failed to buy — cooldown + clear blacklist + keep trying
-                                            logger.warning(f"[Birth] Auto-buy failed 3x, cooldown 2min then recycling all proxies...")
-                                            await asyncio.sleep(120)
-                                            proxy_blacklist.clear()
-                                            proxy_round_fails[0] = 0
-                                        # NEVER return — continue the loop
+                                        # Proxy exhausted — cooldown + clear blacklist + keep trying
+                                        logger.warning(f"[Birth] {PROXY_MAX_ROUNDS} proxy failures — cooldown 30s, clearing blacklist...")
+                                        await asyncio.sleep(30)
+                                        proxy_blacklist.clear()
+                                        proxy_round_fails[0] = 0
+                                        # Continue loop — don't stop
                                 else:
                                     # Unknown error — don't reset resource counters
                                     pass
@@ -709,9 +612,9 @@ async def run_birth_task(request: BirthRequest):
                                 thread_log.status = "error"
                                 thread_log.error_message = f"{'[RETRY] Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
                                 thread_log.error_category = classify_error(thread_log.error_message)
-                            # Increment FAIL counter even on crashes/exceptions
-                            # (proxy that consistently crashes should hit its limit)
-                            if proxy:
+                            # Increment FAIL counter on crashes/exceptions
+                            # Skip for browser crashes (auto-restartable) — only count persistent failures
+                            if proxy and not is_browser_crash:
                                 proxy_manager.increment_provider_fail(proxy, request.provider)
                             db.commit()
                         except Exception:

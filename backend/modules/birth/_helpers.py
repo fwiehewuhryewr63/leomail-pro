@@ -956,7 +956,12 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
     - `value`: primary value to match (English)
     - `aliases`: optional list of alternative names in other languages
     - Uses accent-normalized comparison ('México' matches 'Mexico')
+
+    Has retry logic: if option not found, closes dropdown, waits, re-opens, retries.
+    Uses keyboard search for long lists (e.g. 257 countries).
     """
+    MAX_RETRIES = 2  # re-open dropdown and retry if not found
+
     btn = None
     for sel in button_selectors:
         try:
@@ -970,90 +975,147 @@ async def fluent_combobox_select(page, button_selectors: list[str], value: str, 
         _log(f"[WARN] Fluent combobox '{label}' not found")
         return False
 
-    try:
-        # Use force=True because Fluent UI labels often overlay the button
-        await page.locator(btn).first.click(force=True)
-        await human_delay(0.3, 0.6)
-    except Exception as e:
-        # Fallback: try clicking via JavaScript
-        try:
-            await page.locator(btn).first.evaluate("el => el.click()")
-            await human_delay(0.3, 0.6)
-        except Exception:
-            _log(f"[WARN] Failed to click combobox '{label}': {e}")
-            return False
-
-    try:
-        await page.wait_for_selector('[role="listbox"]', timeout=3000)
-    except Exception:
-        _log(f"[WARN] Listbox for '{label}' did not appear")
-        return False
-
-    options = page.locator('[role="listbox"] [role="option"]')
-    count = await options.count()
-
     # Build normalized set of all acceptable values
     all_targets = {_normalize_text(value)}
     if aliases:
         for alias in aliases:
             all_targets.add(_normalize_text(alias))
 
-    # Phase 1: exact match (case-insensitive)
-    for i in range(count):
+    for attempt in range(1, MAX_RETRIES + 2):  # attempt 1, 2, 3
+        # ── Open dropdown ──
         try:
-            text = (await options.nth(i).inner_text()).strip()
-            if text.lower() == value.lower():
-                await options.nth(i).click()
-                _log(f"[OK] {label}: selected '{text}' (exact)")
-                await human_delay(0.2, 0.4)
-                return True
-        except Exception:
-            continue
+            await page.locator(btn).first.click(force=True)
+            await human_delay(0.3, 0.6)
+        except Exception as e:
+            try:
+                await page.locator(btn).first.evaluate("el => el.click()")
+                await human_delay(0.3, 0.6)
+            except Exception:
+                _log(f"[WARN] Failed to click combobox '{label}': {e}")
+                if attempt <= MAX_RETRIES:
+                    await human_delay(1, 2)
+                    continue
+                return False
 
-    # Phase 2: alias match (accent-normalized, case-insensitive)
-    for i in range(count):
+        # ── Wait for listbox with render delay ──
         try:
-            text = (await options.nth(i).inner_text()).strip()
-            normalized = _normalize_text(text)
-            if normalized in all_targets:
-                await options.nth(i).click()
-                _log(f"[OK] {label}: selected '{text}' (alias match)")
-                await human_delay(0.2, 0.4)
-                return True
+            await page.wait_for_selector('[role="listbox"]', timeout=4000)
         except Exception:
-            continue
+            _log(f"[WARN] Listbox for '{label}' did not appear (attempt {attempt})")
+            if attempt <= MAX_RETRIES:
+                await human_delay(1, 2)
+                continue
+            return False
 
-    # Phase 3: startswith match (any alias)
-    for i in range(count):
-        try:
-            text = (await options.nth(i).inner_text()).strip()
-            normalized = _normalize_text(text)
-            for target in all_targets:
-                if normalized.startswith(target) or target.startswith(normalized):
+        # Extra render delay — options may not be populated yet on slow connections
+        await human_delay(0.5, 1.0)
+
+        # ── Try keyboard search first (faster for long lists like 257 countries) ──
+        if len(value) >= 2:
+            try:
+                # Type first 2-3 chars to jump to the right section
+                search_chars = value[:min(3, len(value))]
+                for ch in search_chars:
+                    await page.keyboard.press(ch)
+                    await asyncio.sleep(random.uniform(0.08, 0.15))
+                await human_delay(0.3, 0.6)
+
+                # Check if the highlighted/focused option matches
+                focused = page.locator('[role="option"][aria-selected="true"], [role="option"]:focus, [role="option"].ms-Dropdown-item--selected')
+                if await focused.count() > 0:
+                    focused_text = (await focused.first.inner_text()).strip()
+                    focused_norm = _normalize_text(focused_text)
+                    if focused_norm in all_targets or focused_text.lower() == value.lower():
+                        await focused.first.click()
+                        _log(f"[OK] {label}: selected '{focused_text}' (keyboard search)")
+                        await human_delay(0.2, 0.4)
+                        return True
+            except Exception:
+                pass
+
+        options = page.locator('[role="listbox"] [role="option"]')
+        count = await options.count()
+
+        # Phase 1: exact match (case-insensitive)
+        for i in range(count):
+            try:
+                text = (await options.nth(i).inner_text()).strip()
+                if text.lower() == value.lower():
+                    try:
+                        await options.nth(i).scroll_into_view_if_needed(timeout=2000)
+                    except Exception:
+                        pass
                     await options.nth(i).click()
-                    _log(f"[OK] {label}: selected '{text}' (partial match)")
+                    _log(f"[OK] {label}: selected '{text}' (exact)")
                     await human_delay(0.2, 0.4)
                     return True
+            except Exception:
+                continue
+
+        # Phase 2: alias match (accent-normalized, case-insensitive)
+        for i in range(count):
+            try:
+                text = (await options.nth(i).inner_text()).strip()
+                normalized = _normalize_text(text)
+                if normalized in all_targets:
+                    try:
+                        await options.nth(i).scroll_into_view_if_needed(timeout=2000)
+                    except Exception:
+                        pass
+                    await options.nth(i).click()
+                    _log(f"[OK] {label}: selected '{text}' (alias match)")
+                    await human_delay(0.2, 0.4)
+                    return True
+            except Exception:
+                continue
+
+        # Phase 3: startswith match (any alias)
+        for i in range(count):
+            try:
+                text = (await options.nth(i).inner_text()).strip()
+                normalized = _normalize_text(text)
+                for target in all_targets:
+                    if normalized.startswith(target) or target.startswith(normalized):
+                        try:
+                            await options.nth(i).scroll_into_view_if_needed(timeout=2000)
+                        except Exception:
+                            pass
+                        await options.nth(i).click()
+                        _log(f"[OK] {label}: selected '{text}' (partial match)")
+                        await human_delay(0.2, 0.4)
+                        return True
+            except Exception:
+                continue
+
+        # Phase 4: numeric index fallback
+        try:
+            idx = int(value) - 1
+            if 0 <= idx < count:
+                text = (await options.nth(idx).inner_text()).strip()
+                await options.nth(idx).click()
+                _log(f"[OK] {label}: selected by index '{text}'")
+                await human_delay(0.2, 0.4)
+                return True
+        except (ValueError, Exception):
+            pass
+
+        # ── Not found — close dropdown and retry ──
+        _log(f"[WARN] '{value}' not found in '{label}' (attempt {attempt}/{MAX_RETRIES + 1}, {count} options)")
+        try:
+            await page.keyboard.press("Escape")
         except Exception:
+            pass
+
+        if attempt <= MAX_RETRIES:
+            await human_delay(1.0, 2.0)
+            # Click somewhere neutral to dismiss any stuck dropdown
+            try:
+                await page.mouse.click(400, 200)
+                await human_delay(0.5, 1.0)
+            except Exception:
+                pass
             continue
 
-    # Phase 4: numeric index fallback
-    try:
-        idx = int(value) - 1
-        if 0 <= idx < count:
-            text = (await options.nth(idx).inner_text()).strip()
-            await options.nth(idx).click()
-            _log(f"[OK] {label}: selected by index '{text}'")
-            await human_delay(0.2, 0.4)
-            return True
-    except (ValueError, Exception):
-        pass
-
-    _log(f"[WARN] Failed to select '{value}' in combobox '{label}' (found {count} options)")
-    try:
-        await page.keyboard.press("Escape")
-    except Exception:
-        pass
     return False
 
 
