@@ -387,23 +387,23 @@ export default function Settings() {
             {/* PROXY LIMITS */}
             <div style={{ marginBottom: 20 }}>
                 <div className="card-section-header"><span className="card-section-dot" style={{ background: '#F59E0B' }}></span> Proxy Limits</div>
-                <div className="card" style={{ padding: '20px 24px' }}>
-                    <div className="config-row-4">
+                <div className="card" style={{ padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between' }}>
                         {PROXY_PROVIDERS.map(p => (
-                            <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                                <ProviderLogo provider={p.id} size={32} />
-                                <span style={{ fontSize: '0.88em', fontWeight: 700, color: p.color, whiteSpace: 'nowrap' }}>{p.name}</span>
+                            <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                                <ProviderLogo provider={p.id} size={24} />
+                                <span style={{ fontSize: '0.78em', fontWeight: 700, color: p.color, whiteSpace: 'nowrap' }}>{p.name}</span>
                                 <input
                                     type="number"
                                     className="form-input"
                                     value={proxyLimits[p.id] ?? 3}
                                     onChange={e => setProxyLimits(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 0 }))}
                                     onBlur={e => saveProxyLimit(p.id, e.target.value)}
-                                    style={{ width: 56, textAlign: 'center', fontSize: '1em', padding: '6px 4px', fontWeight: 700 }}
+                                    style={{ width: 48, textAlign: 'center', fontSize: '0.95em', padding: '4px 2px', fontWeight: 700 }}
                                     min={0}
                                     max={20}
                                 />
-                                <span style={{ fontSize: '0.65em', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.5 }}>max uses</span>
+                                <span style={{ fontSize: '0.6em', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.5 }}>max uses</span>
                             </div>
                         ))}
                     </div>
