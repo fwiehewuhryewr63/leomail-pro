@@ -357,12 +357,110 @@ async def get_results():
     }
 
 
+# ─── Provider Login Configs ─────────────────────────────────────────────────
+# Each provider defines: login URL, selectors, inbox URL, error patterns
+PROVIDER_LOGIN_CONFIG = {
+    "gmail": {
+        "login_url": "https://accounts.google.com/signin/v2/identifier",
+        "email_selectors": ['input[type="email"]', '#identifierId', 'input[name="identifier"]'],
+        "email_next": ['#identifierNext button', '#identifierNext'],
+        "password_selectors": ['input[type="password"]', 'input[name="Passwd"]', 'input[name="password"]'],
+        "password_next": ['#passwordNext button', '#passwordNext'],
+        "inbox_url": "https://mail.google.com/mail/u/0/#inbox",
+        "inbox_indicators": ["mail.google.com", "myaccount.google.com"],
+        "fail_indicators": ["accounts.google.com/signin", "accounts.google.com/v3"],
+        "not_found": ["couldn't find", "couldn't find your google", "account not found"],
+        "wrong_password": ["wrong password", "incorrect password", "password is incorrect"],
+        "recovery_selectors": ['input#knowledge-preregistered-email-response',
+                               'input[name="knowledgeLoginHint"]', 'input[aria-label*="email"]'],
+    },
+    "yahoo": {
+        "login_url": "https://login.yahoo.com/",
+        "email_selectors": ['input[name="username"]', '#login-username', 'input[type="text"]'],
+        "email_next": ['button[name="signin"]', '#login-signin', 'button[type="submit"]'],
+        "password_selectors": ['input[name="password"]', '#login-passwd', 'input[type="password"]'],
+        "password_next": ['button[name="verifyPassword"]', '#login-signin', 'button[type="submit"]'],
+        "inbox_url": "https://mail.yahoo.com/d/folders/1",
+        "inbox_indicators": ["mail.yahoo.com"],
+        "fail_indicators": ["login.yahoo.com"],
+        "not_found": ["sorry, we don't recognize", "that username isn't right"],
+        "wrong_password": ["invalid password", "wrong password"],
+        "recovery_selectors": [],
+    },
+    "aol": {
+        "login_url": "https://login.aol.com/",
+        "email_selectors": ['input[name="username"]', '#login-username', 'input[type="text"]'],
+        "email_next": ['button[name="signin"]', '#login-signin', 'button[type="submit"]'],
+        "password_selectors": ['input[name="password"]', '#login-passwd', 'input[type="password"]'],
+        "password_next": ['button[name="verifyPassword"]', '#login-signin', 'button[type="submit"]'],
+        "inbox_url": "https://mail.aol.com/d/folders/1",
+        "inbox_indicators": ["mail.aol.com"],
+        "fail_indicators": ["login.aol.com"],
+        "not_found": ["sorry, we don't recognize", "that username isn't right"],
+        "wrong_password": ["invalid password", "wrong password"],
+        "recovery_selectors": [],
+    },
+    "outlook": {
+        "login_url": "https://login.live.com/",
+        "email_selectors": ['input[type="email"]', 'input[name="loginfmt"]'],
+        "email_next": ['input[type="submit"]', '#idSIButton9'],
+        "password_selectors": ['input[type="password"]', 'input[name="passwd"]'],
+        "password_next": ['input[type="submit"]', '#idSIButton9'],
+        "inbox_url": "https://outlook.live.com/mail/0/inbox",
+        "inbox_indicators": ["outlook.live.com/mail", "outlook.office.com"],
+        "fail_indicators": ["login.live.com", "signup.live.com"],
+        "not_found": ["that microsoft account doesn't exist", "no account found"],
+        "wrong_password": ["your account or password is incorrect", "password is incorrect"],
+        "recovery_selectors": [],
+    },
+    "hotmail": {  # Same as outlook
+        "login_url": "https://login.live.com/",
+        "email_selectors": ['input[type="email"]', 'input[name="loginfmt"]'],
+        "email_next": ['input[type="submit"]', '#idSIButton9'],
+        "password_selectors": ['input[type="password"]', 'input[name="passwd"]'],
+        "password_next": ['input[type="submit"]', '#idSIButton9'],
+        "inbox_url": "https://outlook.live.com/mail/0/inbox",
+        "inbox_indicators": ["outlook.live.com/mail", "outlook.office.com"],
+        "fail_indicators": ["login.live.com", "signup.live.com"],
+        "not_found": ["that microsoft account doesn't exist", "no account found"],
+        "wrong_password": ["your account or password is incorrect", "password is incorrect"],
+        "recovery_selectors": [],
+    },
+    "protonmail": {
+        "login_url": "https://account.proton.me/login",
+        "email_selectors": ['input[id="username"]', 'input[name="username"]', 'input[placeholder*="email"]'],
+        "email_next": [],  # Proton has email+password on same page
+        "password_selectors": ['input[id="password"]', 'input[name="password"]', 'input[type="password"]'],
+        "password_next": ['button[type="submit"]', 'button:has-text("Sign in")'],
+        "inbox_url": "https://mail.proton.me/u/0/inbox",
+        "inbox_indicators": ["mail.proton.me"],
+        "fail_indicators": ["account.proton.me/login"],
+        "not_found": [],
+        "wrong_password": ["incorrect login credentials", "wrong credentials"],
+        "recovery_selectors": [],
+    },
+    "webde": {
+        "login_url": "https://web.de/",
+        "email_selectors": ['input[name="username"]', '#freemailLoginUsername', 'input[id="freemailLoginUsername"]'],
+        "email_next": [],  # Web.de has email+password on same page
+        "password_selectors": ['input[name="password"]', '#freemailLoginPassword', 'input[id="freemailLoginPassword"]'],
+        "password_next": ['button[type="submit"]', 'button:has-text("Login")', '#login', 'button:has-text("Anmelden")'],
+        "inbox_url": "https://3c.web.de/mail/client",
+        "inbox_indicators": ["web.de/mail", "3c.web.de"],
+        "fail_indicators": ["web.de/registration"],
+        "not_found": [],
+        "wrong_password": ["falsches passwort", "incorrect password", "login fehlgeschlagen"],
+        "recovery_selectors": [],
+    },
+}
+
+
 # ─── Validation Worker Pool ─────────────────────────────────────────────────
 def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, task_id: int, farm_id: int):
     """
-    Run validation in a thread pool (called from executor).
-    Gmail uses browser login, other providers use IMAP.
-    Each thread gets its own BrowserManager (for Gmail) and proxy.
+    Run validation in a thread pool.
+    ALL providers use browser login — no IMAP.
+    Each thread gets its own BrowserManager + proxy.
     """
     import queue
     import time
@@ -371,23 +469,19 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
     for acc in accounts:
         q.put(acc)
 
-    # Check if we need browser (any Gmail accounts?)
-    has_gmail = any(a["provider"] == "gmail" for a in accounts)
-
     # Get proxies for browser validation
     proxy_list = []
-    if has_gmail:
-        try:
-            db_proxy = SessionLocal()
-            pm = ProxyManager(db_proxy)
-            proxy_list = pm.get_proxy_pool(threads, provider="gmail")
-            db_proxy.close()
-            if proxy_list:
-                logger.info(f"[Validator] Got {len(proxy_list)} proxies for browser validation")
-            else:
-                logger.warning("[Validator] No proxies available — Gmail validation will run without proxy")
-        except Exception as e:
-            logger.warning(f"[Validator] Proxy pool error: {e} — running without proxies")
+    try:
+        db_proxy = SessionLocal()
+        pm = ProxyManager(db_proxy)
+        proxy_list = pm.get_proxy_pool(threads)
+        db_proxy.close()
+        if proxy_list:
+            logger.info(f"[Validator] Got {len(proxy_list)} proxies for browser validation")
+        else:
+            logger.warning("[Validator] No proxies available — running without proxy")
+    except Exception as e:
+        logger.warning(f"[Validator] Proxy pool error: {e} — running without proxies")
 
     # Initialize thread logs
     _validator_state["thread_logs"] = [
@@ -396,7 +490,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
     ]
 
     def worker(thread_idx: int):
-        """Single validation thread with browser support."""
+        """Single validation thread — browser-only."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         db = SessionLocal()
@@ -433,26 +527,20 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                 error_msg = None
 
                 try:
-                    if provider == "gmail":
-                        # Browser-based validation for Gmail
-                        if not browser_manager:
-                            _validator_state["thread_logs"][thread_idx]["current_step"] = "Starting browser engine..."
-                            from ..modules.browser_manager import BrowserManager
-                            browser_manager = BrowserManager(headless=False)
-                            loop.run_until_complete(browser_manager.start())
-                            logger.info(f"[Validator] T-{thread_idx+1} Browser engine started")
+                    # Start browser if not running
+                    if not browser_manager:
+                        _validator_state["thread_logs"][thread_idx]["current_step"] = "Starting browser engine..."
+                        from ..modules.browser_manager import BrowserManager
+                        browser_manager = BrowserManager(headless=False)
+                        loop.run_until_complete(browser_manager.start())
+                        logger.info(f"[Validator] T-{thread_idx+1} Browser engine started")
 
-                        is_valid = loop.run_until_complete(
-                            _validate_gmail_browser(
-                                email, password, recovery, provider, thread_idx,
-                                save_session_flag, db, browser_manager, proxy, farm_id
-                            )
+                    is_valid = loop.run_until_complete(
+                        _validate_browser(
+                            email, password, recovery, provider, thread_idx,
+                            save_session_flag, db, browser_manager, proxy, farm_id
                         )
-                    else:
-                        # IMAP for other providers
-                        is_valid = loop.run_until_complete(
-                            _validate_imap(email, password, provider, thread_idx)
-                        )
+                    )
                 except Exception as e:
                     error_msg = str(e)[:200]
                     logger.error(f"[Validator] T-{thread_idx+1} Error validating {email}: {e}")
@@ -465,41 +553,6 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     with _state_lock:
                         _validator_state["valid"] += 1
                     status = "valid"
-
-                    # For IMAP-validated accounts (non-Gmail), save to DB here
-                    if provider != "gmail":
-                        try:
-                            existing = db.query(Account).filter(Account.email == email).first()
-                            if existing:
-                                existing.password = password
-                                existing.status = AccountStatus.NEW
-                                if recovery:
-                                    existing.recovery_email = recovery
-                            else:
-                                new_acc = Account(
-                                    email=email,
-                                    password=password,
-                                    recovery_email=recovery,
-                                    provider=provider,
-                                    status=AccountStatus.NEW,
-                                )
-                                db.add(new_acc)
-                            db.commit()
-
-                            # Add to farm
-                            acc_obj = db.query(Account).filter(Account.email == email).first()
-                            if acc_obj and farm_id:
-                                db.execute(
-                                    farm_accounts.insert().values(farm_id=farm_id, account_id=acc_obj.id)
-                                )
-                                try:
-                                    db.commit()
-                                except Exception:
-                                    db.rollback()
-
-                        except Exception as db_err:
-                            logger.error(f"[Validator] DB error for {email}: {db_err}")
-                            db.rollback()
                 else:
                     with _state_lock:
                         _validator_state["invalid"] += 1
@@ -536,7 +589,6 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
         except Exception as e:
             logger.error(f"[Validator] Worker {thread_idx} crashed: {e}", exc_info=True)
         finally:
-            # Shutdown browser
             if browser_manager:
                 try:
                     loop.run_until_complete(browser_manager.stop())
@@ -552,7 +604,6 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
         t.start()
         worker_threads.append(t)
 
-    # Wait for all threads to complete
     for t in worker_threads:
         t.join()
 
@@ -580,20 +631,27 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
     engine_manager.finish_engine(EngineType.VALIDATOR)
 
 
-# ─── Gmail Browser Validation ──────────────────────────────────────────────
-async def _validate_gmail_browser(
+# ─── Universal Browser Validation ──────────────────────────────────────────
+async def _validate_browser(
     email: str, password: str, recovery: str | None, provider: str,
     thread_idx: int, save_session_flag: bool, db, browser_manager, proxy, farm_id: int
 ) -> bool:
     """
-    Validate a Gmail account via browser login.
-    Flow: accounts.google.com/signin → email → password → handle challenges → verify inbox.
+    Validate ANY provider account via browser login.
+    Uses PROVIDER_LOGIN_CONFIG for per-provider selectors and URLs.
+    Flow: login page → email → password → handle challenges → verify inbox.
     On success: saves session, fingerprint, creates Account in DB, adds to farm.
     """
-    import time as _time
     from ..modules.screenshot import debug_screenshot
 
+    config = PROVIDER_LOGIN_CONFIG.get(provider)
+    if not config:
+        logger.warning(f"[Validator] T-{thread_idx+1} No browser config for provider: {provider}")
+        return False
+
     context = None
+    page = None
+    safe_email = email.split("@")[0][:20]
     _tlog = _validator_state["thread_logs"][thread_idx]
 
     try:
@@ -602,28 +660,19 @@ async def _validate_gmail_browser(
         context = await browser_manager.create_context(proxy=proxy)
         page = await context.new_page()
 
-        # ── Navigate to Google signin ──
-        _tlog["current_step"] = "Navigating to Google signin..."
-        await page.goto("https://accounts.google.com/signin/v2/identifier",
-                        wait_until="domcontentloaded", timeout=30000)
+        # ── Navigate to login page ──
+        _tlog["current_step"] = f"Opening {provider} login..."
+        await page.goto(config["login_url"], wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(random.uniform(2, 4))
-        await debug_screenshot(page, f"gmail_val_signin_{email.split('@')[0]}")
+        await debug_screenshot(page, f"val_{provider}_login_{safe_email}")
 
         # ── Enter email ──
-        _tlog["current_step"] = f"Entering email: {email[:20]}..."
-        email_input = None
-        for sel in ['input[type="email"]', '#identifierId', 'input[name="identifier"]']:
-            try:
-                el = page.locator(sel)
-                if await el.count() > 0 and await el.is_visible():
-                    email_input = el
-                    break
-            except Exception:
-                continue
+        _tlog["current_step"] = f"Entering email: {email[:25]}..."
+        email_input = await _find_element(page, config["email_selectors"])
 
         if not email_input:
-            await debug_screenshot(page, f"gmail_val_no_email_field_{email.split('@')[0]}")
-            logger.warning(f"[Validator] T-{thread_idx+1} No email field found for {email}")
+            await debug_screenshot(page, f"val_{provider}_no_email_{safe_email}")
+            logger.warning(f"[Validator] T-{thread_idx+1} No email field on {provider} for {email}")
             await context.close()
             return False
 
@@ -633,65 +682,37 @@ async def _validate_gmail_browser(
         await email_input.type(email, delay=random.randint(30, 80))
         await asyncio.sleep(random.uniform(1, 2))
 
-        # Click Next
-        next_clicked = False
-        for sel in ['#identifierNext button', '#identifierNext', 'button:has-text("Next")',
-                     'button:has-text("Далее")', 'button:has-text("Weiter")', 'button:has-text("Siguiente")']:
-            try:
-                btn = page.locator(sel)
-                if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    next_clicked = True
-                    break
-            except Exception:
-                continue
+        # ── Click Next (email) — skip for providers with combined form ──
+        if config["email_next"]:
+            await _click_any(page, config["email_next"])
+            await asyncio.sleep(random.uniform(3, 5))
+            await debug_screenshot(page, f"val_{provider}_after_email_{safe_email}")
 
-        if not next_clicked:
-            await page.keyboard.press("Enter")
-
-        await asyncio.sleep(random.uniform(3, 5))
-        await debug_screenshot(page, f"gmail_val_after_email_{email.split('@')[0]}")
-
-        # ── Check for "couldn't find your Google Account" error ──
-        try:
-            body_text = (await page.locator('body').inner_text(timeout=3000))[:2000].lower()
-        except Exception:
-            body_text = ""
-
-        not_found = ["couldn't find", "couldn't find", "не удалось найти", "konnte nicht gefunden",
-                     "no encontramos", "account not found", "couldn't find your google"]
-        if any(nf in body_text for nf in not_found):
-            _tlog["current_step"] = "Account not found"
-            logger.info(f"[Validator] T-{thread_idx+1} {email}: account not found")
-            await context.close()
-            return False
+            # Check: account not found?
+            body_text = await _get_page_text(page)
+            if any(nf in body_text for nf in config.get("not_found", [])):
+                _tlog["current_step"] = "Account not found"
+                logger.info(f"[Validator] T-{thread_idx+1} {email}: account not found on {provider}")
+                await context.close()
+                return False
 
         # ── Enter password ──
         _tlog["current_step"] = "Entering password..."
         pwd_input = None
         for attempt in range(3):
-            for sel in ['input[type="password"]', 'input[name="Passwd"]', 'input[name="password"]']:
-                try:
-                    el = page.locator(sel)
-                    if await el.count() > 0 and await el.is_visible():
-                        pwd_input = el
-                        break
-                except Exception:
-                    continue
+            pwd_input = await _find_element(page, config["password_selectors"])
             if pwd_input:
                 break
             await asyncio.sleep(2)
 
         if not pwd_input:
-            await debug_screenshot(page, f"gmail_val_no_pwd_{email.split('@')[0]}")
-            # Maybe blocked or different page
+            await debug_screenshot(page, f"val_{provider}_no_pwd_{safe_email}")
             current_url = page.url.lower()
-            if "challenge" in current_url or "signin/rejected" in current_url:
-                _tlog["current_step"] = "Blocked by Google"
-                logger.info(f"[Validator] T-{thread_idx+1} {email}: blocked by Google challenge")
+            if "challenge" in current_url or "rejected" in current_url or "blocked" in current_url:
+                _tlog["current_step"] = f"Blocked by {provider}"
             else:
                 _tlog["current_step"] = "No password field found"
-                logger.warning(f"[Validator] T-{thread_idx+1} {email}: no password field")
+            logger.warning(f"[Validator] T-{thread_idx+1} {email}: no password field on {provider}")
             await context.close()
             return False
 
@@ -701,36 +722,16 @@ async def _validate_gmail_browser(
         await pwd_input.type(password, delay=random.randint(30, 80))
         await asyncio.sleep(random.uniform(1, 2))
 
-        # Click Next
-        next_clicked = False
-        for sel in ['#passwordNext button', '#passwordNext', 'button:has-text("Next")',
-                     'button:has-text("Далее")', 'button:has-text("Weiter")', 'button:has-text("Siguiente")']:
-            try:
-                btn = page.locator(sel)
-                if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    next_clicked = True
-                    break
-            except Exception:
-                continue
-
-        if not next_clicked:
-            await page.keyboard.press("Enter")
-
+        # ── Click Next (password) ──
+        await _click_any(page, config["password_next"])
         await asyncio.sleep(random.uniform(4, 7))
-        await debug_screenshot(page, f"gmail_val_after_pwd_{email.split('@')[0]}")
+        await debug_screenshot(page, f"val_{provider}_after_pwd_{safe_email}")
 
-        # ── Check for wrong password ──
-        try:
-            body_text = (await page.locator('body').inner_text(timeout=3000))[:2000].lower()
-        except Exception:
-            body_text = ""
-
-        wrong_pwd = ["wrong password", "incorrect password", "неправильный пароль",
-                     "falsches passwort", "contraseña incorrecta", "password is incorrect"]
-        if any(wp in body_text for wp in wrong_pwd):
+        # ── Check: wrong password? ──
+        body_text = await _get_page_text(page)
+        if any(wp in body_text for wp in config.get("wrong_password", [])):
             _tlog["current_step"] = "Wrong password"
-            logger.info(f"[Validator] T-{thread_idx+1} {email}: wrong password")
+            logger.info(f"[Validator] T-{thread_idx+1} {email}: wrong password on {provider}")
             await context.close()
             return False
 
@@ -738,111 +739,92 @@ async def _validate_gmail_browser(
         current_url = page.url.lower()
         _tlog["current_step"] = "Handling challenges..."
 
-        # Give Google a moment to redirect
+        # Wait for redirect
         for _ in range(3):
             current_url = page.url.lower()
-            if "myaccount" in current_url or "mail.google" in current_url or "accounts.google.com/signin/v2" not in current_url:
+            # Check if already on inbox or account page
+            if any(ind in current_url for ind in config["inbox_indicators"]):
+                break
+            if not any(fi in current_url for fi in config["fail_indicators"]):
                 break
             await asyncio.sleep(2)
 
-        # Recovery email challenge
+        # Try recovery email if challenge detected
         if "challenge" in current_url or "verify" in current_url:
-            await debug_screenshot(page, f"gmail_val_challenge_{email.split('@')[0]}")
-
-            if recovery:
+            await debug_screenshot(page, f"val_{provider}_challenge_{safe_email}")
+            if recovery and config.get("recovery_selectors"):
                 _tlog["current_step"] = f"Entering recovery: {recovery[:15]}..."
-                # Try to enter recovery email
-                recovery_input = None
-                for sel in ['input[type="email"]', 'input#knowledge-preregistered-email-response',
-                            'input[name="knowledgeLoginHint"]', 'input[aria-label*="email"]']:
-                    try:
-                        el = page.locator(sel)
-                        if await el.count() > 0 and await el.is_visible():
-                            recovery_input = el
-                            break
-                    except Exception:
-                        continue
-
+                recovery_input = await _find_element(page, config["recovery_selectors"])
                 if recovery_input:
                     await recovery_input.click()
                     await asyncio.sleep(0.5)
                     await recovery_input.fill("")
                     await recovery_input.type(recovery, delay=random.randint(30, 70))
                     await asyncio.sleep(1)
-
-                    # Click Next
-                    for sel in ['button:has-text("Next")', 'button:has-text("Далее")',
-                                'button:has-text("Weiter")', '#next button']:
-                        try:
-                            btn = page.locator(sel)
-                            if await btn.count() > 0:
-                                await btn.click()
-                                break
-                        except Exception:
-                            continue
-
+                    await _click_any(page, ['button:has-text("Next")', 'button:has-text("Далее")',
+                                            'button:has-text("Weiter")', 'button[type="submit"]'])
                     await asyncio.sleep(random.uniform(4, 7))
-                    await debug_screenshot(page, f"gmail_val_after_recovery_{email.split('@')[0]}")
-                else:
-                    logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge but no recovery input found")
-            else:
-                logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge requires recovery but none provided")
+                    await debug_screenshot(page, f"val_{provider}_after_recovery_{safe_email}")
 
-        # ── Try to skip non-critical prompts ──
+        # ── Skip non-critical prompts (2FA setup, app promo, etc.) ──
         for _ in range(3):
-            try:
-                body_text = (await page.locator('body').inner_text(timeout=2000))[:2000].lower()
-            except Exception:
-                body_text = ""
-
-            skip_phrases = ["not now", "skip", "do this later", "remind me later",
-                           "не сейчас", "später", "ahora no"]
-            for phrase in skip_phrases:
+            skip_clicked = False
+            for phrase in ["not now", "skip", "do this later", "remind me later",
+                          "не сейчас", "später", "ahora no", "no thanks",
+                          "maybe later", "i'll do it later"]:
                 try:
                     skip_btn = page.locator(f'button:has-text("{phrase}")')
                     if await skip_btn.count() > 0 and await skip_btn.is_visible():
                         await skip_btn.click()
                         await asyncio.sleep(random.uniform(2, 4))
+                        skip_clicked = True
                         break
                 except Exception:
                     continue
-            else:
-                break  # No skip button found — move on
+            # Also try "No thanks" links / "Stay signed out" etc.
+            if not skip_clicked:
+                for sel in ['a:has-text("No thanks")', 'a:has-text("Skip")',
+                           '#declineButton', 'button:has-text("Stay signed out")']:
+                    try:
+                        el = page.locator(sel)
+                        if await el.count() > 0 and await el.is_visible():
+                            await el.click()
+                            await asyncio.sleep(2)
+                            skip_clicked = True
+                            break
+                    except Exception:
+                        continue
+            if not skip_clicked:
+                break
 
-        # ── Verify success — navigate to Gmail inbox ──
+        # ── Verify success — navigate to inbox ──
         _tlog["current_step"] = "Verifying inbox access..."
         try:
-            await page.goto("https://mail.google.com/mail/u/0/#inbox",
-                            wait_until="domcontentloaded", timeout=25000)
+            await page.goto(config["inbox_url"], wait_until="domcontentloaded", timeout=25000)
             await asyncio.sleep(random.uniform(4, 7))
         except Exception as e:
             logger.warning(f"[Validator] T-{thread_idx+1} {email}: inbox navigation error: {e}")
 
         final_url = page.url.lower()
-        await debug_screenshot(page, f"gmail_val_inbox_{email.split('@')[0]}")
+        await debug_screenshot(page, f"val_{provider}_inbox_{safe_email}")
 
-        # Check if we're on Gmail
-        gmail_success = (
-            "mail.google.com" in final_url
-            or "inbox" in final_url
-            or "myaccount.google.com" in final_url
-        )
+        # Check success
+        login_success = any(ind in final_url for ind in config["inbox_indicators"])
 
-        # If redirected back to signin — fail
-        if "accounts.google.com/signin" in final_url or "accounts.google.com/v3" in final_url:
-            gmail_success = False
+        # If redirected back to login — fail
+        if any(fi in final_url for fi in config.get("fail_indicators", [])):
+            login_success = False
 
-        if not gmail_success:
+        if not login_success:
             _tlog["current_step"] = f"Login failed — URL: {final_url[:60]}"
-            logger.info(f"[Validator] T-{thread_idx+1} {email}: login failed, URL: {final_url[:80]}")
+            logger.info(f"[Validator] T-{thread_idx+1} {email}: login failed on {provider}, URL: {final_url[:80]}")
             await context.close()
             return False
 
         # ── SUCCESS — Save account + session + fingerprint ──
         _tlog["current_step"] = "Login OK! Saving profile..."
-        logger.info(f"[Validator] T-{thread_idx+1} ✓ {email}: Gmail login successful!")
+        logger.info(f"[Validator] T-{thread_idx+1} ✓ {email}: {provider} login successful!")
 
-        # Create or update account in DB
         try:
             existing = db.query(Account).filter(Account.email == email).first()
             if existing:
@@ -867,7 +849,7 @@ async def _validate_gmail_browser(
                 db.commit()
                 db.refresh(account)
 
-            # Save session (cookies/localStorage)
+            # Save session
             if save_session_flag:
                 try:
                     account.browser_profile_path = await browser_manager.save_session(context, account.id)
@@ -894,7 +876,7 @@ async def _validate_gmail_browser(
                     )
                     db.commit()
                 except Exception:
-                    db.rollback()  # duplicate key is fine
+                    db.rollback()
 
         except Exception as db_err:
             logger.error(f"[Validator] DB error saving {email}: {db_err}")
@@ -904,10 +886,11 @@ async def _validate_gmail_browser(
         return True
 
     except Exception as e:
-        logger.error(f"[Validator] T-{thread_idx+1} Gmail browser error for {email}: {e}", exc_info=True)
+        logger.error(f"[Validator] T-{thread_idx+1} Browser error for {email} ({provider}): {e}", exc_info=True)
         if context:
             try:
-                await debug_screenshot(page, f"gmail_val_error_{email.split('@')[0]}")
+                if page:
+                    await debug_screenshot(page, f"val_{provider}_error_{safe_email}")
             except Exception:
                 pass
             try:
@@ -917,57 +900,41 @@ async def _validate_gmail_browser(
         return False
 
 
-# ─── IMAP Validation (non-Gmail providers) ──────────────────────────────────
-async def _validate_imap(email: str, password: str, provider: str, thread_idx: int) -> bool:
-    """Validate account via IMAP login. For Yahoo, AOL, Outlook, Hotmail, Web.de."""
-    import imaplib
-
-    _tlog = _validator_state["thread_logs"][thread_idx]
-    _tlog["current_step"] = f"Connecting to {provider} IMAP..."
-
-    IMAP_SERVERS = {
-        "gmail": "imap.gmail.com",
-        "yahoo": "imap.mail.yahoo.com",
-        "aol": "imap.aol.com",
-        "outlook": "imap-mail.outlook.com",
-        "hotmail": "imap-mail.outlook.com",
-        "protonmail": None,
-        "webde": "imap.web.de",
-    }
-
-    server = IMAP_SERVERS.get(provider)
-
-    if not server:
-        _tlog["current_step"] = "No IMAP support — saved as-is"
-        return True  # Accept protonmail without validation
-
-    try:
-        _tlog["current_step"] = f"IMAP login {server}..."
-        imap = imaplib.IMAP4_SSL(server, timeout=15)
+# ─── Helper Functions ───────────────────────────────────────────────────────
+async def _find_element(page, selectors: list):
+    """Try multiple selectors, return first visible element or None."""
+    for sel in selectors:
         try:
-            imap.login(email, password)
-            imap.logout()
-            _tlog["current_step"] = "Login OK ✓"
-            return True
-        except imaplib.IMAP4.error as e:
-            err = str(e)
-            if "AUTHENTICATIONFAILED" in err or "Invalid credentials" in err or "LOGIN failed" in err.upper():
-                _tlog["current_step"] = "Invalid credentials"
-                return False
-            elif "ALERT" in err:
-                _tlog["current_step"] = "Auth blocked (2FA/app password needed)"
-                return False
-            else:
-                _tlog["current_step"] = f"IMAP error: {err[:80]}"
-                return False
-        finally:
-            try:
-                imap.shutdown()
-            except Exception:
-                pass
+            el = page.locator(sel)
+            if await el.count() > 0 and await el.is_visible():
+                return el
+        except Exception:
+            continue
+    return None
 
-    except Exception as e:
-        err = str(e)[:100]
-        _tlog["current_step"] = f"Connection error: {err}"
-        logger.debug(f"[Validator] T-{thread_idx+1} IMAP error for {email}: {err}")
-        return False
+
+async def _click_any(page, selectors: list) -> bool:
+    """Try to click any of the given selectors. Returns True if clicked."""
+    for sel in selectors:
+        try:
+            el = page.locator(sel)
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                return True
+        except Exception:
+            continue
+    # Fallback: Enter key
+    try:
+        await page.keyboard.press("Enter")
+    except Exception:
+        pass
+    return False
+
+
+async def _get_page_text(page) -> str:
+    """Get page body text (lowercased), safely."""
+    try:
+        return (await page.locator('body').inner_text(timeout=3000))[:2000].lower()
+    except Exception:
+        return ""
+
