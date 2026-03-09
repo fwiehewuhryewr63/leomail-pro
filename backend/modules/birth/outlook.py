@@ -305,6 +305,76 @@ async def step_4_password(page, ctx: RegContext):
     await _human_delay(2, 4)
 
 
+# ── Locale-aware aliases for country/month combobox matching ──
+# MS Outlook shows names in the browser locale. These aliases let us match
+# regardless of language (English, Spanish, German, French, Portuguese, etc.)
+COUNTRY_ALIASES = {
+    "US": ["United States", "Estados Unidos", "États-Unis", "Vereinigte Staaten", "Stati Uniti", "USA", "US"],
+    "GB": ["United Kingdom", "Reino Unido", "Royaume-Uni", "Vereinigtes Königreich", "UK"],
+    "CA": ["Canada", "Canadá", "Kanada"],
+    "AU": ["Australia", "Australie", "Australien"],
+    "DE": ["Germany", "Deutschland", "Allemagne", "Alemania", "Germania"],
+    "FR": ["France", "Francia", "Frankreich", "França"],
+    "NL": ["Netherlands", "Países Bajos", "Pays-Bas", "Niederlande", "Paesi Bassi"],
+    "SE": ["Sweden", "Suecia", "Suède", "Schweden", "Svezia"],
+    "IE": ["Ireland", "Irlanda", "Irlande", "Irland"],
+    "NZ": ["New Zealand", "Nueva Zelanda", "Nouvelle-Zélande", "Neuseeland"],
+    "AT": ["Austria", "Österreich", "Autriche"],
+    "BR": ["Brazil", "Brasil", "Brésil", "Brasilien", "Brasile"],
+    "MX": ["Mexico", "México", "Mexique", "Mexiko", "Messico"],
+    "ES": ["Spain", "España", "Espagne", "Spanien", "Spagna"],
+    "PL": ["Poland", "Polonia", "Pologne", "Polen"],
+    "CZ": ["Czechia", "Czech Republic", "Chequia", "Tchéquie", "Tschechien", "Česko"],
+    "RO": ["Romania", "Rumanía", "Roumanie", "Rumänien"],
+    "TR": ["Turkey", "Turquía", "Turquie", "Türkei", "Türkiye"],
+    "IT": ["Italy", "Italia", "Italie", "Italien"],
+    "PT": ["Portugal"],
+    "AR": ["Argentina", "Argentine", "Argentinien"],
+    "CO": ["Colombia", "Colombie", "Kolumbien"],
+    "CL": ["Chile", "Chili"],
+    "PE": ["Peru", "Perú", "Pérou"],
+    "IN": ["India", "Inde", "Indien"],
+    "JP": ["Japan", "Japón", "Japon", "Giappone"],
+    "KR": ["South Korea", "Corea del Sur", "Corée du Sud", "Südkorea"],
+    "RU": ["Russia", "Rusia", "Russie", "Russland", "Россия"],
+    "UA": ["Ukraine", "Ucrania", "Украина"],
+    "IL": ["Israel", "Israël"],
+    "ZA": ["South Africa", "Sudáfrica", "Afrique du Sud", "Südafrika"],
+    "EG": ["Egypt", "Egipto", "Égypte", "Ägypten"],
+    "NG": ["Nigeria", "Nigéria"],
+    "KE": ["Kenya", "Kenia"],
+    "PH": ["Philippines", "Filipinas"],
+    "ID": ["Indonesia", "Indonésie", "Indonesien"],
+    "TH": ["Thailand", "Tailandia", "Thaïlande"],
+    "VN": ["Vietnam", "Viêt Nam"],
+    "MY": ["Malaysia", "Malasia", "Malaisie"],
+    "SG": ["Singapore", "Singapur", "Singapour"],
+    "HK": ["Hong Kong"],
+    "FI": ["Finland", "Finlandia", "Finlande", "Finnland"],
+    "DK": ["Denmark", "Dinamarca", "Danemark", "Dänemark"],
+    "NO": ["Norway", "Noruega", "Norvège", "Norwegen"],
+    "HU": ["Hungary", "Hungría", "Hongrie", "Ungarn"],
+    "GR": ["Greece", "Grecia", "Grèce", "Griechenland"],
+    "CN": ["China", "Chine"],
+    "TW": ["Taiwan", "Taiwán", "Taïwan"],
+}
+
+MONTH_ALIASES = {
+    1:  ["January", "Enero", "Janvier", "Januar", "Gennaio", "Janeiro", "Januari", "Styczeń", "Ocak", "Январь"],
+    2:  ["February", "Febrero", "Février", "Februar", "Febbraio", "Fevereiro", "Februari", "Luty", "Şubat", "Февраль"],
+    3:  ["March", "Marzo", "Mars", "März", "Março", "Maart", "Marzec", "Mart", "Март"],
+    4:  ["April", "Abril", "Avril", "Aprile", "Kwiecień", "Nisan", "Апрель"],
+    5:  ["May", "Mayo", "Mai", "Maggio", "Mei", "Maio", "Maj", "Mayıs", "Май"],
+    6:  ["June", "Junio", "Juin", "Juni", "Giugno", "Junho", "Czerwiec", "Haziran", "Июнь"],
+    7:  ["July", "Julio", "Juillet", "Juli", "Luglio", "Julho", "Lipiec", "Temmuz", "Июль"],
+    8:  ["August", "Agosto", "Août", "Augusti", "Sierpień", "Ağustos", "Август"],
+    9:  ["September", "Septiembre", "Septembre", "Settembre", "Setembro", "Wrzesień", "Eylül", "Сентябрь"],
+    10: ["October", "Octubre", "Octobre", "Oktober", "Ottobre", "Outubro", "Październik", "Ekim", "Октябрь"],
+    11: ["November", "Noviembre", "Novembre", "Novembro", "Listopad", "Kasım", "Ноябрь"],
+    12: ["December", "Diciembre", "Décembre", "Dezember", "Dicembre", "Dezembro", "Grudzień", "Aralık", "Декабрь"],
+}
+
+
 async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
     """Step 5: Enter birthday (country + month + day + year) using Fluent UI comboboxes."""
     ctx._log("Entering date of birth...")
