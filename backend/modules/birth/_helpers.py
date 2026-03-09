@@ -1703,6 +1703,7 @@ async def run_flow_machine(page, ctx: RegContext, steps: list,
                            cancel_event=None):
     """
     Execute a list of registration steps with:
+    - Human-speed delays (15-25s) between major steps
     - Auto-screenshot on ANY error (before re-raising)
     - Step timing logged to ctx.step_times
     - Cancel event checking between steps
@@ -1718,12 +1719,50 @@ async def run_flow_machine(page, ctx: RegContext, steps: list,
     Returns: True if all steps completed, None if cancelled.
     Raises: RegistrationError subclasses (with auto-screenshot).
     """
-    for step_name, step_fn, step_args in steps:
+    # Between-step delays: simulate a real human reading/thinking
+    # Shorter for initial steps, longer for form-filling steps
+    _STEP_DELAYS = {
+        "warmup":       (3, 6),      # Warm-up is internal, no page
+        "navigate":     (8, 15),     # Just opened signup, reading page
+        "email_mode":   (10, 18),    # Deciding on email provider
+        "enter_email":  (12, 20),    # Thinking about email address
+        "password":     (15, 25),    # Creating a strong password
+        "birthday":     (12, 20),    # Filling in personal details
+        "name":         (10, 18),    # Entering name
+        "captcha":      (3, 6),      # Captcha has its own waits
+        "post_prompts": (5, 10),     # Clicking through prompts
+        "verify":       (0, 0),      # Final step, no delay after
+    }
+
+    for i, (step_name, step_fn, step_args) in enumerate(steps):
         # Check cancel
         if cancel_event and cancel_event.is_set():
             if ctx._log:
                 ctx._log(f"[CANCEL] Aborted before {step_name}")
             return None
+
+        # Human-speed delay BEFORE each step (except the first)
+        if i > 0:
+            delay_range = _STEP_DELAYS.get(step_name, (15, 25))
+            if delay_range[1] > 0:
+                delay = random.uniform(delay_range[0], delay_range[1])
+                if ctx._log:
+                    ctx._log(f"[PAUSE] {delay:.0f}s before {step_name}...")
+                await asyncio.sleep(delay)
+                # Random human-like activity during pause
+                try:
+                    if delay > 5:
+                        # Occasionally scroll or move mouse
+                        if random.random() < 0.4:
+                            await page.mouse.wheel(0, random.randint(-80, 150))
+                        if random.random() < 0.3:
+                            vw = page.viewport_size or {"width": 1280, "height": 720}
+                            await page.mouse.move(
+                                random.randint(100, vw["width"] - 100),
+                                random.randint(100, vw["height"] - 100),
+                            )
+                except Exception:
+                    pass
 
         ctx.current_step = step_name
         start_time = time.time()

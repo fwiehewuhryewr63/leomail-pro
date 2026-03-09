@@ -306,100 +306,112 @@ async def step_4_password(page, ctx: RegContext):
 
 
 
+async def _index_based_combobox_select(page, button_selectors, index, label, _log, timeout=5000):
+    """Language-agnostic combobox selection by option INDEX (1-based).
+    Opens the dropdown, then clicks the Nth option regardless of text language.
+    Returns True if successful, False otherwise."""
+    from ._helpers import wait_for_any as _wfa, human_click as _hc, human_delay as _hd
+
+    btn_sel = await _wfa(page, button_selectors, timeout=timeout)
+    if not btn_sel:
+        _log(f"[{label}] Combobox button not found")
+        return False
+    try:
+        await _hc(page, btn_sel)
+        await _hd(0.5, 1.0)
+
+        # Wait for listbox to appear
+        listbox = None
+        for sel in ['div[role="listbox"]', 'ul[role="listbox"]', '[role="listbox"]']:
+            try:
+                lb = page.locator(sel).first
+                await lb.wait_for(state="visible", timeout=3000)
+                listbox = lb
+                break
+            except Exception:
+                continue
+
+        if not listbox:
+            _log(f"[{label}] Listbox not appeared after click")
+            await page.keyboard.press("Escape")
+            return False
+
+        # Select the Nth option (1-based index)
+        option = listbox.locator(f'[role="option"]:nth-child({index})')
+        if await option.count() == 0:
+            # Fallback: try generic child selector
+            option = listbox.locator(f'> *:nth-child({index})')
+        if await option.count() > 0:
+            await option.first.scroll_into_view_if_needed()
+            await _hd(0.2, 0.5)
+            await option.first.click()
+            _log(f"[{label}] Selected by index {index}")
+            await _hd(0.3, 0.8)
+            return True
+        else:
+            _log(f"[{label}] Option at index {index} not found")
+            await page.keyboard.press("Escape")
+            return False
+    except Exception as e:
+        _log(f"[{label}] Index select error: {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
+
 async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
 
-    """Step 5: Enter birthday (country + month + day + year) using Fluent UI comboboxes."""
+    """Step 5: Enter birthday (country + month + day + year).
+    LANGUAGE-AGNOSTIC: accepts pre-selected country, uses index-based month/day."""
     ctx._log("Entering date of birth...")
-    await _human_delay(1, 2)
+    await _human_delay(3, 6)
     await _step_screenshot(page, "before_birthday", ctx.username)
 
-    month_names = [
-        "", "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"
-    ]
-    month_name = month_names[birthday.month] if 1 <= birthday.month <= 12 else str(birthday.month)
-
-    # Country selection
-    from ...services.geo_resolver import build_geo_profile, resolve_proxy_geo
-    proxy_geo = resolve_proxy_geo(proxy) if proxy else None
-    geo_profile = build_geo_profile(proxy_geo) if proxy_geo else None
-
-    _MS_COUNTRY_NAMES = {
-        "US": "United States", "GB": "United Kingdom", "CA": "Canada",
-        "AU": "Australia", "DE": "Germany", "FR": "France",
-        "NL": "Netherlands", "SE": "Sweden", "IE": "Ireland",
-        "NZ": "New Zealand", "AT": "Austria", "BR": "Brazil",
-        "MX": "Mexico", "ES": "Spain", "PL": "Poland",
-        "CZ": "Czechia", "RO": "Romania", "TR": "Turkey",
-        "IT": "Italy", "PT": "Portugal", "AR": "Argentina",
-        "CO": "Colombia", "CL": "Chile", "PE": "Peru",
-        "IN": "India", "JP": "Japan", "KR": "South Korea",
-        "RU": "Russia", "UA": "Ukraine", "IL": "Israel",
-        "ZA": "South Africa", "EG": "Egypt", "NG": "Nigeria",
-        "KE": "Kenya", "PH": "Philippines", "ID": "Indonesia",
-        "TH": "Thailand", "VN": "Vietnam", "MY": "Malaysia",
-        "SG": "Singapore", "HK": "Hong Kong", "FI": "Finland",
-        "DK": "Denmark", "NO": "Norway", "HU": "Hungary",
-        "GR": "Greece", "CN": "China", "TW": "Taiwan",
-    }
-    geo_code = geo_profile["country"] if geo_profile else None
-    if geo_code and geo_code in _MS_COUNTRY_NAMES:
-        chosen_country = _MS_COUNTRY_NAMES[geo_code]
-    else:
-        country_pool = [
-            "United States", "United Kingdom", "Canada", "Australia",
-            "Germany", "France", "Netherlands", "Sweden",
-        ]
-        chosen_country = random.choice(country_pool)
-    # Get locale-aware aliases for this country
-    country_aliases = COUNTRY_ALIASES.get(geo_code, [chosen_country]) if geo_code else [chosen_country]
-    ctx._log(f"Selecting country: {chosen_country} (GEO: {proxy_geo or 'auto'})")
-
+    # ── Country: ACCEPT pre-selected (Outlook auto-selects from IP geo) ──
+    # Outlook automatically sets the country based on the proxy IP.
+    # Trying to change it requires text-matching in the page's locale (Bengali, Thai, etc.)
+    # which is impossible to cover for 200+ languages. Just accept what Outlook chose.
     _COUNTRY_SELECTORS = [
         '#countryDropdownId',
         'button[name="countryDropdownName"]',
-        'button[aria-label*="ountry"]',
-        'button[aria-label*="тран"]',
-        'button[aria-label*="aís"]',
-        'button[aria-label*="and"]',
         'button[role="combobox"]:first-of-type',
     ]
-    country_ok = await _fluent_combobox_select(page, _COUNTRY_SELECTORS,
-        chosen_country, "Country", ctx._log, timeout=5000, aliases=country_aliases)
-    if not country_ok:
-        # Fallback 1: native <select> element
-        old_country = await _wait_for_any(page, [
-            'select[id*="Country"]', 'select[name*="Country"]',
-        ], timeout=2000)
-        if old_country:
-            try:
-                await page.locator(old_country).first.select_option("US")
-                ctx._log("Country: selected via native select")
-                country_ok = True
-            except Exception:
-                pass
-        # Fallback 2: try "United States" (most universal option)
-        if not country_ok and chosen_country != "United States":
-            ctx._log(f"[WARN] Country '{chosen_country}' failed — trying 'United States' fallback")
-            country_ok = await _fluent_combobox_select(page, _COUNTRY_SELECTORS,
-                "United States", "Country", ctx._log, timeout=5000,
-                aliases=COUNTRY_ALIASES.get("US", ["United States", "USA"]))
-    await _human_delay(0.5, 1.0)
+    country_btn = await _wait_for_any(page, _COUNTRY_SELECTORS, timeout=5000)
+    if country_btn:
+        try:
+            btn_text = await page.locator(country_btn).first.inner_text()
+            ctx._log(f"Country: accepting pre-selected '{btn_text.strip()}'")
+        except Exception:
+            ctx._log("Country: accepting pre-selected (text unreadable)")
+    else:
+        ctx._log("Country: dropdown not found (page may not require it)")
+    await _human_delay(2, 4)
 
-    # Month — use locale-aware aliases
-    month_aliases = MONTH_ALIASES.get(birthday.month, [month_name])
+    # ── Month: INDEX-BASED selection (months always ordered Jan→Dec) ──
     _MONTH_SELECTORS = [
         '#BirthMonthDropdown',
         'button[name="BirthMonth"]',
         'button[aria-label*="irth month"]',
-        'button[aria-label*="есяц"]',
-        'button[aria-label*="es de"]',
         'button[aria-label*="onat"]',
+        'button[role="combobox"]:nth-of-type(2)',
     ]
-    month_ok = await _fluent_combobox_select(page, _MONTH_SELECTORS,
-        month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
+    month_ok = await _index_based_combobox_select(
+        page, _MONTH_SELECTORS, birthday.month, "Month", ctx._log, timeout=10000
+    )
     if not month_ok:
-        # Fallback 1: native <select> element
+        # Fallback: text-based matching with all aliases
+        month_names = [
+            "", "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+        month_name = month_names[birthday.month]
+        month_aliases = MONTH_ALIASES.get(birthday.month, [month_name])
+        month_ok = await _fluent_combobox_select(page, _MONTH_SELECTORS,
+            month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
+    if not month_ok:
+        # Fallback: native <select> element
         old_month = await _wait_for_any(page, [
             '#BirthMonth', 'select[name="BirthMonth"]',
         ], timeout=2000)
@@ -411,30 +423,37 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
             except Exception:
                 pass
     if not month_ok:
-        # Last resort: dismiss any stuck dropdown, wait, retry month once more
-        ctx._log("[WARN] Month selection failed — recovery attempt (dismiss + retry)")
+        ctx._log("[WARN] Month: all methods failed — dismissing and retrying once")
         try:
             await page.keyboard.press("Escape")
             await _human_delay(1, 2)
             await page.mouse.click(400, 300)
-            await _human_delay(1, 2)
+            await _human_delay(2, 3)
         except Exception:
             pass
-        month_ok = await _fluent_combobox_select(page, _MONTH_SELECTORS,
-            month_name, "Month", ctx._log, timeout=10000, aliases=month_aliases)
+        month_ok = await _index_based_combobox_select(
+            page, _MONTH_SELECTORS, birthday.month, "Month", ctx._log, timeout=10000
+        )
     if not month_ok:
         ctx._err(f"Failed to select month. URL: {page.url}")
         await _debug_screenshot(page, "outlook_birthday_error", ctx._log)
         raise RecoverableError("E104", f"Month field not found at {page.url}")
-    await _human_delay(0.3, 0.8)
+    await _human_delay(2, 4)
 
-    # Day
-    day_ok = await _fluent_combobox_select(page, [
+    # ── Day: INDEX-BASED selection (days always ordered 1→31) ──
+    _DAY_SELECTORS = [
         '#BirthDayDropdown',
         'button[name="BirthDay"]',
         'button[aria-label*="irth day"]',
-        'button[aria-label*="ень рожд"]',
-    ], str(birthday.day), "Day", ctx._log, timeout=5000)
+        'button[role="combobox"]:nth-of-type(3)',
+    ]
+    day_ok = await _index_based_combobox_select(
+        page, _DAY_SELECTORS, birthday.day, "Day", ctx._log, timeout=5000
+    )
+    if not day_ok:
+        # Fallback: text-based (day numbers are universal)
+        day_ok = await _fluent_combobox_select(page, _DAY_SELECTORS,
+            str(birthday.day), "Day", ctx._log, timeout=5000)
     if not day_ok:
         old_day = await _wait_for_any(page, [
             '#BirthDay', 'select[name="BirthDay"]',
@@ -445,24 +464,24 @@ async def step_5_birthday(page, ctx: RegContext, birthday, proxy):
                 ctx._log(f"Day: native select ({birthday.day})")
             except Exception:
                 pass
-    await _human_delay(0.3, 0.8)
+    await _human_delay(2, 4)
 
-    # Year
+    # ── Year: text input (universal — numbers work in any language) ──
     year_sel = await _wait_for_any(page, [
         'input[name="BirthYear"]', '#BirthYear',
         'input[aria-label*="irth year"]', 'input[aria-label*="од рожд"]',
-        'input[type="number"]',
+        'input[type="number"]', 'input[type="tel"]',
     ], timeout=5000)
     if year_sel:
         await _human_fill(page, year_sel, str(birthday.year))
         ctx._log(f"Year: {birthday.year}")
     else:
         ctx._log("[WARN] Year field not found")
-    await _human_delay(0.5, 1)
+    await _human_delay(2, 4)
 
     # Scroll + submit
     await page.mouse.wheel(0, random.randint(50, 150))
-    await _human_delay(0.8, 1.5)
+    await _human_delay(3, 5)
 
     next_btn = await _wait_for_any(page, _NEXT_SELECTORS, timeout=3000)
     if next_btn:
