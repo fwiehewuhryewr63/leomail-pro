@@ -27,6 +27,16 @@ from ..services.engine_manager import engine_manager, EngineType
 
 router = APIRouter(prefix="/api/validator", tags=["validator"])
 
+
+class ProxyError(Exception):
+    """Proxy connection failed — retryable. Distinct from invalid credentials."""
+    pass
+
+
+# Retry config for proxy hiccups (residential/mobile proxies recover in 30s-2min)
+MAX_PROXY_RETRIES = 3
+RETRY_DELAYS = [30, 60, 90]  # seconds between retries
+
 # ─── State ──────────────────────────────────────────────────────────────────
 VALIDATOR_CANCEL_EVENT = threading.Event()
 _state_lock = threading.Lock()  # protects _validator_state counters from race conditions
@@ -537,12 +547,42 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                         loop.run_until_complete(browser_manager.start())
                         logger.info(f"[Validator] T-{thread_idx+1} Browser engine started")
 
-                    is_valid = loop.run_until_complete(
-                        _validate_browser(
-                            email, password, recovery, provider, thread_idx,
-                            save_session_flag, db, browser_manager, proxy, farm_id
-                        )
-                    )
+                    # ── Retry loop for proxy hiccups ──
+                    for attempt in range(MAX_PROXY_RETRIES + 1):
+                        try:
+                            is_valid = loop.run_until_complete(
+                                _validate_browser(
+                                    email, password, recovery, provider, thread_idx,
+                                    save_session_flag, db, browser_manager, proxy, farm_id
+                                )
+                            )
+                            break  # Success or definitive invalid — exit retry loop
+                        except ProxyError as pe:
+                            if attempt < MAX_PROXY_RETRIES:
+                                delay = RETRY_DELAYS[attempt]
+                                logger.warning(
+                                    f"[Validator] T-{thread_idx+1} Proxy hiccup for {email}: {pe} — "
+                                    f"retry {attempt+1}/{MAX_PROXY_RETRIES} in {delay}s..."
+                                )
+                                _validator_state["thread_logs"][thread_idx]["current_step"] = (
+                                    f"⚠ Proxy hiccup, retry in {delay}s ({attempt+1}/{MAX_PROXY_RETRIES})..."
+                                )
+                                # Wait for proxy to recover
+                                time.sleep(delay)
+                                # Check cancel during wait
+                                if VALIDATOR_CANCEL_EVENT.is_set():
+                                    break
+                                # Recreate browser context (old context is dead after proxy fail)
+                                try:
+                                    loop.run_until_complete(browser_manager.stop())
+                                except Exception:
+                                    pass
+                                browser_manager = BrowserManager(headless=False)
+                                loop.run_until_complete(browser_manager.start())
+                                logger.info(f"[Validator] T-{thread_idx+1} Browser restarted for retry")
+                            else:
+                                error_msg = f"Proxy failed after {MAX_PROXY_RETRIES} retries: {pe}"
+                                logger.error(f"[Validator] T-{thread_idx+1} {error_msg}")
                 except Exception as e:
                     error_msg = str(e)[:200]
                     logger.error(f"[Validator] T-{thread_idx+1} Error validating {email}: {e}")
@@ -664,8 +704,21 @@ async def _validate_browser(
 
         # ── Navigate to login page ──
         _tlog["current_step"] = f"Opening {provider} login..."
-        await page.goto(config["login_url"], wait_until="domcontentloaded", timeout=30000)
+        try:
+            await page.goto(config["login_url"], wait_until="domcontentloaded", timeout=30000)
+        except Exception as nav_err:
+            err_str = str(nav_err).lower()
+            if any(x in err_str for x in ["timeout", "err_proxy", "err_tunnel",
+                                           "err_connection", "connection_closed",
+                                           "connection_refused", "net::err"]):
+                raise ProxyError(f"Navigation failed: {nav_err}")
+            raise  # Re-raise non-proxy errors as-is
         await asyncio.sleep(random.uniform(2, 4))
+
+        # ── Check for proxy failure (chrome-error page) ──
+        current_url = page.url or ""
+        if "chrome-error" in current_url or current_url == "about:blank":
+            raise ProxyError(f"Proxy navigation failed — got {current_url}")
 
         # ── Dismiss cookie consent banners (Yahoo, AOL, Web.de, Proton) ──
         for cookie_sel in [
@@ -941,7 +994,28 @@ async def _validate_browser(
         await context.close()
         return True
 
+    except ProxyError:
+        # Proxy error — re-raise so worker retry loop can handle it
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        raise  # Worker will catch ProxyError and retry
+
     except Exception as e:
+        err_str = str(e).lower()
+        # Check if this is actually a proxy error disguised as a generic exception
+        if any(x in err_str for x in ["err_proxy", "err_tunnel", "err_connection",
+                                       "connection_closed", "connection_refused",
+                                       "net::err", "chrome-error"]):
+            if context:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+            raise ProxyError(f"Proxy error during validation: {e}")
+
         logger.error(f"[Validator] T-{thread_idx+1} Browser error for {email} ({provider}): {e}", exc_info=True)
         if context:
             try:
