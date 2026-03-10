@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { I18nProvider } from './i18n/I18nContext';
 import { ToastProvider } from './components/Toast';
+import ErrorBoundary from './components/ErrorBoundary';
 import CommandPalette from './components/CommandPalette';
 import { API } from './api';
 import Sidebar from './components/Sidebar';
@@ -69,6 +70,7 @@ function App() {
           <div className="app-container" style={{ paddingTop: window.electronAPI?.isElectron ? 32 : 0 }}>
             <Sidebar status={status} updateAvailable={updateAvailable} />
             <main className="main-content">
+              <ErrorBoundary>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/birth" element={<Birth />} />
@@ -88,6 +90,7 @@ function App() {
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
+              </ErrorBoundary>
             </main>
             <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} />
           </div>
