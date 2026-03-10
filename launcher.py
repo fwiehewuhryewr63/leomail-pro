@@ -97,7 +97,15 @@ def find_free_port(start=8000, end=8100) -> int:
                 return port
         except OSError:
             continue
-    return start
+    # No free port found — fail visibly instead of silent fallback
+    show_error(
+        "Leomail — Port Conflict",
+        f"Could not find a free port in range {start}-{end}.\n\n"
+        "Another Leomail instance may already be running.\n"
+        "Close it and try again.\n\n"
+        "Leomail will now exit."
+    )
+    sys.exit(1)
 
 
 def start_backend(port: int):
@@ -207,14 +215,36 @@ def open_native_window(port: int):
 
 
 def main():
+    try:
+        _main_inner()
+    except SystemExit:
+        raise  # Allow clean sys.exit() calls
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        # Log to file if possible
+        log(f"[Leomail] FATAL UNHANDLED ERROR: {e}")
+        log(traceback.format_exc())
+        show_error(
+            "Leomail — Fatal Error",
+            f"Leomail encountered an unexpected error and cannot start.\n\n"
+            f"Error: {e}\n\n"
+            f"Check user_data/logs/launcher.log for details.\n\n"
+            f"Leomail will now exit."
+        )
+        sys.exit(1)
+
+
+def _main_inner():
     global _log_file
     root = get_app_root()
 
-    # Open log file
+    # Open log file (append mode to preserve previous crash evidence)
     try:
         log_dir = root / "user_data" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        _log_file = open(str(log_dir / "launcher.log"), "w", encoding="utf-8")
+        _log_file = open(str(log_dir / "launcher.log"), "a", encoding="utf-8")
+        _log_file.write(f"\n{'=' * 60}\n")
     except Exception:
         pass
 
