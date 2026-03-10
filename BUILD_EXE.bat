@@ -63,8 +63,12 @@ echo  ════════════════════════�
 echo.
 echo   EXE: dist\Leomail\Leomail.exe
 echo.
-echo   ZIP SHA-256 (paste into GitHub Release notes as "sha256: ..."):
+echo   EXE SHA-256:
 certutil -hashfile "dist\Leomail\Leomail.exe" SHA256 2>nul | findstr /v "hash CertUtil"
+echo.
+echo   NOTE: For GitHub Release, hash the ZIP (not EXE):
+echo     certutil -hashfile Leomail-vX.X.XX.zip SHA256
+echo   Then paste into release notes as: sha256: ^<hash^>
 echo.
 echo   Что в папке dist\Leomail\:
 echo     Leomail.exe      — основной файл
