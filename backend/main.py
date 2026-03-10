@@ -140,20 +140,26 @@ async def _startup():
 
     # Auto-migrate: add missing columns to existing tables
     from sqlalchemy import text, inspect
+    logger.info("DB migration pass starting...")
+    _migration_count = 0
     with db_engine.connect() as conn:
         inspector = inspect(db_engine)
 
         # proxies - missing columns
-        proxy_cols = [c["name"] for c in inspector.get_columns("proxies")]
-        proxy_migrations = {
-            "external_ip": "VARCHAR",
-            "use_count": "INTEGER DEFAULT 0",
-        }
-        for col, col_type in proxy_migrations.items():
-            if col not in proxy_cols:
-                conn.execute(text(f"ALTER TABLE proxies ADD COLUMN {col} {col_type}"))
-                conn.commit()
-                logger.info(f"Migrated: added {col} column to proxies")
+        try:
+            proxy_cols = [c["name"] for c in inspector.get_columns("proxies")]
+            proxy_migrations = {
+                "external_ip": "VARCHAR",
+                "use_count": "INTEGER DEFAULT 0",
+            }
+            for col, col_type in proxy_migrations.items():
+                if col not in proxy_cols:
+                    conn.execute(text(f"ALTER TABLE proxies ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    _migration_count += 1
+                    logger.info(f"Migrated: added {col} column to proxies")
+        except Exception:
+            pass  # table may not exist yet
 
         # templates - all potentially missing columns
         try:
@@ -325,7 +331,18 @@ async def _startup():
         if "cost_records" not in inspector.get_table_names():
             from .models import CostRecord  # noqa: F401
             Base.metadata.create_all(bind=db_engine, tables=[CostRecord.__table__])
+            _migration_count += 1
             logger.info("Migrated: created cost_records table")
+
+        # Schema version marker — track which version last ran migrations
+        try:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_meta (key VARCHAR PRIMARY KEY, value VARCHAR)"))
+            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.85"})
+            conn.commit()
+        except Exception:
+            pass
+
+    logger.info(f"DB migration pass complete ({_migration_count} change(s) applied)")
 
     # Initialize user_data directories
     init_directories()
