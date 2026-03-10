@@ -176,6 +176,7 @@ async def _startup():
                 if col not in tmpl_cols:
                     conn.execute(text(f"ALTER TABLE templates ADD COLUMN {col} {col_type}"))
                     conn.commit()
+                    _migration_count += 1
                     logger.info(f"Migrated: added {col} column to templates")
         except Exception:
             pass  # table may not exist yet
@@ -190,6 +191,7 @@ async def _startup():
                 if col not in task_cols:
                     conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {col_type}"))
                     conn.commit()
+                    _migration_count += 1
                     logger.info(f"Migrated: added {col} column to tasks")
         except Exception:
             pass
@@ -227,6 +229,7 @@ async def _startup():
                 if col not in proxy_cols2:
                     conn.execute(text(f"ALTER TABLE proxies ADD COLUMN {col} {col_type}"))
                     conn.commit()
+                    _migration_count += 1
                     logger.info(f"Migrated: added {col} column to proxies")
         except Exception:
             pass
@@ -254,6 +257,7 @@ async def _startup():
                 if col not in camp_cols:
                     conn.execute(text(f"ALTER TABLE campaigns ADD COLUMN {col} {col_type}"))
                     conn.commit()
+                    _migration_count += 1
                     logger.info(f"Migrated: added {col} column to campaigns")
         except Exception:
             pass
@@ -264,6 +268,7 @@ async def _startup():
             if "first_name" not in cr_cols:
                 conn.execute(text("ALTER TABLE campaign_recipients ADD COLUMN first_name VARCHAR"))
                 conn.commit()
+                _migration_count += 1
                 logger.info("Migrated: added first_name column to campaign_recipients")
         except Exception:
             pass
@@ -274,6 +279,7 @@ async def _startup():
             if "niche" not in lp_cols:
                 conn.execute(text("ALTER TABLE link_databases ADD COLUMN niche VARCHAR"))
                 conn.commit()
+                _migration_count += 1
                 logger.info("Migrated: added niche column to link_databases")
         except Exception:
             pass
@@ -284,6 +290,7 @@ async def _startup():
             if "with_name" not in rd_cols:
                 conn.execute(text("ALTER TABLE recipient_databases ADD COLUMN with_name BOOLEAN DEFAULT 0"))
                 conn.commit()
+                _migration_count += 1
                 logger.info("Migrated: added with_name column to recipient_databases")
         except Exception:
             pass
@@ -299,6 +306,7 @@ async def _startup():
                 if col not in acc_cols:
                     conn.execute(text(f"ALTER TABLE accounts ADD COLUMN {col} {col_type}"))
                     conn.commit()
+                    _migration_count += 1
                     logger.info(f"Migrated: added {col} column to accounts")
         except Exception:
             pass
@@ -313,6 +321,7 @@ async def _startup():
                 if col not in ms_cols:
                     conn.execute(text(f"ALTER TABLE mailing_stats ADD COLUMN {col} {col_type}"))
                     conn.commit()
+                    _migration_count += 1
                     logger.info(f"Migrated: added {col} column to mailing_stats")
         except Exception:
             pass
@@ -323,6 +332,7 @@ async def _startup():
             if "error_category" not in tl_cols:
                 conn.execute(text("ALTER TABLE thread_logs ADD COLUMN error_category VARCHAR"))
                 conn.commit()
+                _migration_count += 1
                 logger.info("Migrated: added error_category column to thread_logs")
         except Exception:
             pass
@@ -337,7 +347,7 @@ async def _startup():
         # Schema version marker — track which version last ran migrations
         try:
             conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_meta (key VARCHAR PRIMARY KEY, value VARCHAR)"))
-            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.85"})
+            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.86"})
             conn.commit()
         except Exception:
             pass
