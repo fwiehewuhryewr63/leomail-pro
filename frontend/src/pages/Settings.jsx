@@ -370,7 +370,15 @@ export default function Settings() {
                                     setUpdateApplying(true);
                                     setUpdateStatus('');
                                     // Start polling progress
+                                    let pollCount = 0;
+                                    const MAX_POLLS = 120; // 60 seconds at 500ms
                                     const pollId = setInterval(async () => {
+                                        if (++pollCount > MAX_POLLS) {
+                                            clearInterval(pollId);
+                                            setUpdateStatus('❌ Update timed out. Please restart the app.');
+                                            setUpdateApplying(false);
+                                            return;
+                                        }
                                         try {
                                             const r = await fetch(`${API}/update/progress`);
                                             const p = await r.json();

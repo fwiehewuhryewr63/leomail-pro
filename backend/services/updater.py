@@ -209,9 +209,13 @@ def download_update(download_url: str, expected_sha256: str = None) -> dict:
         if total > 0 and downloaded != total:
             logger.error(f"[Update] Size mismatch: got {downloaded} bytes, expected {total}")
             set_progress("error", 0, f"Download incomplete: {downloaded}/{total} bytes")
-            # Remove truncated/bad ZIP before returning
+            # Remove truncated/bad ZIP and staging dir before returning
             try:
                 zip_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                shutil.rmtree(str(update_tmp), ignore_errors=True)
             except Exception:
                 pass
             return {"success": False, "error": f"Download incomplete: got {downloaded} of {total} bytes"}
@@ -226,6 +230,10 @@ def download_update(download_url: str, expected_sha256: str = None) -> dict:
                 set_progress("error", 0, "SHA-256 verification failed")
                 try:
                     zip_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                try:
+                    shutil.rmtree(str(update_tmp), ignore_errors=True)
                 except Exception:
                     pass
                 return {"success": False, "error": "SHA-256 verification failed — download may be corrupted"}
@@ -351,9 +359,11 @@ def extract_and_prepare(zip_path: str) -> dict:
             '',
             'echo.',
             'echo Previous version has been restored.',
-            'echo If Leomail does not start, check _update_failed.log',
+            'echo Starting Leomail in 3 seconds...',
             'echo.',
-            'pause',
+            'timeout /t 3 /nobreak >nul',
+            'if exist "Leomail.exe" start "" "Leomail.exe"',
+            '(goto) 2>nul & del "%~f0"',
         ]
         bat_content = '\r\n'.join(bat_lines) + '\r\n'
         bat_path = root / "_updater.bat"
