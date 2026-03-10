@@ -567,10 +567,14 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                                 _validator_state["thread_logs"][thread_idx]["current_step"] = (
                                     f"⚠ Proxy hiccup, retry in {delay}s ({attempt+1}/{MAX_PROXY_RETRIES})..."
                                 )
-                                # Wait for proxy to recover
-                                time.sleep(delay)
-                                # Check cancel during wait
-                                if VALIDATOR_CANCEL_EVENT.is_set():
+                                # Wait for proxy to recover (check cancel every 1s for responsiveness)
+                                cancelled = False
+                                for _sec in range(delay):
+                                    if VALIDATOR_CANCEL_EVENT.is_set():
+                                        cancelled = True
+                                        break
+                                    time.sleep(1)
+                                if cancelled:
                                     break
                                 # Recreate browser context (old context is dead after proxy fail)
                                 try:
