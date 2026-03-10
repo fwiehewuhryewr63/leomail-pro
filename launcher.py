@@ -1,14 +1,16 @@
 """
-Leomail v4.1 — Native Desktop Launcher
+Leomail — Native Desktop Launcher
 Runs backend server + opens Chromium in --app mode for native window.
 """
 import os
 import sys
 import io
+import json
 import time
 import threading
 import socket
 import subprocess
+import shutil
 import traceback
 from pathlib import Path
 
@@ -45,6 +47,37 @@ def get_app_root() -> Path:
     return Path(__file__).parent
 
 
+def read_version() -> str:
+    """Read version from version.json (exe root → _MEIPASS → fallback)."""
+    candidates = []
+    if getattr(sys, 'frozen', False):
+        candidates.append(Path(sys.executable).parent / "version.json")
+        candidates.append(Path(sys._MEIPASS) / "version.json")
+    candidates.append(Path(__file__).parent / "version.json")
+    for vpath in candidates:
+        if vpath.exists():
+            try:
+                data = json.loads(vpath.read_text(encoding="utf-8"))
+                return data.get("version", "0.0.0")
+            except Exception:
+                continue
+    return "0.0.0"
+
+
+def ensure_version_at_root():
+    """Copy version.json from _MEIPASS to exe root if missing (for updater.py)."""
+    if not getattr(sys, 'frozen', False):
+        return
+    root_ver = Path(sys.executable).parent / "version.json"
+    meipass_ver = Path(sys._MEIPASS) / "version.json"
+    if not root_ver.exists() and meipass_ver.exists():
+        try:
+            shutil.copy2(str(meipass_ver), str(root_ver))
+            log(f"[Leomail] Copied version.json to app root")
+        except Exception as e:
+            log(f"[Leomail] Warning: could not copy version.json: {e}")
+
+
 def find_free_port(start=8000, end=8100) -> int:
     for port in range(start, end):
         try:
@@ -69,7 +102,7 @@ def start_backend(port: int):
         os.chdir(str(root))
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run("backend.main:app", host="127.0.0.1", port=port, log_level="info")
 
 
 def wait_for_backend(port: int, timeout: int = 30) -> bool:
@@ -115,16 +148,10 @@ def open_native_window(port: int):
     """Open Chromium/Chrome in --app mode (native window, no tabs)."""
     chrome_path = find_chromium()
     if not chrome_path:
-        log("[Leomail] ERROR: No Chromium/Chrome found! Opening in default browser...")
-        import webbrowser
-        webbrowser.open(f"http://127.0.0.1:{port}")
-        # Keep alive
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
-        return
+        log("[Leomail] FATAL: No Chromium/Chrome found!")
+        log("[Leomail] Install Playwright Chromium: python -m playwright install chromium")
+        log("[Leomail] Or install Google Chrome.")
+        sys.exit(1)
 
     log(f"[Leomail] Using: {chrome_path}")
 
@@ -143,6 +170,7 @@ def open_native_window(port: int):
         "--no-first-run",
         "--disable-infobars",
         "--disable-http-cache",
+        "--disable-background-networking",
         # ── Stability: prevent "Aw, Snap!" Error code 15 (GPU crash) ──
         "--disable-gpu",
         "--disable-software-rasterizer",
@@ -171,9 +199,13 @@ def main():
     except Exception:
         pass
 
+    # Ensure version.json is at app root for updater
+    ensure_version_at_root()
+
+    version = read_version()
     port = find_free_port()
 
-    log(f"[Leomail] v4.1 — Blitz Pipeline")
+    log(f"[Leomail] v{version}")
     log(f"[Leomail] Root: {root}")
     log(f"[Leomail] Port: {port}")
 
@@ -195,16 +227,9 @@ def main():
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        log(f"[Leomail] Window error: {e}")
+        log(f"[Leomail] FATAL: Window failed to open: {e}")
         log(traceback.format_exc())
-        # Fallback: open in default browser
-        import webbrowser
-        webbrowser.open(f"http://127.0.0.1:{port}")
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
+        sys.exit(1)
 
     os._exit(0)
 

@@ -56,9 +56,6 @@ if not exist "dist\Leomail\user_data\logs" mkdir "dist\Leomail\user_data\logs"
 if not exist "dist\Leomail\user_data\exports" mkdir "dist\Leomail\user_data\exports"
 copy /y "%ROOT%version.json" "dist\Leomail\version.json" >nul 2>&1
 
-:: Copy UPDATE.bat for in-place updates
-copy /y "%ROOT%UPDATE.bat" "dist\Leomail\UPDATE.bat" >nul 2>&1
-
 echo.
 echo  ════════════════════════════════════════
 echo   BUILD COMPLETE!
@@ -72,7 +69,6 @@ echo     backend\          — серверная логика
 echo     frontend\dist\    — UI
 echo     user_data\        — данные (БД, сессии)
 echo     version.json      — версия
-echo     UPDATE.bat        — обновление
 echo.
 echo   Для деплоя на VPS:
 echo     1. Скопируйте папку dist\Leomail\ на VPS
