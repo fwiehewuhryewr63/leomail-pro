@@ -41,6 +41,17 @@ def log(msg: str):
         pass
 
 
+def show_error(title: str, message: str):
+    """Show a visible Windows error dialog. Works in PyInstaller windowed mode."""
+    log(f"[Leomail] ERROR DIALOG: {title} — {message}")
+    try:
+        import ctypes
+        # MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+        ctypes.windll.user32.MessageBoxW(0, message, title, 0x10 | 0x10000)
+    except Exception:
+        pass  # If MessageBox fails too, at least we logged it
+
+
 def get_app_root() -> Path:
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).parent
@@ -151,6 +162,14 @@ def open_native_window(port: int):
         log("[Leomail] FATAL: No Chromium/Chrome found!")
         log("[Leomail] Install Playwright Chromium: python -m playwright install chromium")
         log("[Leomail] Or install Google Chrome.")
+        show_error(
+            "Leomail — Browser Not Found",
+            "Chromium or Google Chrome is required but was not found.\n\n"
+            "Please install one of the following:\n"
+            "• Playwright Chromium (run: playwright install chromium)\n"
+            "• Google Chrome\n\n"
+            "Leomail will now exit."
+        )
         sys.exit(1)
 
     log(f"[Leomail] Using: {chrome_path}")
@@ -217,6 +236,12 @@ def main():
     log("[Leomail] Starting backend...")
     if not wait_for_backend(port, timeout=30):
         log("[Leomail] ERROR: Backend failed to start!")
+        show_error(
+            "Leomail — Startup Failed",
+            "The backend server failed to start within 30 seconds.\n\n"
+            "Check user_data/logs/launcher.log for details.\n\n"
+            "Leomail will now exit."
+        )
         sys.exit(1)
 
     log(f"[Leomail] Backend ready on :{port}")
@@ -229,6 +254,13 @@ def main():
     except Exception as e:
         log(f"[Leomail] FATAL: Window failed to open: {e}")
         log(traceback.format_exc())
+        show_error(
+            "Leomail — Window Error",
+            f"Failed to open the application window.\n\n"
+            f"Error: {e}\n\n"
+            f"Check user_data/logs/launcher.log for details.\n\n"
+            f"Leomail will now exit."
+        )
         sys.exit(1)
 
     os._exit(0)
