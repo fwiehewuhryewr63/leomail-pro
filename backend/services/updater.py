@@ -210,6 +210,7 @@ def extract_and_prepare(zip_path: str) -> dict:
     """
     Extract downloaded ZIP and prepare updater.bat.
     ZIP should contain Leomail/ folder with Leomail.exe + _internal/.
+    Uses rollback-safe atomic swap pattern.
     """
     set_progress("extracting", 80, "Extracting update...")
     root = get_app_root()
@@ -238,66 +239,91 @@ def extract_and_prepare(zip_path: str) -> dict:
 
         logger.info(f"[Update] Found update in: {exe_found}")
 
-        # Generate updater.bat
-        # Uses relative paths from EXE directory
+        # Generate updater.bat with rollback-safe atomic swap
         exe_rel = exe_found.relative_to(root) if exe_found.is_relative_to(root) else exe_found
-        bat_content = f"""@echo off
-chcp 65001 >nul
-echo ==========================================
-echo   Leomail Auto-Updater
-echo ==========================================
-echo.
-echo Waiting for Leomail.exe to close...
-
-:wait_loop
-tasklist /FI "IMAGENAME eq Leomail.exe" 2>nul | find /i "Leomail.exe" >nul
-if %errorlevel%==0 (
-    timeout /t 1 /nobreak >nul
-    goto wait_loop
-)
-
-echo Leomail.exe closed. Applying update...
-
-:: Backup current EXE (just in case)
-if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"
-if exist "Leomail.exe" rename "Leomail.exe" "Leomail.exe.bak"
-
-:: Remove old _internal
-if exist "_internal" rmdir /s /q "_internal"
-
-:: Copy new files
-echo Copying new _internal...
-xcopy /e /y /q "{exe_rel}\\_internal" "_internal\\" >nul
-echo Copying new Leomail.exe...
-copy /y "{exe_rel}\\Leomail.exe" "Leomail.exe" >nul
-
-:: Copy version.json if exists
-if exist "{exe_rel}\\version.json" copy /y "{exe_rel}\\version.json" "version.json" >nul
-
-:: Cleanup
-echo Cleaning up...
-if exist "_update_tmp" rmdir /s /q "_update_tmp"
-if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"
-
-:: Clear webview cache to prevent stale frontend
-echo Clearing browser cache...
-if exist "%APPDATA%\leomail\Cache" rmdir /s /q "%APPDATA%\leomail\Cache"
-if exist "%APPDATA%\leomail\Code Cache" rmdir /s /q "%APPDATA%\leomail\Code Cache"
-if exist "%APPDATA%\Leomail\Cache" rmdir /s /q "%APPDATA%\Leomail\Cache"
-if exist "%APPDATA%\Leomail\Code Cache" rmdir /s /q "%APPDATA%\Leomail\Code Cache"
-
-echo.
-echo ==========================================
-echo   Update complete! Starting Leomail...
-echo ==========================================
-timeout /t 2 /nobreak >nul
-
-:: Start new version
-start "" "Leomail.exe"
-
-:: Self-delete this bat
-(goto) 2>nul & del "%~f0"
-"""
+        src = str(exe_rel)
+        bat_lines = [
+            '@echo off',
+            'chcp 65001 >nul',
+            'echo ==========================================',
+            'echo   Leomail Auto-Updater',
+            'echo ==========================================',
+            'echo.',
+            'echo Waiting for Leomail.exe to close...',
+            '',
+            ':wait_loop',
+            'tasklist /FI "IMAGENAME eq Leomail.exe" 2>nul | find /i "Leomail.exe" >nul',
+            'if %errorlevel%==0 (',
+            '    timeout /t 1 /nobreak >nul',
+            '    goto wait_loop',
+            ')',
+            '',
+            'echo Leomail.exe closed. Applying update...',
+            '',
+            ':: Phase 1: Rename current runtime aside (recoverable)',
+            'echo [1/4] Backing up current version...',
+            'if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"',
+            'if exist "_internal.old" rmdir /s /q "_internal.old"',
+            'if exist "Leomail.exe" rename "Leomail.exe" "Leomail.exe.bak"',
+            'if exist "_internal" rename "_internal" "_internal.old"',
+            '',
+            ':: Phase 2: Copy new files (with error checking)',
+            'echo [2/4] Installing new version...',
+            f'xcopy /e /y /q "{src}\\_internal" "_internal\\" >nul',
+            'if errorlevel 1 goto :rollback',
+            f'copy /y "{src}\\Leomail.exe" "Leomail.exe" >nul',
+            'if errorlevel 1 goto :rollback',
+            f'if exist "{src}\\version.json" copy /y "{src}\\version.json" "version.json" >nul',
+            '',
+            ':: Phase 3: Verify new files exist',
+            'echo [3/4] Verifying update...',
+            'if not exist "Leomail.exe" goto :rollback',
+            'if not exist "_internal" goto :rollback',
+            '',
+            ':: Phase 4: Success - cleanup old files',
+            'echo [4/4] Cleaning up...',
+            'if exist "_internal.old" rmdir /s /q "_internal.old"',
+            'if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"',
+            'if exist "_update_tmp" rmdir /s /q "_update_tmp"',
+            '',
+            ':: Clear Chromium UI cache (correct path)',
+            'if exist "user_data\\chromium_profile\\Cache" rmdir /s /q "user_data\\chromium_profile\\Cache"',
+            'if exist "user_data\\chromium_profile\\Code Cache" rmdir /s /q "user_data\\chromium_profile\\Code Cache"',
+            '',
+            'echo.',
+            'echo ==========================================',
+            'echo   Update complete! Starting Leomail...',
+            'echo ==========================================',
+            'timeout /t 2 /nobreak >nul',
+            'start "" "Leomail.exe"',
+            '(goto) 2>nul & del "%~f0"',
+            '',
+            ':: Rollback: restore previous version on failure',
+            ':rollback',
+            'echo.',
+            'echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+            'echo   UPDATE FAILED - Rolling back...',
+            'echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+            '',
+            'if not exist "Leomail.exe" (',
+            '    if exist "Leomail.exe.bak" rename "Leomail.exe.bak" "Leomail.exe"',
+            ')',
+            'if not exist "_internal" (',
+            '    if exist "_internal.old" rename "_internal.old" "_internal"',
+            ') else (',
+            '    echo [WARN] _internal exists but update failed. _internal.old kept for recovery.',
+            ')',
+            '',
+            'echo Update failed at %date% %time% > "_update_failed.log"',
+            'echo Previous version preserved. Recovery from .bak/.old files. >> "_update_failed.log"',
+            '',
+            'echo.',
+            'echo Previous version has been restored.',
+            'echo If Leomail does not start, check _update_failed.log',
+            'echo.',
+            'pause',
+        ]
+        bat_content = '\r\n'.join(bat_lines) + '\r\n'
         bat_path = root / "_updater.bat"
         bat_path.write_text(bat_content, encoding="utf-8")
         logger.info(f"[Update] Updater script ready: {bat_path}")
@@ -351,4 +377,3 @@ def cleanup_old_backups(keep_count: int = 3):
             logger.info(f"Cleaned up old backup: {old_backup.name}")
         except Exception:
             pass
-
