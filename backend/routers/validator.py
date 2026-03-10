@@ -703,7 +703,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
         task = db.query(Task).get(task_id)
         if task and task.status == TaskStatus.RUNNING:
             task.status = TaskStatus.COMPLETED
-            task.completed_items = _validator_state["valid"] + _validator_state["invalid"]
+            task.completed_items = _validator_state["valid"] + _validator_state["invalid"] + _validator_state["challenge"] + _validator_state["skipped"]
             task.completed_at = datetime.utcnow()
             db.commit()
     except Exception:
@@ -713,7 +713,9 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
 
     logger.info(
         f"[Validator] Done: {_validator_state['valid']} valid, "
-        f"{_validator_state['invalid']} invalid out of {len(accounts)}"
+        f"{_validator_state['invalid']} invalid, "
+        f"{_validator_state['challenge']} challenge, "
+        f"{_validator_state['skipped']} skipped out of {len(accounts)}"
     )
     engine_manager.finish_engine(EngineType.VALIDATOR)
 
@@ -888,6 +890,14 @@ async def _validate_browser(
                                             'button:has-text("Weiter")', 'button[type="submit"]'])
                     await asyncio.sleep(random.uniform(4, 7))
                     await debug_screenshot(page, f"val_{provider}_after_recovery_{safe_email}")
+                    # ── Post-recovery challenge re-check ──
+                    # Google may show a SECOND verification step even after recovery email
+                    post_recovery_url = page.url.lower()
+                    if "challenge" in post_recovery_url or "verify" in post_recovery_url:
+                        _tlog["current_step"] = "⚠ Challenge persists after recovery"
+                        logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge persists after recovery on {provider}")
+                        await context.close()
+                        return "challenge"
                 else:
                     # Recovery selectors didn't match — challenge we can't handle
                     _tlog["current_step"] = "⚠ Challenge — recovery input not found"
