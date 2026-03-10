@@ -411,6 +411,8 @@ export default function Settings() {
                                     } catch {
                                         clearInterval(pollId);
                                         setUpdateStatus('🔄 App is restarting...');
+                                        // If app doesn't actually restart within 15s, recover UI
+                                        setTimeout(() => { setUpdateApplying(false); }, 15000);
                                     }
                                 }} disabled={updateApplying}
                                     style={{ borderRadius: 20, padding: '8px 20px', fontSize: '0.85em', fontWeight: 700 }}>
