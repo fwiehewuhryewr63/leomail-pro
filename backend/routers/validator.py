@@ -664,6 +664,26 @@ async def _validate_browser(
         _tlog["current_step"] = f"Opening {provider} login..."
         await page.goto(config["login_url"], wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(random.uniform(2, 4))
+
+        # ── Dismiss cookie consent banners (Yahoo, AOL, Web.de, Proton) ──
+        for cookie_sel in [
+            'button:has-text("Accept all")', 'button:has-text("Alle akzeptieren")',
+            'button:has-text("Accept All")', 'button:has-text("Agree")',
+            'button:has-text("Tout accepter")', 'button:has-text("Aceptar todo")',
+            'button[name="agree"]', 'button.accept-all',
+            '#consent-page button.accept-all',
+            'button:has-text("I agree")', 'button:has-text("OK")',
+            'button:has-text("Einwilligen")', 'button:has-text("Zustimmen")',
+        ]:
+            try:
+                el = page.locator(cookie_sel)
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await asyncio.sleep(random.uniform(1, 2))
+                    break
+            except Exception:
+                continue
+
         await debug_screenshot(page, f"val_{provider}_login_{safe_email}")
 
         # ── Enter email ──
@@ -766,12 +786,30 @@ async def _validate_browser(
                     await asyncio.sleep(random.uniform(4, 7))
                     await debug_screenshot(page, f"val_{provider}_after_recovery_{safe_email}")
 
-        # ── Skip non-critical prompts (2FA setup, app promo, etc.) ──
-        for _ in range(3):
+        # ── Skip non-critical prompts (2FA, passkey, app promo, "Stay signed in?", etc.) ──
+        for _ in range(5):
             skip_clicked = False
-            for phrase in ["not now", "skip", "do this later", "remind me later",
-                          "не сейчас", "später", "ahora no", "no thanks",
-                          "maybe later", "i'll do it later"]:
+            # Button text matches (case-insensitive via has-text)
+            skip_phrases = [
+                # Generic
+                "not now", "skip", "do this later", "remind me later",
+                "no thanks", "maybe later", "i'll do it later", "cancel",
+                # Microsoft: "Stay signed in?" → "No" or "Yes"
+                "No", "Yes",
+                # Microsoft: passkey/authenticator prompts
+                "skip for now", "i want to use a different method",
+                "use a different method", "use password instead",
+                "other way to sign in", "try another way",
+                # Russian
+                "не сейчас", "пропустить",
+                # German
+                "später", "jetzt nicht", "überspringen",
+                # Spanish
+                "ahora no", "omitir",
+                # French
+                "pas maintenant", "ignorer",
+            ]
+            for phrase in skip_phrases:
                 try:
                     skip_btn = page.locator(f'button:has-text("{phrase}")')
                     if await skip_btn.count() > 0 and await skip_btn.is_visible():
@@ -781,10 +819,19 @@ async def _validate_browser(
                         break
                 except Exception:
                     continue
-            # Also try "No thanks" links / "Stay signed out" etc.
+            # Also try links and specific IDs
             if not skip_clicked:
-                for sel in ['a:has-text("No thanks")', 'a:has-text("Skip")',
-                           '#declineButton', 'button:has-text("Stay signed out")']:
+                for sel in [
+                    'a:has-text("No thanks")', 'a:has-text("Skip")',
+                    'a:has-text("Cancel")', 'a:has-text("No, thanks")',
+                    '#declineButton', '#iCancel', '#iShowSkip',
+                    'button:has-text("Stay signed out")',
+                    # MS "Don't show this again" checkbox
+                    'input[name="DontShowAgain"]',
+                    # MS "Other ways to sign in" link to bypass passkey
+                    'a:has-text("Other ways to sign in")',
+                    'a:has-text("Sign in with password")',
+                ]:
                     try:
                         el = page.locator(sel)
                         if await el.count() > 0 and await el.is_visible():
