@@ -881,17 +881,14 @@ async def _validate_browser(
                 for sel in [
                     'a:has-text("No thanks")', 'a:has-text("Skip")',
                     'a:has-text("Cancel")', 'a:has-text("No, thanks")',
+                    # MS decline/skip buttons (NEVER accept — skip prompts must always refuse)
                     '#declineButton', '#iCancel', '#iShowSkip',
                     'button:has-text("Stay signed out")',
-                    # MS "Stay signed in?" — EXACT match only (has-text would match 'November' etc.)
-                    '#acceptButton',  # MS "Yes" button ID
-                    '#declineButton',  # MS "No" button ID
-                    'button:text-is("Yes")',  # Playwright exact text match
-                    'button:text-is("No")',   # Playwright exact text match
-                    'button:text-is("Да")',   # Russian exact
-                    'button:text-is("Нет")',  # Russian exact
-                    'button:text-is("Ja")',   # German exact
-                    'button:text-is("Nein")', # German exact
+                    # Exact text match for "No" in various languages (safe: always declines)
+                    'button:text-is("No")',    # English exact
+                    'button:text-is("Нет")',   # Russian exact
+                    'button:text-is("Nein")',  # German exact
+                    'button:text-is("Non")',   # French exact
                     # MS "Don't show this again" checkbox
                     'input[name="DontShowAgain"]',
                     # MS "Other ways to sign in" link to bypass passkey
