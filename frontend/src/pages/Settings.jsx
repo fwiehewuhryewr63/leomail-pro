@@ -375,7 +375,7 @@ export default function Settings() {
                                             const r = await fetch(`${API}/update/progress`);
                                             const p = await r.json();
                                             if (p.active) {
-                                                const labels = { checking: '🔍 Checking...', backing_up: '💾 Backing up...', downloading: '⬇️ Downloading...', extracting: '📦 Extracting...', applying: '🚀 Applying...', error: '❌ Error' };
+                                                const labels = { checking: '🔍 Checking...', backing_up: '💾 Backing up...', downloading: '⬇️ Downloading...', extracting: '📦 Extracting...', verifying: '🔒 Verifying integrity...', applying: '🚀 Applying...', done: '✅ Complete', error: '❌ Error' };
                                                 setUpdateStatus(`${labels[p.step] || p.step}  ${p.detail || ''}`);
                                                 setUpdateProgress(p);
                                             }
@@ -392,7 +392,12 @@ export default function Settings() {
                                         if (d.success) {
                                             setUpdateStatus('✅ Update downloaded! App is restarting...');
                                         } else {
-                                            setUpdateStatus(`❌ ${(d.errors || []).join(', ')}`);
+                                            const rawErr = (d.errors || []).join(', ');
+                                            const friendly = rawErr.includes('SHA-256') ? 'Update file failed integrity check. Please try again.'
+                                                : rawErr.includes('Download incomplete') ? 'Download was interrupted. Please try again.'
+                                                : rawErr.includes('not found in ZIP') ? 'Update package is invalid. Contact support.'
+                                                : rawErr || 'Update failed. Please try again.';
+                                            setUpdateStatus(`❌ ${friendly}`);
                                             setUpdateApplying(false);
                                         }
                                     } catch {
@@ -406,7 +411,7 @@ export default function Settings() {
                             </div>
                             {updateInfo.release_notes && (
                                 <pre style={{ fontSize: '0.78em', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.5, maxHeight: 120, overflow: 'auto' }}>
-                                    {updateInfo.release_notes}
+                                    {updateInfo.release_notes.replace(/sha256:\s*[a-fA-F0-9]{64}/g, '').trim()}
                                 </pre>
                             )}
                         </div>
@@ -433,7 +438,7 @@ export default function Settings() {
                     )}
 
                     {/* Status message */}
-                    {updateStatus && !updateApplying && (
+                    {updateStatus && (!updateApplying || updateStatus.includes('❌')) && (
                         <div style={{ fontSize: '0.82em', color: updateStatus.includes('❌') ? '#EF4444' : '#10B981', marginTop: 4 }}>
                             {updateStatus}
                         </div>
