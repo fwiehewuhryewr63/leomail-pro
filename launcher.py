@@ -160,14 +160,14 @@ def open_native_window(port: int):
     chrome_path = find_chromium()
     if not chrome_path:
         log("[Leomail] FATAL: No Chromium/Chrome found!")
-        log("[Leomail] Install Playwright Chromium: python -m playwright install chromium")
-        log("[Leomail] Or install Google Chrome.")
+        log("[Leomail] User needs to install Google Chrome or reinstall Leomail.")
         show_error(
             "Leomail — Browser Not Found",
-            "Chromium or Google Chrome is required but was not found.\n\n"
-            "Please install one of the following:\n"
-            "• Playwright Chromium (run: playwright install chromium)\n"
-            "• Google Chrome\n\n"
+            "Google Chrome is required but was not found on this system.\n\n"
+            "To fix this, please try one of the following:\n"
+            "• Install Google Chrome (https://google.com/chrome)\n"
+            "• Reinstall or update Leomail\n"
+            "• Contact support\n\n"
             "Leomail will now exit."
         )
         sys.exit(1)
