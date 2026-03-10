@@ -263,7 +263,9 @@ def main():
         )
         sys.exit(1)
 
-    os._exit(0)
+    # Normal close: Chrome window closed, backend is daemon thread (auto-dies).
+    # sys.exit raises SystemExit → allows Python cleanup (lifespan, logs, DB).
+    sys.exit(0)
 
 
 if __name__ == "__main__":

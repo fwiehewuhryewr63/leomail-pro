@@ -123,6 +123,8 @@ async def download_and_apply():
         async def _exit():
             await asyncio.sleep(2)  # Let response be sent
             logger.info("Exiting for update...")
+            # os._exit required: runs in async task on backend (daemon) thread.
+            # sys.exit would only raise SystemExit in this coroutine, not kill the process.
             os._exit(0)
 
         asyncio.create_task(_exit())
@@ -153,6 +155,8 @@ async def restart_server():
                  "--host", "0.0.0.0", "--port", "8000"],
                 cwd=str(__import__('pathlib').Path(__file__).parent.parent.parent),
             )
+        # os._exit required: runs in async task, needs whole-process shutdown.
+        # New Leomail.exe is already launched; this kills the old process.
         os._exit(0)
 
     asyncio.create_task(_do_restart())

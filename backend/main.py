@@ -404,18 +404,19 @@ if frontend_path.exists():
 
     # ── Clear webview cache on startup to prevent stale JS bundles ──
     def _clear_webview_cache():
-        """Remove cached JS/CSS from webview profile so updates take effect."""
+        """Remove cached JS/CSS from Chromium profile so updates take effect."""
         import shutil
-        for app_dir in (Path.home() / "AppData" / "Roaming" / "leomail",
-                        Path.home() / "AppData" / "Roaming" / "Leomail"):
-            for cache_name in ("Cache", "Code Cache"):
-                cache_dir = app_dir / cache_name
-                if cache_dir.exists():
-                    try:
-                        shutil.rmtree(cache_dir, ignore_errors=True)
-                        logger.info(f"Cleared webview cache: {cache_dir}")
-                    except Exception:
-                        pass
+        from .database import PROJECT_ROOT as _root
+        # Chromium profile is at user_data/chromium_profile/ (set by --user-data-dir in launcher.py)
+        profile_dir = _root / "user_data" / "chromium_profile"
+        for cache_name in ("Cache", "Code Cache"):
+            cache_dir = profile_dir / cache_name
+            if cache_dir.exists():
+                try:
+                    shutil.rmtree(cache_dir, ignore_errors=True)
+                    logger.info(f"Cleared webview cache: {cache_dir}")
+                except Exception:
+                    pass
 
     _clear_webview_cache()
 
