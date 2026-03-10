@@ -198,6 +198,18 @@ def download_update(download_url: str) -> dict:
                 update_progress["detail"] = f"{dl_mb} / {total_mb} MB"
 
         logger.info(f"[Update] Downloaded {downloaded / (1024*1024):.1f} MB")
+
+        # Verify download completeness against content-length when present
+        if total > 0 and downloaded != total:
+            logger.error(f"[Update] Size mismatch: got {downloaded} bytes, expected {total}")
+            set_progress("error", 0, f"Download incomplete: {downloaded}/{total} bytes")
+            # Remove truncated/bad ZIP before returning
+            try:
+                zip_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {"success": False, "error": f"Download incomplete: got {downloaded} of {total} bytes"}
+
         return {"success": True, "zip_path": str(zip_path)}
 
     except Exception as e:

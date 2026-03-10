@@ -152,7 +152,7 @@ async def restart_server():
         else:
             subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "backend.main:app",
-                 "--host", "0.0.0.0", "--port", "8000"],
+                 "--host", "127.0.0.1", "--port", "8000"],
                 cwd=str(__import__('pathlib').Path(__file__).parent.parent.parent),
             )
         # os._exit required: runs in async task, needs whole-process shutdown.
