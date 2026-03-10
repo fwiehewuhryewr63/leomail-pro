@@ -87,7 +87,7 @@ async def download_and_apply():
 
     # Step 3: Download ZIP (progress tracked inside download_update)
     logger.info(f"Step 3: Downloading {update_info['remote_version']}...")
-    dl = download_update(download_url)
+    dl = download_update(download_url, expected_sha256=update_info.get("expected_sha256"))
     if not dl["success"]:
         result["errors"].append(f"Download failed: {dl.get('error')}")
         return result

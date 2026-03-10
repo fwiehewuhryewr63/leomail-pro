@@ -123,6 +123,10 @@ def check_for_updates() -> dict:
                 download_size = asset.get("size", 0)
                 break
 
+        # Parse optional SHA-256 from release body (e.g. "sha256: abc123...")
+        sha256_match = re.search(r'sha256:\s*([a-fA-F0-9]{64})', data.get("body", "") or "")
+        expected_sha256 = sha256_match.group(1).lower() if sha256_match else None
+
         return {
             "current_version": current["version"],
             "remote_version": remote_version,
@@ -132,6 +136,7 @@ def check_for_updates() -> dict:
             "release_name": data.get("name", ""),
             "release_notes": data.get("body", ""),
             "published_at": data.get("published_at", ""),
+            "expected_sha256": expected_sha256,
         }
     except Exception as e:
         logger.error(f"Update check failed: {e}")
@@ -160,10 +165,11 @@ def set_progress(step: str, percent: int = 0, detail: str = ""):
     update_progress.update({"active": True, "step": step, "percent": percent, "detail": detail})
 
 
-def download_update(download_url: str) -> dict:
+def download_update(download_url: str, expected_sha256: str = None) -> dict:
     """
     Download update ZIP from GitHub.
     Updates global update_progress for real-time UI feedback.
+    Optionally verifies SHA-256 if expected_sha256 is provided.
     """
     import requests
     root = get_app_root()
@@ -209,6 +215,21 @@ def download_update(download_url: str) -> dict:
             except Exception:
                 pass
             return {"success": False, "error": f"Download incomplete: got {downloaded} of {total} bytes"}
+
+        # Verify SHA-256 when expected hash is provided
+        if expected_sha256:
+            import hashlib
+            set_progress("verifying", 92, "Verifying SHA-256...")
+            actual_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+            if actual_sha256 != expected_sha256:
+                logger.error(f"[Update] SHA-256 mismatch: {actual_sha256} != {expected_sha256}")
+                set_progress("error", 0, "SHA-256 verification failed")
+                try:
+                    zip_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                return {"success": False, "error": "SHA-256 verification failed — download may be corrupted"}
+            logger.info(f"[Update] SHA-256 verified: {actual_sha256[:16]}...")
 
         return {"success": True, "zip_path": str(zip_path)}
 
