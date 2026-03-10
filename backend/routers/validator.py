@@ -88,6 +88,8 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
     """
     accounts = []
     fmt = "unknown"
+    # Strip BOM (Byte Order Mark) — UTF-8 BOM files have invisible \ufeff prefix
+    content = content.lstrip("\ufeff")
     lines = content.strip().splitlines()
 
     for line in lines:
@@ -794,8 +796,6 @@ async def _validate_browser(
                 # Generic
                 "not now", "skip", "do this later", "remind me later",
                 "no thanks", "maybe later", "i'll do it later", "cancel",
-                # Microsoft: "Stay signed in?" → "No" or "Yes"
-                "No", "Yes",
                 # Microsoft: passkey/authenticator prompts
                 "skip for now", "i want to use a different method",
                 "use a different method", "use password instead",
@@ -826,6 +826,15 @@ async def _validate_browser(
                     'a:has-text("Cancel")', 'a:has-text("No, thanks")',
                     '#declineButton', '#iCancel', '#iShowSkip',
                     'button:has-text("Stay signed out")',
+                    # MS "Stay signed in?" — EXACT match only (has-text would match 'November' etc.)
+                    '#acceptButton',  # MS "Yes" button ID
+                    '#declineButton',  # MS "No" button ID
+                    'button:text-is("Yes")',  # Playwright exact text match
+                    'button:text-is("No")',   # Playwright exact text match
+                    'button:text-is("Да")',   # Russian exact
+                    'button:text-is("Нет")',  # Russian exact
+                    'button:text-is("Ja")',   # German exact
+                    'button:text-is("Nein")', # German exact
                     # MS "Don't show this again" checkbox
                     'input[name="DontShowAgain"]',
                     # MS "Other ways to sign in" link to bypass passkey
