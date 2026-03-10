@@ -30,6 +30,7 @@ export default function Validator() {
                 setUploadResult({ total: d.total, filename: d.filename, format: d.format });
                 setProgress({
                     valid: d.valid || 0, invalid: d.invalid || 0,
+                    challenge: d.challenge || 0, skipped: d.skipped || 0,
                     processing: d.processing || 0,
                     total: d.total || 0,
                 });
@@ -112,14 +113,18 @@ export default function Validator() {
             fetch(`${API}/validator/status`).then(r => r.json()).then(d => {
                 setProgress({
                     valid: d.valid || 0, invalid: d.invalid || 0,
+                    challenge: d.challenge || 0, skipped: d.skipped || 0,
                     processing: d.processing || 0, total: d.total || 0,
                 });
                 if (Array.isArray(d.thread_logs)) setThreadLogs(d.thread_logs);
                 if (!d.running) {
                     setRunning(false);
+                    const parts = [`${d.valid} valid`, `${d.invalid} invalid`];
+                    if (d.challenge) parts.push(`${d.challenge} challenge`);
+                    if (d.skipped) parts.push(`${d.skipped} skipped`);
                     setResult({
                         status: 'completed',
-                        message: `✅ Done: ${d.valid} valid, ${d.invalid} invalid`
+                        message: `✅ Done: ${parts.join(', ')}`
                     });
                 }
             }).catch(() => { });
@@ -127,8 +132,8 @@ export default function Validator() {
         return () => clearInterval(iv);
     }, [running]);
 
-    const safeProgress = progress || { valid: 0, invalid: 0, processing: 0, total: 0 };
-    const completed = safeProgress.valid + safeProgress.invalid;
+    const safeProgress = progress || { valid: 0, invalid: 0, challenge: 0, skipped: 0, processing: 0, total: 0 };
+    const completed = safeProgress.valid + safeProgress.invalid + safeProgress.challenge + safeProgress.skipped;
     const pct = safeProgress.total > 0 ? Math.round(completed / safeProgress.total * 100) : 0;
     const queued = Math.max(0, safeProgress.total - completed - safeProgress.processing);
 
@@ -249,6 +254,8 @@ export default function Validator() {
                         <span style={{ color: 'var(--text-muted)' }}>{completed} / {safeProgress.total} ({pct}%)</span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--success)' }}><CheckCircle size={12} /> {safeProgress.valid}</span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--danger)' }}><XCircle size={12} /> {safeProgress.invalid}</span>
+                        {safeProgress.challenge > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: '#f59e0b' }}><AlertTriangle size={12} /> {safeProgress.challenge}</span>}
+                        {safeProgress.skipped > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--text-muted)' }}><Circle size={12} /> {safeProgress.skipped}</span>}
                         <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--warning)' }}><RefreshCw size={12} /> {safeProgress.processing}</span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--text-muted)' }}><Circle size={12} /> {queued}</span>
                     </div>
@@ -272,11 +279,14 @@ export default function Validator() {
                             const isValid = tLog.status === 'completed';
                             const isError = tLog.status === 'error';
                             const isRunning = tLog.status === 'running';
-                            const statusColor = isValid ? 'var(--success)' : isError ? 'var(--danger)' : isRunning ? 'var(--warning)' : 'var(--text-muted)';
+                            const isChallenge = tLog.status === 'challenge';
+                            const isSkipped = tLog.status === 'skipped';
+                            const statusColor = isValid ? 'var(--success)' : isError ? 'var(--danger)' : isChallenge ? '#f59e0b' : isRunning ? 'var(--warning)' : isSkipped ? 'var(--text-muted)' : 'var(--text-muted)';
                             const statusIcon = isValid ? <CheckCircle size={14} style={{ color: 'var(--success)' }} />
                                 : isError ? <XCircle size={14} style={{ color: 'var(--danger)' }} />
-                                    : isRunning ? <RefreshCw size={14} style={{ color: 'var(--warning)' }} />
-                                        : <Circle size={14} style={{ color: 'var(--text-muted)' }} />;
+                                    : isChallenge ? <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+                                        : isRunning ? <RefreshCw size={14} style={{ color: 'var(--warning)' }} />
+                                            : <Circle size={14} style={{ color: 'var(--text-muted)' }} />;
 
                             const provider = tLog.email ? tLog.email.split('@').pop()?.split('.')[0] : null;
 
@@ -284,7 +294,7 @@ export default function Validator() {
                                 <div key={i} style={{
                                     display: 'grid', gridTemplateColumns: '70px 40px 1fr 200px',
                                     alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8,
-                                    background: isValid ? 'rgba(16,185,129,0.04)' : isError ? 'rgba(239,68,68,0.04)' : isRunning ? 'rgba(245,158,11,0.04)' : 'rgba(255,255,255,0.01)',
+                                    background: isValid ? 'rgba(16,185,129,0.04)' : isError ? 'rgba(239,68,68,0.04)' : isChallenge ? 'rgba(245,158,11,0.04)' : isRunning ? 'rgba(245,158,11,0.04)' : 'rgba(255,255,255,0.01)',
                                     borderLeft: `3px solid ${statusColor}`,
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

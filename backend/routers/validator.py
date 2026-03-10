@@ -48,6 +48,8 @@ _validator_state = {
     "total": 0,
     "valid": 0,
     "invalid": 0,
+    "challenge": 0,                 # accounts that hit challenges (2FA, device verify, CAPTCHA)
+    "skipped": 0,                   # accounts skipped (e.g. Gmail without proxy)
     "processing": 0,
     "threads": 1,
     "thread_logs": [],              # per-thread status
@@ -239,6 +241,8 @@ async def start_validation(request: ValidatorStartRequest):
     _validator_state["running"] = True
     _validator_state["valid"] = 0
     _validator_state["invalid"] = 0
+    _validator_state["challenge"] = 0
+    _validator_state["skipped"] = 0
     _validator_state["processing"] = 0
     _validator_state["threads"] = request.threads
     _validator_state["results"] = []
@@ -351,6 +355,8 @@ async def get_status():
         "total": _validator_state["total"],
         "valid": _validator_state["valid"],
         "invalid": _validator_state["invalid"],
+        "challenge": _validator_state["challenge"],
+        "skipped": _validator_state["skipped"],
         "processing": _validator_state["processing"],
         "threads": _validator_state["threads"],
         "thread_logs": _validator_state["thread_logs"],
@@ -366,6 +372,8 @@ async def get_results():
         "total": _validator_state["total"],
         "valid": _validator_state["valid"],
         "invalid": _validator_state["invalid"],
+        "challenge": _validator_state["challenge"],
+        "skipped": _validator_state["skipped"],
     }
 
 
@@ -380,7 +388,7 @@ PROVIDER_LOGIN_CONFIG = {
         "password_next": ['#passwordNext button', '#passwordNext'],
         "inbox_url": "https://mail.google.com/mail/u/0/#inbox",
         "inbox_indicators": ["mail.google.com", "myaccount.google.com"],
-        "fail_indicators": ["accounts.google.com/signin", "accounts.google.com/v3"],
+        "fail_indicators": ["accounts.google.com/signin"],  # Removed /v3/ — it's a UI version, not a failure
         "not_found": ["couldn't find", "couldn't find your google", "account not found"],
         "wrong_password": ["wrong password", "incorrect password", "password is incorrect"],
         "recovery_selectors": ['input#knowledge-preregistered-email-response',
@@ -523,6 +531,23 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                 recovery = acc.get("recovery")
                 provider = acc["provider"]
 
+                # ── Gmail-without-proxy guard ──
+                if provider == "gmail" and not proxy:
+                    logger.warning(f"[Validator] T-{thread_idx+1} {email}: Gmail requires proxy — skipped")
+                    with _state_lock:
+                        _validator_state["skipped"] += 1
+                        _validator_state["results"].append({
+                            "email": email, "provider": provider,
+                            "status": "skipped", "time_sec": 0,
+                            "error": "Gmail requires proxy",
+                        })
+                    _validator_state["thread_logs"][thread_idx] = {
+                        "index": thread_idx, "status": "skipped",
+                        "email": email, "current_step": "⚠ Gmail requires proxy — skipped",
+                        "error": "Gmail requires proxy",
+                    }
+                    continue
+
                 # Update thread log
                 _validator_state["thread_logs"][thread_idx] = {
                     "index": thread_idx,
@@ -535,7 +560,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     _validator_state["processing"] += 1
 
                 start_time = time.time()
-                is_valid = False
+                validation_result = False  # True, False, or string status ("challenge")
                 error_msg = None
 
                 try:
@@ -550,7 +575,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     # ── Retry loop for proxy hiccups ──
                     for attempt in range(MAX_PROXY_RETRIES + 1):
                         try:
-                            is_valid = loop.run_until_complete(
+                            validation_result = loop.run_until_complete(
                                 _validate_browser(
                                     email, password, recovery, provider, thread_idx,
                                     save_session_flag, db, browser_manager, proxy, farm_id
@@ -595,14 +620,30 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                 with _state_lock:
                     _validator_state["processing"] -= 1
 
-                if is_valid:
+                # ── Classify result ──
+                if validation_result is True:
+                    status = "valid"
                     with _state_lock:
                         _validator_state["valid"] += 1
-                    status = "valid"
+                elif validation_result == "challenge":
+                    status = "challenge"
+                    with _state_lock:
+                        _validator_state["challenge"] += 1
                 else:
+                    status = "invalid"
                     with _state_lock:
                         _validator_state["invalid"] += 1
-                    status = "invalid"
+
+                # ── Determine display text ──
+                if status == "valid":
+                    step_text = "Valid ✓"
+                    log_status = "completed"
+                elif status == "challenge":
+                    step_text = error_msg or "⚠ Challenge / verification required"
+                    log_status = "challenge"
+                else:
+                    step_text = error_msg or "Invalid credentials"
+                    log_status = "error"
 
                 # Record result
                 with _state_lock:
@@ -617,9 +658,9 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                 # Update thread log
                 _validator_state["thread_logs"][thread_idx] = {
                     "index": thread_idx,
-                    "status": "completed" if is_valid else "error",
+                    "status": log_status,
                     "email": email,
-                    "current_step": "Valid ✓" if is_valid else (error_msg or "Invalid credentials"),
+                    "current_step": step_text,
                     "error": error_msg,
                 }
 
@@ -627,7 +668,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                 try:
                     task = db.query(Task).get(task_id)
                     if task:
-                        task.completed_items = _validator_state["valid"] + _validator_state["invalid"]
+                        task.completed_items = _validator_state["valid"] + _validator_state["invalid"] + _validator_state["challenge"] + _validator_state["skipped"]
                         db.commit()
                 except Exception:
                     db.rollback()
@@ -789,6 +830,9 @@ async def _validate_browser(
             current_url = page.url.lower()
             if "challenge" in current_url or "rejected" in current_url or "blocked" in current_url:
                 _tlog["current_step"] = f"Blocked by {provider}"
+                logger.warning(f"[Validator] T-{thread_idx+1} {email}: blocked/challenged by {provider}")
+                await context.close()
+                return "challenge"  # Don't mark invalid — account may be alive
             else:
                 _tlog["current_step"] = "No password field found"
             logger.warning(f"[Validator] T-{thread_idx+1} {email}: no password field on {provider}")
@@ -844,6 +888,19 @@ async def _validate_browser(
                                             'button:has-text("Weiter")', 'button[type="submit"]'])
                     await asyncio.sleep(random.uniform(4, 7))
                     await debug_screenshot(page, f"val_{provider}_after_recovery_{safe_email}")
+                else:
+                    # Recovery selectors didn't match — challenge we can't handle
+                    _tlog["current_step"] = "⚠ Challenge — recovery input not found"
+                    logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge, recovery input not found")
+                    await context.close()
+                    return "challenge"
+            else:
+                # No recovery email or no recovery selectors — can't handle challenge
+                detail = "no recovery email" if not recovery else "no recovery selectors"
+                _tlog["current_step"] = f"⚠ Challenge — {detail}"
+                logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge on {provider}, {detail}")
+                await context.close()
+                return "challenge"
 
         # ── Skip non-critical prompts (2FA, passkey, app promo, "Stay signed in?", etc.) ──
         for _ in range(5):
