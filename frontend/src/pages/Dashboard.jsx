@@ -207,10 +207,7 @@ export default function Dashboard() {
 
     /* Clickable card wrapper */
     const ClickCard = ({ to, children, style = {}, ...rest }) => (
-        <div className="card" onClick={() => navigate(to)} style={{
-            ...style, cursor: 'pointer', transition: 'all 0.2s',
-        }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-            onMouseLeave={e => e.currentTarget.style.borderColor = ''} {...rest}>
+        <div className="card dash-click-card" onClick={() => navigate(to)} style={style} {...rest}>
             {children}
         </div>
     );
@@ -224,9 +221,27 @@ export default function Dashboard() {
                     <h2 className="page-title">
                         <LayoutDashboard size={22} /> Dashboard
                     </h2>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75em', color: 'var(--text-muted)' }}>
-                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 8px rgba(16,185,129,0.6)' }} />
+                    <div className="dashboard-header-status">
+                        <div className="dashboard-header-status-dot" />
                         Updated {timeAgo}
+                    </div>
+                </div>
+                <div className="dashboard-hero-strip">
+                    <div className="dashboard-hero-chip">
+                        <span className="dashboard-hero-chip-label">Accounts</span>
+                        <span className="dashboard-hero-chip-value">{(totalAccs || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="dashboard-hero-chip">
+                        <span className="dashboard-hero-chip-label">Live Proxies</span>
+                        <span className="dashboard-hero-chip-value">{proxyAlive}/{proxyTotal}</span>
+                    </div>
+                    <div className="dashboard-hero-chip">
+                        <span className="dashboard-hero-chip-label">Sent Today</span>
+                        <span className="dashboard-hero-chip-value">{(ms.total_sent || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="dashboard-hero-chip">
+                        <span className="dashboard-hero-chip-label">Inbox Rate</span>
+                        <span className="dashboard-hero-chip-value">{ms.inbox_rate || 0}%</span>
                     </div>
                 </div>
             </div>

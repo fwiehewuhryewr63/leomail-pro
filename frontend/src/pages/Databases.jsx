@@ -101,14 +101,30 @@ export default function Databases() {
                     <h2 className="page-title">
                         <Database size={22} /> Databases
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Databases</span>
+                            <span className="engine-hero-chip-value">{databases.length} loaded</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Recipients</span>
+                            <span className="engine-hero-chip-value">{totalRecipients.toLocaleString()}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Sent</span>
+                            <span className="engine-hero-chip-value">{totalSent.toLocaleString()}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Selection</span>
+                            <span className="engine-hero-chip-value">{selected.size} marked</span>
+                        </div>
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary" onClick={() => fileRef.current?.click()}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
+                    <button className="engine-primary-action" onClick={() => fileRef.current?.click()}>
                         <FileUp size={14} /> Upload File
                     </button>
-                    <button className={`btn ${showPaste ? 'btn-primary' : ''}`} onClick={() => setShowPaste(!showPaste)}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
+                    <button className="engine-secondary-action" onClick={() => setShowPaste(!showPaste)}>
                         <Type size={14} /> Paste Text
                     </button>
                     <input ref={fileRef} type="file" accept=".txt,.csv" hidden onChange={e => handleFile(e.target.files[0])} />
@@ -116,7 +132,7 @@ export default function Databases() {
             </div>
 
             {/* ═══ FORMAT INFO BAR ═══ */}
-            <div style={{
+            <div className="glass-toolbar" style={{
                 padding: '8px 14px', borderRadius: 10, marginBottom: 16,
                 background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.1)',
                 fontSize: '0.75em', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap',
@@ -152,7 +168,7 @@ export default function Databases() {
 
             {/* ═══ PASTE PANEL ═══ */}
             {showPaste && (
-                <div className="card" style={{ marginBottom: 16, padding: '16px 20px' }}>
+                <div className="card engine-card" style={{ marginBottom: 16, padding: '16px 20px' }}>
                     <div className="config-row-2" style={{ marginBottom: 12 }}>
                         <div>
                             <label className="form-label">Database Name</label>
@@ -208,10 +224,10 @@ export default function Databases() {
 
             {/* ═══ DATABASE TABLE ═══ */}
             {databases.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)' }}>
-                    <Package size={40} style={{ opacity: 0.15, marginBottom: 12 }} />
-                    <div style={{ fontSize: '1em', fontWeight: 700, marginBottom: 4 }}>No Databases</div>
-                    <div style={{ fontSize: '0.82em' }}>Upload a file with recipient emails</div>
+                <div className="card polished-empty-card">
+                    <Package size={40} />
+                    <div className="polished-empty-title">No databases</div>
+                    <div className="polished-empty-copy">Upload a file with recipient emails to start building outbound pools.</div>
                 </div>
             ) : (
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -233,7 +249,7 @@ export default function Databases() {
 
                     {/* Batch bar */}
                     {selected.size > 0 && (
-                        <div style={{
+                        <div className="selection-bar-danger" style={{
                             padding: '6px 16px', background: 'rgba(239,68,68,0.06)',
                             borderBottom: '1px solid rgba(239,68,68,0.15)',
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',

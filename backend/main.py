@@ -356,10 +356,21 @@ async def _startup():
             _migration_count += 1
             logger.info("Migrated: created cost_records table")
 
+        # proxies - cooldown_until column (provider-local cooldown for soft/hard fail)
+        try:
+            px_cols2 = [c["name"] for c in inspector.get_columns("proxies")]
+            if "cooldown_until" not in px_cols2:
+                conn.execute(text("ALTER TABLE proxies ADD COLUMN cooldown_until TIMESTAMP"))
+                conn.commit()
+                _migration_count += 1
+                logger.info("Migrated: added cooldown_until column to proxies")
+        except Exception:
+            pass
+
         # Schema version marker — track which version last ran migrations
         try:
             conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_meta (key VARCHAR PRIMARY KEY, value VARCHAR)"))
-            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.86"})
+            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.90"})
             conn.commit()
         except Exception:
             pass

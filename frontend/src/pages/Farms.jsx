@@ -155,19 +155,32 @@ export default function Farms() {
                     <h2 className="page-title">
                         <Database size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Farms
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Farms</span>
+                            <span className="engine-hero-chip-value">{farms.length} total</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Accounts</span>
+                            <span className="engine-hero-chip-value">{farms.reduce((sum, farm) => sum + (farm.accounts_count || 0), 0)} mapped</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Selected</span>
+                            <span className="engine-hero-chip-value">{selected.size} marked</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Focus</span>
+                            <span className="engine-hero-chip-value">{farmDetail ? farmDetail.name : 'Portfolio view'}</span>
+                        </div>
+                    </div>
                 </div>
-                <button onClick={() => setShowCreate(!showCreate)} style={{
-                    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px',
-                    fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 8,
-                    cursor: 'pointer', background: 'var(--accent)', color: '#000',
-                    fontFamily: 'inherit', transition: 'all 0.2s',
-                }}>
+                <button className="engine-primary-action" onClick={() => setShowCreate(!showCreate)}>
                     <Plus size={16} /> New Farm
                 </button>
             </div>
 
             {showCreate && (
-                <div className="card" style={{ marginBottom: 14, padding: '16px 20px' }}>
+                <div className="card engine-card" style={{ marginBottom: 14, padding: '16px 20px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr auto', gap: 10, alignItems: 'end' }}>
                         <div>
                             <label className="form-label" style={{ color: 'var(--accent)' }}>Farm Name</label>
@@ -177,13 +190,11 @@ export default function Farms() {
                             <label className="form-label">Description</label>
                             <input className="form-input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optional..." />
                         </div>
-                        <button onClick={createFarm} disabled={!newName.trim()} style={{
-                            padding: '9px 24px', fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 8,
-                            cursor: newName.trim() ? 'pointer' : 'not-allowed',
-                            background: newName.trim() ? 'var(--accent)' : 'rgba(255,255,255,0.06)',
-                            color: newName.trim() ? '#000' : 'var(--text-muted)',
-                            fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>Create</button>
+                        <button className="engine-primary-action" onClick={createFarm} disabled={!newName.trim()} style={!newName.trim() ? {
+                            opacity: 0.55,
+                            cursor: 'not-allowed',
+                            boxShadow: 'none',
+                        } : undefined}>Create</button>
                     </div>
                 </div>
             )}
@@ -197,7 +208,7 @@ export default function Farms() {
             ) : (
                 <div style={{ display: 'grid', gap: 10 }}>
                     {/* Batch select bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85em' }}>
+                    <div className="glass-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85em' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-muted)' }}>
                             <input type="checkbox" checked={selected.size === farms.length && farms.length > 0} onChange={toggleAll} /> Select All
                         </label>

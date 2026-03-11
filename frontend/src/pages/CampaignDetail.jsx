@@ -87,19 +87,37 @@ export default function CampaignDetail() {
                         fontSize: '0.42em', fontWeight: 700, padding: '3px 10px', borderRadius: 12,
                         background: `${statusColor(c.status)}20`, color: statusColor(c.status),
                         border: `1px solid ${statusColor(c.status)}40`,
-                    }}>{statusLabel(c.status)}</span>
+                    }} className="detail-status-pill">{statusLabel(c.status)}</span>
                 </h2>
+                <div className="engine-hero-strip">
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Stage</span>
+                        <span className="engine-hero-chip-value">{statusLabel(c.status)}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Recipients</span>
+                        <span className="engine-hero-chip-value">{c.recipients_sent || 0} / {c.recipients_total || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Templates</span>
+                        <span className="engine-hero-chip-value">{templateActive} active / {templateCount} total</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Links Left</span>
+                        <span className="engine-hero-chip-value">{linksLeft}</span>
+                    </div>
+                </div>
             </div>
 
             {/* Action bar */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                 {['draft', 'paused', 'stopped'].includes(c.status) &&
-                    <button style={btnStyle('var(--success)')} onClick={() => action('start')}><Play size={14} /> Start</button>}
+                    <button className="engine-primary-action" style={btnStyle('var(--success)')} onClick={() => action('start')}><Play size={14} /> Start</button>}
                 {c.status === 'running' &&
-                    <button style={btnStyle('#f59e0b')} onClick={() => action('pause')}><Pause size={14} /> Pause</button>}
+                    <button className="engine-secondary-action" style={btnStyle('#f59e0b')} onClick={() => action('pause')}><Pause size={14} /> Pause</button>}
                 {['running', 'paused'].includes(c.status) &&
-                    <button style={btnStyle('var(--danger)')} onClick={() => action('stop')}><Square size={14} /> Stop</button>}
-                <button style={btnStyle('var(--text-muted)')} onClick={() => loadPreflight()}><Shield size={14} /> Pre-flight</button>
+                    <button className="engine-secondary-action" style={btnStyle('var(--danger)')} onClick={() => action('stop')}><Square size={14} /> Stop</button>}
+                <button className="engine-secondary-action" style={btnStyle('var(--text-muted)')} onClick={() => loadPreflight()}><Shield size={14} /> Pre-flight</button>
             </div>
 
             {/* Stats cards */}
@@ -113,7 +131,7 @@ export default function CampaignDetail() {
 
             {/* Progress bar */}
             {c.recipients_total > 0 && (
-                <div className="card" style={{ marginBottom: 16, padding: '12px 18px' }}>
+                <div className="card engine-card" style={{ marginBottom: 16, padding: '12px 18px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', marginBottom: 6, color: 'var(--text-muted)' }}>
                         <span>Recipients: {c.recipients_sent} / {c.recipients_total}</span>
                         <span>Links: {c.links_active || 0} / {c.links_total || 0}</span>
@@ -124,26 +142,26 @@ export default function CampaignDetail() {
 
             {/* Low resource warning banners */}
             {isRunning && templateActive > 0 && templateActive < 5 && (
-                <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="card resource-warning-card">
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
                     <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Templates running low ({templateActive} left) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('templates')}>add more</strong></span>
                 </div>
             )}
             {linksLow && (
-                <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="card resource-warning-card">
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
                     <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Links running low ({linksLeft} left) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('links')}>add more</strong></span>
                 </div>
             )}
             {recipientsLow && (
-                <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: '3px solid var(--warning)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="card resource-warning-card">
                     <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />
                     <span style={{ fontSize: '0.85em', color: 'var(--warning)' }}>⚡ Recipients running low ({recipientsLeft} left) — <strong style={{ cursor: 'pointer' }} onClick={() => setTab('recipients')}>add more</strong></span>
                 </div>
             )}
 
             {c.stop_reason && (
-                <div className="card" style={{ marginBottom: 16, padding: '12px 18px', borderLeft: '3px solid var(--danger)' }}>
+                <div className="card" style={{ marginBottom: 16, padding: '12px 18px', borderLeft: '3px solid var(--danger)', background: 'linear-gradient(180deg, rgba(239,68,68,0.04), transparent 70%), var(--bg-card)' }}>
                     <span style={{ color: 'var(--danger)', fontWeight: 700 }}>⚠️ Stopped: </span>
                     <span style={{ color: 'var(--text-secondary)' }}>{c.stop_reason}</span>
                 </div>
@@ -151,7 +169,7 @@ export default function CampaignDetail() {
 
             {/* Pre-flight */}
             {preflight && (
-                <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
+                <div className="card engine-card" style={{ marginBottom: 16, padding: '16px 18px' }}>
                     <div style={{ fontSize: '0.75em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 10 }}>Pre-flight Check</div>
                     <div className="config-row-3" style={{ gap: 10 }}>
                         <PFItem label="Templates" status={preflight.templates?.status} detail={`${preflight.templates?.count || 0} active`} />
@@ -168,25 +186,20 @@ export default function CampaignDetail() {
             )}
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="soft-tabbar">
                 {[
                     { id: 'templates', label: `Templates (${templateActive})`, icon: FileText },
                     { id: 'links', label: `Links (${c.links_active || 0})`, icon: Link2 },
                     { id: 'recipients', label: `Recipients (${recipientsLeft})`, icon: Users },
                 ].map(t => (
-                    <button key={t.id} onClick={() => setTab(t.id)} style={{
-                        background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
-                        color: tab === t.id ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 700, fontSize: '0.85em',
-                        borderBottom: tab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
-                        display: 'flex', alignItems: 'center', gap: 6,
-                    }}>
+                    <button key={t.id} onClick={() => setTab(t.id)} className={`soft-tab${tab === t.id ? ' active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <t.icon size={14} /> {t.label}
                     </button>
                 ))}
             </div>
 
             {/* Tab content */}
-            <div className="card" style={{ padding: '18px' }}>
+            <div className="card engine-card" style={{ padding: '18px' }}>
                 {tab === 'templates' && (
                     <>
                         <TabHeader

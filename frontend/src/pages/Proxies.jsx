@@ -168,16 +168,31 @@ export default function Proxies() {
                     <h2 className="page-title">
                         <Shield size={22} /> Proxies
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Pool</span>
+                            <span className="engine-hero-chip-value">{total} total</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Free</span>
+                            <span className="engine-hero-chip-value">{alive} ready</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Bound</span>
+                            <span className="engine-hero-chip-value">{bound} attached</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Selection</span>
+                            <span className="engine-hero-chip-value">{selected.size} marked</span>
+                        </div>
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary" onClick={() => setShowUpload(!showUpload)}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>Import</button>
-                    <button className="btn btn-success" onClick={checkAll} disabled={checking || total === 0}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
+                    <button className="engine-primary-action" onClick={() => setShowUpload(!showUpload)}>Import</button>
+                    <button className="engine-secondary-action" onClick={checkAll} disabled={checking || total === 0}>
                         {checking ? 'Checking...' : 'Check All'}
                     </button>
-                    <button className="btn" onClick={resetAll} disabled={total === 0}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>Reset Counters</button>
+                    <button className="engine-secondary-action" onClick={resetAll} disabled={total === 0}>Reset Counters</button>
                 </div>
             </div>
 
@@ -203,7 +218,7 @@ export default function Proxies() {
             </div>
 
             {/* ═══ Import Area ═══ */}
-            <div className="card" style={{ padding: '16px 20px', marginBottom: 20 }}>
+            <div className="card engine-card" style={{ padding: '16px 20px', marginBottom: 20 }}>
                 <div style={{ fontSize: '0.82em', fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                     Import area
                     <div style={{ position: 'relative', display: 'inline-flex' }}
@@ -288,7 +303,7 @@ export default function Proxies() {
 
             {/* ═══ Batch action bar ═══ */}
             {selected.size > 0 && (
-                <div style={{
+                <div className="selection-bar-danger" style={{
                     padding: '10px 16px', marginBottom: 12,
                     background: 'rgba(239,68,68,0.06)', borderRadius: 10,
                     border: '1px solid rgba(239,68,68,0.15)',
@@ -478,10 +493,10 @@ export default function Proxies() {
             )}
 
             {total === 0 && !showUpload && (
-                <div className="card" style={{ textAlign: 'center', padding: 48, marginTop: 20 }}>
-                    <WifiOff size={40} style={{ color: 'var(--text-muted)', marginBottom: 12 }} />
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.95em', fontWeight: 600 }}>No proxies yet</p>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.82em', marginTop: 4 }}>Import proxies to get started</p>
+                <div className="card polished-empty-card" style={{ marginTop: 20 }}>
+                    <WifiOff size={40} />
+                    <div className="polished-empty-title">No proxies yet</div>
+                    <div className="polished-empty-copy">Import proxies to get started and build your runtime pool.</div>
                 </div>
             )}
         </div>

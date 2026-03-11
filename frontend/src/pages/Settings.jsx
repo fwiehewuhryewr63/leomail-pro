@@ -29,6 +29,19 @@ const PROXY_PROVIDERS = [
     { id: 'webde', name: 'Web.de', color: PROVIDER_COLORS.webde, backendKey: 'webde_proxy_limit', configKey: 'webde' },
 ];
 
+function SectionHeader({ color, title, subtitle }) {
+    return (
+        <div className="settings-section-head">
+            <div className="settings-section-head-left">
+                <span className="card-section-dot" style={{ background: color }} />
+                <div>
+                    <div className="settings-section-title">{title}</div>
+                    {subtitle && <div className="settings-section-subtitle">{subtitle}</div>}
+                </div>
+            </div>
+        </div>
+    );
+}
 
 
 export default function Settings() {
@@ -145,8 +158,8 @@ export default function Settings() {
         const tr = testResult[svc.service];
 
         return (
-            <div className="card" style={{ padding: '16px 18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div className="card settings-service-card">
+                <div className="settings-service-top">
                     <div style={{ fontWeight: 800, fontSize: '0.95em', color: svc.color || 'var(--text-primary)' }}>{svc.name}</div>
                     {status === 'active' ? (
                         <span className="badge badge-success" style={{ fontSize: '0.7em' }}>Connected</span>
@@ -157,7 +170,7 @@ export default function Settings() {
 
                 {/* API Key input */}
                 <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: '0.72em', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase' }}>API key</div>
+                    <div className="settings-field-label">API key</div>
                     {isEditing ? (
                         <div style={{ display: 'flex', gap: 6 }}>
                             <input className="form-input" style={{ fontSize: '0.85em', padding: '6px 10px', fontFamily: 'JetBrains Mono, monospace' }}
@@ -168,7 +181,7 @@ export default function Settings() {
                             </button>
                         </div>
                     ) : (
-                        <div style={{
+                        <div className="settings-key-preview" style={{
                             fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em', padding: '6px 10px',
                             background: 'rgba(255,255,255,0.03)', borderRadius: 6, color: 'var(--text-secondary)',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -223,11 +236,29 @@ export default function Settings() {
                 <h2 className="page-title">
                     <SettingsIcon size={22} /> Settings
                 </h2>
+                <div className="settings-hero-strip">
+                    <div className="settings-hero-chip">
+                        <span className="settings-hero-chip-label">Captcha</span>
+                        <span className="settings-hero-chip-value">{CAPTCHA_SERVICES.length} providers</span>
+                    </div>
+                    <div className="settings-hero-chip">
+                        <span className="settings-hero-chip-label">SMS</span>
+                        <span className="settings-hero-chip-value">{SMS_SERVICES.length} providers</span>
+                    </div>
+                    <div className="settings-hero-chip">
+                        <span className="settings-hero-chip-label">Proxy Policy</span>
+                        <span className="settings-hero-chip-value">Per provider</span>
+                    </div>
+                    <div className="settings-hero-chip">
+                        <span className="settings-hero-chip-label">Runtime</span>
+                        <span className="settings-hero-chip-value">Boxed app</span>
+                    </div>
+                </div>
             </div>
 
             {/* ═══ CAPTCHA SERVICES ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#10B981' }}></span> Captcha Services</div>
+                <SectionHeader color="#10B981" title="Captcha Services" subtitle="Solver keys and provider health" />
                 <div className="config-row-3">
                     {CAPTCHA_SERVICES.map(svc => <ServiceCard key={svc.key} svc={svc} />)}
                 </div>
@@ -235,7 +266,7 @@ export default function Settings() {
 
             {/* ═══ SMS PROVIDERS ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#06B6D4' }}></span> SMS Providers</div>
+                <SectionHeader color="#06B6D4" title="SMS Providers" subtitle="Verification routing and balances" />
                 <div className="config-row-3">
                     {SMS_SERVICES.map(svc => <ServiceCard key={svc.key} svc={svc} />)}
                 </div>
@@ -245,11 +276,11 @@ export default function Settings() {
 
             {/* PROXY LIMITS */}
             <div style={{ marginBottom: 20 }}>
-                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#F59E0B' }}></span> Proxy Limits</div>
-                <div className="card" style={{ padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between' }}>
+                <SectionHeader color="#F59E0B" title="Proxy Limits" subtitle="Max safe reuse before rotation by provider" />
+                <div className="card settings-proxy-card" style={{ padding: '14px 16px' }}>
+                    <div className="settings-proxy-grid">
                         {PROXY_PROVIDERS.map(p => (
-                            <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                            <div key={p.id} className="settings-proxy-provider">
                                 <ProviderLogo provider={p.id} size={24} />
                                 <span style={{ fontSize: '0.78em', fontWeight: 700, color: p.color, whiteSpace: 'nowrap' }}>{p.name}</span>
                                 <input
@@ -271,7 +302,7 @@ export default function Settings() {
 
 
             <div style={{ marginBottom: 20 }}>
-                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#8B5CF6' }}></span> Data Portability</div>
+                <SectionHeader color="#8B5CF6" title="Data Portability" subtitle="Move or back up live operating data" />
                 <div className="card" style={{ padding: '20px 24px' }}>
                     <div className="config-row-2">
                         <div>
@@ -329,8 +360,8 @@ export default function Settings() {
 
             {/* ═══ SYSTEM UPDATE ═══ */}
             <div style={{ marginBottom: 20 }}>
-                <div className="card-section-header"><span className="card-section-dot" style={{ background: '#8B5CF6' }}></span> System Update</div>
-                <div className="card" style={{ padding: '16px 20px' }}>
+                <SectionHeader color="#8B5CF6" title="System Update" subtitle="Version checks, release notes, and boxed app rollout" />
+                <div className="card settings-update-card" style={{ padding: '16px 20px' }}>
                     {/* Version + Check */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                         <div>

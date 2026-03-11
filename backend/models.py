@@ -119,6 +119,7 @@ class Proxy(Base):
     
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)  # cooldown: when proxy was last used for birth
+    cooldown_until = Column(DateTime, nullable=True)  # provider-local cooldown: proxy skipped until this time
     created_at = Column(DateTime, default=datetime.utcnow)
 
     accounts = relationship("Account", back_populates="proxy")

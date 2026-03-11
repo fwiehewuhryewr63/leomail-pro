@@ -124,13 +124,37 @@ export default function Warmup() {
                     <Flame size={22} /> Warm-up Engine
                     {isRunning && <span className="active-badge">● ACTIVE</span>}
                 </h2>
+                <div className="engine-hero-strip">
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Status</span>
+                        <span className="engine-hero-chip-value">{isRunning ? 'Actively warming inboxes' : 'Ready to schedule'}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Farms</span>
+                        <span className="engine-hero-chip-value">{selectedFarms.length || farms.length || 0} targeted</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Phase</span>
+                        <span className="engine-hero-chip-value">{selectedPhase?.label || 'Phase 1'}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Intensity</span>
+                        <span className="engine-hero-chip-value">{emailsPerDay > 0 ? `${emailsPerDay}/day fixed` : `${avgEmails}/day auto`}</span>
+                    </div>
+                </div>
             </div>
 
             {/* ═══════════════ Config Card ═══════════════ */}
-            <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div className="card-section-header">
-                    <span className="card-section-dot" style={{ background: '#10B981' }} />
-                    Configuration
+            <div className="card engine-card">
+                <div className="engine-section-head">
+                    <div>
+                        <div className="engine-section-kicker">Warm-up profile</div>
+                        <div className="card-section-header" style={{ marginBottom: 0 }}>
+                            <span className="card-section-dot" style={{ background: '#10B981' }} />
+                            Configuration
+                        </div>
+                    </div>
+                    <div className="engine-section-caption">Shape the cadence, content sources and mailbox recovery behavior before you start.</div>
                 </div>
 
                 {/* ── Row 1: Farms + Phase ── */}

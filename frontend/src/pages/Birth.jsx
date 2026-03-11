@@ -157,23 +157,44 @@ export default function Birth() {
             <div className="page-header">
                 <div className="page-breadcrumb">AUTOREG</div>
                 <h2 className="page-title">Autoreg</h2>
+                <div className="engine-hero-strip">
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Mode</span>
+                        <span className="engine-hero-chip-value">{running ? 'Live registration' : 'Ready to launch'}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Provider</span>
+                        <span className="engine-hero-chip-value">{PROVIDERS.find(p => p.id === displayProvider)?.name || 'Autodetect'}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Threads</span>
+                        <span className="engine-hero-chip-value">{threads || 0} workers</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Target</span>
+                        <span className="engine-hero-chip-value">{quantity || 0} accounts</span>
+                    </div>
+                </div>
             </div>
 
             {/* ═══════════════ Config Section ═══════════════ */}
-            <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div className="card-section-header">Config</div>
+            <div className="card engine-card">
+                <div className="engine-section-head">
+                    <div>
+                        <div className="engine-section-kicker">Registration setup</div>
+                        <div className="card-section-header" style={{ marginBottom: 0 }}>Config</div>
+                    </div>
+                    <div className="engine-section-caption">Pick a provider, quantity, worker count and name source before launch.</div>
+                </div>
 
                 {/* ── Provider Cards ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PROVIDERS.length}, 1fr)`, gap: 10, marginBottom: 24 }}>
+                <div className="engine-provider-grid" style={{ gridTemplateColumns: `repeat(${PROVIDERS.length}, 1fr)` }}>
                     {PROVIDERS.map(p => {
                         const active = provider === p.id;
                         return (
-                            <div key={p.id} onClick={() => setProvider(p.id)} style={{
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                gap: 8, padding: '16px 8px', borderRadius: 12, cursor: 'pointer',
+                            <div key={p.id} className="engine-provider-card" onClick={() => setProvider(p.id)} style={{
                                 background: active ? `${p.color}18` : 'rgba(255,255,255,0.02)',
                                 border: `2px solid ${active ? p.color : 'rgba(255,255,255,0.06)'}`,
-                                transition: 'all 0.2s', position: 'relative',
                                 boxShadow: active ? `0 0 20px ${p.color}15, inset 0 0 15px ${p.color}08` : 'none',
                             }}>
                                 {/* Checkmark */}
@@ -189,10 +210,7 @@ export default function Birth() {
                                 )}
                                 {/* Icon */}
                                 <ProviderLogo provider={p.id} size={64} />
-                                <span style={{
-                                    fontSize: '0.78em', fontWeight: 700, color: active ? '#fff' : 'var(--text-muted)',
-                                    letterSpacing: 0.3,
-                                }}>{p.name}</span>
+                                <span className="engine-provider-card-label" style={{ color: active ? '#fff' : 'var(--text-muted)' }}>{p.name}</span>
                             </div>
                         );
                     })}

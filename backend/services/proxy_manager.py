@@ -1,11 +1,12 @@
 """
 Leomail v4 - Proxy Manager
 1 proxy = 1 account (hard binding). Auto-reassign on proxy death.
-Per-provider usage: success (use_*) + fail (fail_*) both count toward limit.
+Per-provider usage: success (use_*) counts toward limit.
+Fail handling: soft fail = cooldown only (no burn), hard fail = fail_* +1 (permanent burn).
 """
 import random
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from loguru import logger
@@ -144,9 +145,11 @@ class ProxyManager:
         Marks fully exhausted proxies as EXHAUSTED.
         NO FALLBACK: returns None if no matching proxy found.
         """
+        now = datetime.utcnow()
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
+            (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
         )
 
         # Gmail: FORCE mobile proxy type (IP-based trust)
@@ -177,7 +180,11 @@ class ProxyManager:
         Gmail: mobile proxy type forced.
         NO FALLBACK: returns empty list if no matching proxies.
         """
-        query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
+        now = datetime.utcnow()
+        query = self.db.query(Proxy).filter(
+            Proxy.status == ProxyStatus.ACTIVE,
+            (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
+        )
 
         # Gmail: FORCE mobile proxy type (IP-based trust)
         if provider and provider.lower() == 'gmail':
@@ -289,15 +296,28 @@ class ProxyManager:
         proxy.last_used_at = datetime.utcnow()
         self.db.commit()
 
-    def increment_provider_fail(self, proxy: Proxy, provider: str):
-        """Increment the per-provider FAIL counter.
-        Called when registration attempt fails (proxy error, block, captcha, etc).
-        Failures count toward the provider usage limit to avoid retrying burned proxies."""
-        attr = f"fail_{provider.lower()}"
-        if hasattr(proxy, attr):
-            setattr(proxy, attr, (getattr(proxy, attr) or 0) + 1)
+    def increment_provider_fail(self, proxy: Proxy, provider: str, hard: bool = False):
+        """Record a provider-specific failure with soft/hard classification.
+
+        hard=False (soft fail): transient signal (e500, datacenter, 'something went wrong').
+            Sets cooldown_until = now + 10 min. Does NOT burn permanent fail_* counter.
+        hard=True (hard fail): strong provider rejection (blocked, e302, banned).
+            Increments fail_* counter (permanent burn) + sets cooldown_until = now + 30 min.
+
+        total_fails is always incremented (lifetime global metric).
+        """
+        now = datetime.utcnow()
+        if hard:
+            attr = f"fail_{provider.lower()}"
+            if hasattr(proxy, attr):
+                setattr(proxy, attr, (getattr(proxy, attr) or 0) + 1)
+            proxy.cooldown_until = now + timedelta(minutes=30)
+            logger.info(f"[Proxy] HARD fail {proxy.host}:{proxy.port} for {provider} — fail_* +1, cooldown 30m")
+        else:
+            proxy.cooldown_until = now + timedelta(minutes=10)
+            logger.info(f"[Proxy] Soft fail {proxy.host}:{proxy.port} for {provider} — cooldown 10m (no burn)")
         proxy.total_fails = (proxy.total_fails or 0) + 1
-        proxy.last_used_at = datetime.utcnow()
+        proxy.last_used_at = now
         self.db.commit()
 
     def bind_proxy_to_account(self, proxy: Proxy, account: Account):
@@ -374,9 +394,11 @@ class ProxyManager:
         exclude_ids: set of proxy IDs to skip (blacklisted/burned).
         provider: e.g. 'yahoo' - excludes proxies that hit per-provider usage limit.
         """
+        now = datetime.utcnow()
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
+            (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
         )
         if proxy_type:
             query = query.filter(Proxy.proxy_type == proxy_type)
@@ -541,6 +563,7 @@ class ProxyManager:
             p.fail_webde = 0
             p.use_count = 0
             p.last_used_at = None
+            p.cooldown_until = None
             if p.status == ProxyStatus.EXHAUSTED:
                 p.status = ProxyStatus.ACTIVE
                 reactivated += 1
@@ -571,6 +594,7 @@ class ProxyManager:
         proxy.fail_webde = 0
         proxy.use_count = 0
         proxy.last_used_at = None
+        proxy.cooldown_until = None
         if proxy.status == ProxyStatus.EXHAUSTED:
             proxy.status = ProxyStatus.ACTIVE
         self.db.commit()

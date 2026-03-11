@@ -111,14 +111,30 @@ export default function Names() {
                     <h2 className="page-title">
                         <UserCircle size={22} /> Name Packs
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Packs</span>
+                            <span className="engine-hero-chip-value">{packs.length} loaded</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Names</span>
+                            <span className="engine-hero-chip-value">{totalNames.toLocaleString()}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Average</span>
+                            <span className="engine-hero-chip-value">{packs.length > 0 ? Math.round(totalNames / packs.length).toLocaleString() : '0'} / pack</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Selection</span>
+                            <span className="engine-hero-chip-value">{selected.size} marked</span>
+                        </div>
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary" onClick={() => fileRef.current?.click()}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
+                    <button className="engine-primary-action" onClick={() => fileRef.current?.click()}>
                         <FileUp size={14} /> Upload File
                     </button>
-                    <button className={`btn ${showPaste ? 'btn-primary' : ''}`} onClick={() => setShowPaste(!showPaste)}
-                        style={{ borderRadius: 20, padding: '8px 18px', fontSize: '0.82em' }}>
+                    <button className="engine-secondary-action" onClick={() => setShowPaste(!showPaste)}>
                         <Type size={14} /> Paste Text
                     </button>
                     <input ref={fileRef} type="file" accept=".txt,.csv" hidden onChange={e => handleFile(e.target.files[0])} />
@@ -141,7 +157,7 @@ export default function Names() {
 
             {/* ═══ PASTE PANEL ═══ */}
             {showPaste && (
-                <div className="card" style={{ marginBottom: 16, padding: '16px 20px' }}>
+                <div className="card engine-card" style={{ marginBottom: 16, padding: '16px 20px' }}>
                     <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                         <div style={{ flex: 1 }}>
                             <label className="form-label">Pack Name</label>
@@ -184,10 +200,10 @@ export default function Names() {
 
             {/* ═══ PACK TABLE ═══ */}
             {packs.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)' }}>
-                    <Package size={40} style={{ opacity: 0.15, marginBottom: 12 }} />
-                    <div style={{ fontSize: '1em', fontWeight: 700, marginBottom: 4 }}>No Name Packs</div>
-                    <div style={{ fontSize: '0.82em' }}>Upload a .txt file with names to get started</div>
+                <div className="card polished-empty-card">
+                    <Package size={40} />
+                    <div className="polished-empty-title">No name packs</div>
+                    <div className="polished-empty-copy">Upload a source file to keep personalization inputs ready for campaigns and autoreg.</div>
                 </div>
             ) : (
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>

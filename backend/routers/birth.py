@@ -540,15 +540,18 @@ async def run_birth_task(request: BirthRequest):
                                 proxy_blacklist.add(proxy.id)
                                 logger.info(f"[Birth] Proxy {proxy.host} blacklisted for this task (err: {err_msg[:80]})")
 
-                            # Increment FAIL counter for proxy-related errors ONLY
-                            # Captcha failures are NOT the proxy's fault — don't burn it
+                            # Classify provider outcome: hard fail = strong block signal, soft fail = transient
                             is_proxy_error = proxy and any(x in err_msg for x in [
                                 "ip", "e500", "blocked", "e302", "e303",
                                 "e501", "e304", "can't create", "unusual activity",
                                 "something went wrong", "datacenter", "asn",
                             ])
+                            is_hard_fail = any(x in err_msg for x in [
+                                "blocked", "e302", "banned", "can't create",
+                                "unusual activity", "suspended",
+                            ])
                             if is_proxy_error:
-                                proxy_manager.increment_provider_fail(proxy, request.provider)
+                                proxy_manager.increment_provider_fail(proxy, request.provider, hard=is_hard_fail)
 
                             # Smart retry: blacklist country if SMS actually timed out
                             # (NOT for "no numbers" or user cancel - only real delivery failure)
@@ -612,10 +615,9 @@ async def run_birth_task(request: BirthRequest):
                                 thread_log.status = "error"
                                 thread_log.error_message = f"{'[RETRY] Browser crash' if is_browser_crash else 'Crash'}: {err_str[:400]}"
                                 thread_log.error_category = classify_error(thread_log.error_message)
-                            # Increment FAIL counter on crashes/exceptions
-                            # Skip for browser crashes (auto-restartable) — only count persistent failures
+                            # Soft fail on non-browser exceptions — crash is not a provider ban
                             if proxy and not is_browser_crash:
-                                proxy_manager.increment_provider_fail(proxy, request.provider)
+                                proxy_manager.increment_provider_fail(proxy, request.provider, hard=False)
                             db.commit()
                         except Exception:
                             pass

@@ -113,19 +113,34 @@ export default function Templates() {
                     <h2 className="page-title">
                         <FileText size={22} /> Templates
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Templates</span>
+                            <span className="engine-hero-chip-value">{totalTemplates} total</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Packs</span>
+                            <span className="engine-hero-chip-value">{totalPacks} grouped</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Variables</span>
+                            <span className="engine-hero-chip-value">{allVars.size} used</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Mode</span>
+                            <span className="engine-hero-chip-value">{tab === 'list' ? 'Library view' : tab === 'create' ? 'Manual authoring' : 'ZIP ingest'}</span>
+                        </div>
+                    </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="soft-tabbar" style={{ marginBottom: 0 }}>
                     {[
                         { id: 'list', label: 'List', icon: <FileText size={13} /> },
                         { id: 'create', label: 'Create', icon: <Plus size={13} /> },
                         { id: 'import', label: 'ZIP Import', icon: <Archive size={13} /> },
                     ].map(tb => (
-                        <button key={tb.id} onClick={() => setTab(tb.id)} style={{
-                            padding: '7px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                            fontSize: '0.78em', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5,
-                            background: tab === tb.id ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)',
-                            color: tab === tb.id ? '#10B981' : 'var(--text-muted)', transition: 'all 0.2s',
-                        }}>{tb.icon} {tb.label}</button>
+                        <button key={tb.id} onClick={() => setTab(tb.id)} className={`soft-tab${tab === tb.id ? ' active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            {tb.icon} {tb.label}
+                        </button>
                     ))}
                 </div>
             </div>
@@ -145,7 +160,7 @@ export default function Templates() {
             </div>
 
             {/* ═══ VARIABLE REFERENCE BAR ═══ */}
-            <div style={{
+            <div className="glass-toolbar" style={{
                 padding: '8px 14px', borderRadius: 10, marginBottom: 16,
                 background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.1)',
                 fontSize: '0.72em', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap'
@@ -216,7 +231,7 @@ export default function Templates() {
 
             {/* ═══ CREATE TAB ═══ */}
             {tab === 'create' && (
-                <div className="card" style={{ padding: '20px 24px' }}>
+                <div className="card engine-card" style={{ padding: '20px 24px' }}>
                     <div style={{ fontSize: '0.9em', fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Plus size={16} style={{ color: '#10B981' }} /> Create Template
                     </div>
@@ -257,7 +272,7 @@ export default function Templates() {
 
             {/* ═══ ZIP IMPORT TAB ═══ */}
             {tab === 'import' && (
-                <div className="card" style={{ padding: '20px 24px' }}>
+                <div className="card engine-card" style={{ padding: '20px 24px' }}>
                     <div style={{ fontSize: '0.9em', fontWeight: 700, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Archive size={16} style={{ color: '#10B981' }} /> ZIP Import
                     </div>

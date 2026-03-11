@@ -184,20 +184,33 @@ export default function Campaigns() {
                     <h2 className="page-title">
                         <Rocket size={22} /> Campaigns
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Pipeline</span>
+                            <span className="engine-hero-chip-value">{campaigns.length > 0 ? 'Campaign grid loaded' : 'Ready for first launch'}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Campaigns</span>
+                            <span className="engine-hero-chip-value">{campaigns.length} total</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Resources</span>
+                            <span className="engine-hero-chip-value">{templates.length} templates / {databases.length} DBs</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Infra</span>
+                            <span className="engine-hero-chip-value">{farms.length} farms ready</span>
+                        </div>
+                    </div>
                 </div>
-                <button onClick={() => setShowCreate(!showCreate)} style={{
-                    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px',
-                    fontWeight: 700, fontSize: '0.88em', border: 'none', borderRadius: 20,
-                    cursor: 'pointer', background: 'var(--accent)', color: '#000',
-                    fontFamily: 'inherit', transition: 'all 0.2s',
-                }}>
+                <button className="engine-primary-action" onClick={() => setShowCreate(!showCreate)}>
                     <Plus size={16} /> New Campaign
                 </button>
             </div>
 
             {/* ═══════════════ Create Form ═══════════════ */}
             {showCreate && (
-                <div className="card" style={{ marginBottom: 14, padding: '18px 20px' }}>
+                <div className="card engine-card" style={{ marginBottom: 14 }}>
                     {/* Campaign Name */}
                     <div style={{ marginBottom: 12 }}>
                         <label style={lbl()}>Campaign Name</label>
@@ -266,21 +279,14 @@ export default function Campaigns() {
 
                     {/* Buttons */}
                     <div style={{ display: 'flex', gap: 10 }}>
-                        <button onClick={create} disabled={loading || !form.name} style={{
-                            padding: '12px 32px', fontWeight: 700, fontSize: '0.95em', border: 'none',
-                            borderRadius: 8, cursor: loading || !form.name ? 'not-allowed' : 'pointer',
-                            background: loading || !form.name ? 'rgba(255,255,255,0.06)' : 'var(--accent)',
-                            color: loading || !form.name ? 'var(--text-muted)' : '#000',
-                            fontFamily: 'inherit', transition: 'all 0.2s',
-                        }}>
+                        <button className="engine-primary-action" onClick={create} disabled={loading || !form.name} style={loading || !form.name ? {
+                            opacity: 0.55,
+                            cursor: 'not-allowed',
+                            boxShadow: 'none',
+                        } : undefined}>
                             {loading ? '⏳ Creating...' : '🚀 Create'}
                         </button>
-                        <button onClick={() => setShowCreate(false)} style={{
-                            padding: '12px 24px', fontWeight: 600, fontSize: '0.95em',
-                            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-                            cursor: 'pointer', background: 'transparent', color: 'var(--text-secondary)',
-                            fontFamily: 'inherit',
-                        }}>
+                        <button className="engine-secondary-action" onClick={() => setShowCreate(false)}>
                             Cancel
                         </button>
                     </div>

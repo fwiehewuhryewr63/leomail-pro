@@ -143,23 +143,46 @@ export default function Validator() {
             <div className="page-header">
                 <div className="page-breadcrumb">VALIDATOR</div>
                 <h2 className="page-title">Account Validator</h2>
+                <div className="engine-hero-strip">
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Workflow</span>
+                        <span className="engine-hero-chip-value">{running ? 'Checking live batch' : 'Upload and verify'}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Loaded</span>
+                        <span className="engine-hero-chip-value">{uploadResult?.total || 0} accounts</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Threads</span>
+                        <span className="engine-hero-chip-value">{threads || 0} workers</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Sessions</span>
+                        <span className="engine-hero-chip-value">{saveSession ? 'Saved after login' : 'No session save'}</span>
+                    </div>
+                </div>
             </div>
 
             {/* ═══════════════ Upload Section ═══════════════ */}
-            <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div className="card-section-header">Upload</div>
+            <div className="card engine-card">
+                <div className="engine-section-head">
+                    <div>
+                        <div className="engine-section-kicker">Source batch</div>
+                        <div className="card-section-header" style={{ marginBottom: 0 }}>Upload</div>
+                    </div>
+                    <div className="engine-section-caption">Bring in a clean file, preview the batch and keep the format obvious.</div>
+                </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: uploadResult ? '1fr 1fr' : '1fr', gap: 20 }}>
+                <div className={`engine-panel-grid${uploadResult ? ' split' : ''}`} style={{ gridTemplateColumns: uploadResult ? undefined : '1fr' }}>
                     {/* Drop Zone */}
                     <div
                         onDrop={handleDrop}
                         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                         onDragLeave={() => setDragOver(false)}
                         onClick={() => fileInputRef.current?.click()}
+                        className="engine-dropzone"
                         style={{
                             border: `2px dashed ${dragOver ? 'var(--teal)' : 'rgba(6, 182, 212, 0.25)'}`,
-                            borderRadius: 12, padding: '40px 24px', textAlign: 'center',
-                            cursor: 'pointer', transition: 'all 0.3s',
                             background: dragOver ? 'rgba(6, 182, 212, 0.06)' : 'rgba(6, 182, 212, 0.02)',
                             boxShadow: dragOver ? '0 0 20px rgba(6, 182, 212, 0.1)' : 'none',
                         }}>
@@ -176,7 +199,7 @@ export default function Validator() {
 
                     {/* Stats */}
                     {uploadResult && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'center' }}>
+                        <div className="engine-upload-stats">
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'rgba(6, 182, 212, 0.06)', borderRadius: 10, border: '1px solid rgba(6, 182, 212, 0.15)' }}>
                                 <FileText size={20} style={{ color: 'var(--teal)' }} />
                                 <div>
@@ -209,8 +232,14 @@ export default function Validator() {
             </div>
 
             {/* ═══════════════ Config Section ═══════════════ */}
-            <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-                <div className="card-section-header">Config</div>
+            <div className="card engine-card">
+                <div className="engine-section-head">
+                    <div>
+                        <div className="engine-section-kicker">Execution profile</div>
+                        <div className="card-section-header" style={{ marginBottom: 0 }}>Config</div>
+                    </div>
+                    <div className="engine-section-caption">Control worker count, skip behavior and post-login session handling.</div>
+                </div>
 
                 <div className="config-row-2">
                     <div>

@@ -96,6 +96,24 @@ export default function Logs() {
                     <h2 className="page-title">
                         <TermIcon size={22} /> System Logs
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Visible</span>
+                            <span className="engine-hero-chip-value">{logs.length} lines</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Warnings</span>
+                            <span className="engine-hero-chip-value">{levelCounts.WARNING || 0}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Errors</span>
+                            <span className="engine-hero-chip-value">{(levelCounts.ERROR || 0) + (levelCounts.CRITICAL || 0)}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Mode</span>
+                            <span className="engine-hero-chip-value">{autoScroll ? 'Live following' : 'Manual review'}</span>
+                        </div>
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: '0.75em', color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -120,7 +138,7 @@ export default function Logs() {
             </div>
 
             {/* ═══ FILTER TOOLBAR ═══ */}
-            <div className="card" style={{ marginBottom: 16, padding: '10px 16px' }}>
+            <div className="card glass-toolbar" style={{ marginBottom: 16, padding: '10px 16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     {/* Filter pills */}
                     <div style={{ display: 'flex', gap: 6 }}>

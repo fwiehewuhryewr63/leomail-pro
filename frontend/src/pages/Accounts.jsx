@@ -167,27 +167,39 @@ export default function Accounts() {
                     <h2 className="page-title">
                         <Users size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Accounts
                     </h2>
+                    <div className="engine-hero-strip">
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Visible</span>
+                            <span className="engine-hero-chip-value">{accounts.length} on page</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Total</span>
+                            <span className="engine-hero-chip-value">{total} accounts</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Segment</span>
+                            <span className="engine-hero-chip-value">{tab}</span>
+                        </div>
+                        <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Selected</span>
+                            <span className="engine-hero-chip-value">{selected.size} marked</span>
+                        </div>
+                    </div>
                 </div>
                 <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.1em' }}>{total} total</span>
             </div>
 
             {/* ═══ Status Tabs ═══ */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+            <div className="soft-tabbar">
                 {Object.keys(STATUS_FILTER_GROUPS).map(t => (
-                    <button key={t} onClick={() => setTab(t)} style={{
-                        padding: '6px 16px', borderRadius: 20, border: '1px solid',
-                        borderColor: tab === t ? 'var(--accent)' : 'var(--border-default)',
-                        background: tab === t ? 'var(--accent)' : 'transparent',
-                        color: tab === t ? '#000' : 'var(--text-secondary)',
-                        fontSize: '0.78em', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                    }}>
+                    <button key={t} onClick={() => setTab(t)} className={`soft-tab${tab === t ? ' active' : ''}`}>
                         {t}
                     </button>
                 ))}
             </div>
 
             {/* ═══ Search + Filters ═══ */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div className="glass-toolbar" style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
                     <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input className="form-input" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
@@ -216,7 +228,7 @@ export default function Accounts() {
 
             {/* ═══ Bulk Actions Bar ═══ */}
             {selected.size > 0 && (
-                <div style={{
+                <div className="selection-bar-success" style={{
                     display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '10px 16px',
                     borderRadius: 10, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)',
                 }}>
@@ -243,9 +255,10 @@ export default function Accounts() {
 
             {/* ═══ Table ═══ */}
             {accounts.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
-                    <Users size={36} style={{ opacity: 0.3, marginBottom: 12 }} /><br />
-                    {total === 0 ? 'No accounts yet. Create them on the AUTOREG page.' : 'No matches for filters.'}
+                <div className="card polished-empty-card">
+                    <Users size={36} /><br />
+                    <div className="polished-empty-title">{total === 0 ? 'No accounts yet' : 'No matches found'}</div>
+                    <div className="polished-empty-copy">{total === 0 ? 'Create them on the AUTOREG page.' : 'Try another filter, provider, or farm view.'}</div>
                 </div>
             ) : (
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
