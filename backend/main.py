@@ -380,7 +380,7 @@ async def _startup():
         # Schema version marker — track which version last ran migrations
         try:
             conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_meta (key VARCHAR PRIMARY KEY, value VARCHAR)"))
-            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.90"})
+            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.91"})
             conn.commit()
         except Exception:
             pass

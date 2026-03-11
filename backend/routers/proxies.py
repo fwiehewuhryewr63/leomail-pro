@@ -520,6 +520,7 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
         Proxy.use_count: 0,
         Proxy.last_used_at: None,
         Proxy.cooldown_until: None,
+        Proxy.cooldown_providers: None,
     }, synchronize_session=False)
     db.commit()
 

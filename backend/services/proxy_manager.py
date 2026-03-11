@@ -401,7 +401,7 @@ class ProxyManager:
         self.db.commit()
         logger.info(f"Proxy {proxy.host}:{proxy.port} BOUND to {account.email}")
 
-    def get_verified_unbound_proxy(self, proxy_type: str = None, protocol: str = None) -> Proxy | None:
+    def get_verified_unbound_proxy(self, proxy_type: str = None, protocol: str = None, provider: str = None) -> Proxy | None:
         """
         Get a free active proxy matching type/protocol.
         Verifies it's alive with a quick check before returning.
@@ -417,15 +417,15 @@ class ProxyManager:
             query = query.filter(Proxy.protocol == protocol)
 
         candidates = query.all()
-        # Provider-local cooldown post-filter (provider from caller context if available)
-        candidates = self._filter_by_provider_cooldown(candidates, getattr(self, '_current_provider', None))
+        # Provider-local cooldown post-filter
+        candidates = self._filter_by_provider_cooldown(candidates, provider)
         if not candidates:
             # Fallback: any active unbound proxy (still respects provider cooldown)
             fallback = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
             ).all()
-            candidates = self._filter_by_provider_cooldown(fallback, getattr(self, '_current_provider', None))
+            candidates = self._filter_by_provider_cooldown(fallback, provider)
 
         if not candidates:
             return None
