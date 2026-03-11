@@ -107,14 +107,17 @@ class ProxyManager:
         return False
 
     def _set_provider_cooldown(self, proxy, provider: str, until: datetime):
-        """Set cooldown for a specific provider. Updates JSON blob + derived global."""
-        cooldowns = self._get_provider_cooldowns(proxy)
-        cooldowns[provider.lower()] = until.isoformat()
-        proxy.cooldown_providers = json.dumps({k: v.isoformat() if isinstance(v, datetime) else v for k, v in cooldowns.items()})
-        # Derive global cooldown_until = max of all active provider cooldowns (backward compat)
+        """Set cooldown for a specific provider. Updates JSON blob + derived global.
+        Prunes expired entries to prevent JSON bloat over time."""
         now = datetime.utcnow()
-        active_cooldowns = [dt for dt in cooldowns.values() if isinstance(dt, datetime) and dt > now]
-        proxy.cooldown_until = max(active_cooldowns) if active_cooldowns else None
+        cooldowns = self._get_provider_cooldowns(proxy)
+        cooldowns[provider.lower()] = until
+        # Prune expired entries — keep only active cooldowns + the one we just set
+        cooldowns = {k: v for k, v in cooldowns.items() if v > now}
+        proxy.cooldown_providers = json.dumps({k: v.isoformat() for k, v in cooldowns.items()})
+        # Derive global cooldown_until = max of all active provider cooldowns (backward compat)
+        active = [dt for dt in cooldowns.values() if dt > now]
+        proxy.cooldown_until = max(active) if active else None
 
     @staticmethod
     def _filter_by_provider_cooldown(candidates: list, provider: str) -> list:
@@ -199,12 +202,16 @@ class ProxyManager:
 
         return proxy
 
-    # Provider-specific limits
-    GMAIL_LIMIT = 1   # Gmail: 1 use only, first error = done
-    YA_LIMIT = 3      # Yahoo+AOL combined limit
-    OH_LIMIT = 3      # Outlook+Hotmail combined limit
-    PT_LIMIT = 3      # ProtonMail limit
-    WD_LIMIT = 3      # Web.de limit (per-proxy tracking needs migration)
+    # Provider-specific limits (successes only — fails have their own cooldown consequence)
+    GMAIL_LIMIT = 1   # Gmail: 1 successful use only
+    YA_LIMIT = 3      # Yahoo+AOL combined success limit
+    OH_LIMIT = 3      # Outlook+Hotmail combined success limit
+    PT_LIMIT = 3      # ProtonMail success limit
+    WD_LIMIT = 3      # Web.de success limit
+
+    # Cooldown durations (minutes)
+    SOFT_COOLDOWN_MIN = 10   # transient/ambiguous failures
+    HARD_COOLDOWN_MIN = 30   # strong provider rejection
 
     def get_unbound_proxy(self, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
@@ -324,35 +331,35 @@ class ProxyManager:
         """Get SQLAlchemy filter for provider GROUP limit.
         Groups: Yahoo+AOL (YA, limit 3), Outlook+Hotmail (OH, limit 3), Gmail (G, limit 1),
         ProtonMail (PT, limit 3).
-        Counts BOTH successes (use_*) and failures (fail_*) toward the limit.
-        Uses coalesce() for NULL safety on fail_* columns.
+        Counts only successes (use_*) toward the limit. Failures have their own
+        consequence (provider-local cooldown) and do not consume success budget.
         """
         _c = func.coalesce  # shorthand
         provider = provider.lower()
         if provider in ('yahoo', 'aol'):
-            return (_c(Proxy.use_yahoo, 0) + _c(Proxy.use_aol, 0) + _c(Proxy.fail_yahoo, 0) + _c(Proxy.fail_aol, 0)) < ProxyManager.YA_LIMIT
+            return (_c(Proxy.use_yahoo, 0) + _c(Proxy.use_aol, 0)) < ProxyManager.YA_LIMIT
         elif provider in ('outlook', 'hotmail'):
-            return (_c(Proxy.use_outlook, 0) + _c(Proxy.use_hotmail, 0) + _c(Proxy.fail_outlook, 0) + _c(Proxy.fail_hotmail, 0)) < ProxyManager.OH_LIMIT
+            return (_c(Proxy.use_outlook, 0) + _c(Proxy.use_hotmail, 0)) < ProxyManager.OH_LIMIT
         elif provider == 'gmail':
-            return (_c(Proxy.use_gmail, 0) + _c(Proxy.fail_gmail, 0)) < ProxyManager.GMAIL_LIMIT
+            return _c(Proxy.use_gmail, 0) < ProxyManager.GMAIL_LIMIT
         elif provider == 'protonmail':
-            return (_c(Proxy.use_protonmail, 0) + _c(Proxy.fail_protonmail, 0)) < ProxyManager.PT_LIMIT
+            return _c(Proxy.use_protonmail, 0) < ProxyManager.PT_LIMIT
         elif provider == 'webde':
-            return (_c(Proxy.use_webde, 0) + _c(Proxy.fail_webde, 0)) < ProxyManager.WD_LIMIT
+            return _c(Proxy.use_webde, 0) < ProxyManager.WD_LIMIT
         return None
 
     @staticmethod
     def _is_exhausted(proxy: Proxy) -> bool:
-        """Check if ALL provider groups are at their limit.
-        Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3).
-        Counts BOTH successes and failures toward the limit.
+        """Check if ALL provider groups are at their success limit.
+        Groups: Gmail (1), Yahoo+AOL (3), Outlook+Hotmail (3), ProtonMail (3), Web.de (3).
+        Counts only successes (use_*) — failures have their own cooldown consequence.
         Returns True only if ALL groups are exhausted.
         """
-        g_exhausted = ((proxy.use_gmail or 0) + (proxy.fail_gmail or 0)) >= ProxyManager.GMAIL_LIMIT
-        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0) + (proxy.fail_yahoo or 0) + (proxy.fail_aol or 0)) >= ProxyManager.YA_LIMIT
-        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0) + (proxy.fail_outlook or 0) + (proxy.fail_hotmail or 0)) >= ProxyManager.OH_LIMIT
-        pt_exhausted = ((proxy.use_protonmail or 0) + (proxy.fail_protonmail or 0)) >= ProxyManager.PT_LIMIT
-        wd_exhausted = ((proxy.use_webde or 0) + (proxy.fail_webde or 0)) >= ProxyManager.WD_LIMIT
+        g_exhausted = (proxy.use_gmail or 0) >= ProxyManager.GMAIL_LIMIT
+        ya_exhausted = ((proxy.use_yahoo or 0) + (proxy.use_aol or 0)) >= ProxyManager.YA_LIMIT
+        oh_exhausted = ((proxy.use_outlook or 0) + (proxy.use_hotmail or 0)) >= ProxyManager.OH_LIMIT
+        pt_exhausted = (proxy.use_protonmail or 0) >= ProxyManager.PT_LIMIT
+        wd_exhausted = (proxy.use_webde or 0) >= ProxyManager.WD_LIMIT
         return g_exhausted and ya_exhausted and oh_exhausted and pt_exhausted and wd_exhausted
 
     def increment_provider_usage(self, proxy: Proxy, provider: str):
@@ -381,11 +388,11 @@ class ProxyManager:
             attr = f"fail_{provider.lower()}"
             if hasattr(proxy, attr):
                 setattr(proxy, attr, (getattr(proxy, attr) or 0) + 1)
-            duration = timedelta(minutes=30)
-            logger.info(f"[Proxy] HARD fail {proxy.host}:{proxy.port} for {provider} — fail_* +1, cooldown 30m")
+            duration = timedelta(minutes=self.HARD_COOLDOWN_MIN)
+            logger.info(f"[Proxy] HARD fail {proxy.host}:{proxy.port} for {provider} — fail_* +1, cooldown {self.HARD_COOLDOWN_MIN}m")
         else:
-            duration = timedelta(minutes=10)
-            logger.info(f"[Proxy] Soft fail {proxy.host}:{proxy.port} for {provider} — cooldown 10m (no burn)")
+            duration = timedelta(minutes=self.SOFT_COOLDOWN_MIN)
+            logger.info(f"[Proxy] Soft fail {proxy.host}:{proxy.port} for {provider} — cooldown {self.SOFT_COOLDOWN_MIN}m (no burn)")
         # Provider-local cooldown (only blocks this provider, not others)
         self._set_provider_cooldown(proxy, provider, now + duration)
         proxy.total_fails = (proxy.total_fails or 0) + 1
