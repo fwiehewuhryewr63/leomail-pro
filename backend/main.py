@@ -110,8 +110,19 @@ async def _startup():
                             chromium_ok = True
                             break
 
-        if not chromium_ok:
-            logger.info(f"{_engine_name} Chromium not found — downloading automatically...")
+        skip_auto_install = False
+        if not chromium_ok and getattr(sys, 'frozen', False):
+            # In the boxed EXE, sys.executable points to Leomail.exe, not python.exe.
+            # Running `Leomail.exe -m patchright install chromium` recursively launches
+            # the app and blocks launcher startup on fresh machines.
+            skip_auto_install = True
+            logger.warning(
+                f"{_engine_name} Chromium not found in frozen EXE mode; "
+                "skipping auto-install to avoid recursive launcher startup"
+            )
+
+        if not chromium_ok and not skip_auto_install:
+            logger.info(f"{_engine_name} Chromium not found - downloading automatically...")
             import subprocess
             # Use patchright's own install command (it knows where to put browsers)
             result = subprocess.run(
@@ -133,6 +144,7 @@ async def _startup():
                     logger.info(f"{_engine_name} Chromium installed (exit code {result.returncode} was a false alarm)")
                 else:
                     logger.warning(f"{_engine_name} Chromium install failed (code {result.returncode}): {(result.stderr or result.stdout)[:300]}")
+
         else:
             logger.info(f"{_engine_name} Chromium: OK")
     except Exception as e:
