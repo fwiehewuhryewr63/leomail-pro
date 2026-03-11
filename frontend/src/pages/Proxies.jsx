@@ -25,10 +25,12 @@ export default function Proxies() {
     const dead = stats.dead || 0;
     const exhausted = stats.exhausted || 0;
     const bound = proxies.filter(p => p.bound_to).length;
+    const cooling = proxies.filter(p => p.cooldown_active).length;
 
     const filteredProxies = filter ? proxies.filter(p => {
         if (filter === 'active') return p.status === 'active' && !p.bound_to;
         if (filter === 'bound') return !!p.bound_to;
+        if (filter === 'cooldown') return !!p.cooldown_active;
         if (filter === 'exhausted') return p.status === 'exhausted';
         if (filter === 'dead') return ['dead', 'expired', 'banned'].includes(p.status);
         return true;
@@ -148,6 +150,60 @@ export default function Proxies() {
         );
     };
 
+    const cooldownRemaining = (dateStr) => {
+        if (!dateStr) return '';
+        const diffMs = new Date(dateStr).getTime() - Date.now();
+        if (diffMs <= 0) return '';
+        const minutes = Math.ceil(diffMs / 60000);
+        if (minutes >= 60) {
+            const hours = Math.floor(minutes / 60);
+            const rem = minutes % 60;
+            return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
+        }
+        return `${minutes}m`;
+    };
+
+    const renderStatusCell = (proxy) => {
+        const isHealthy = proxy.status === 'active' || proxy.status === 'bound';
+        const isCooling = proxy.cooldown_active;
+        let dotColor = '#EF4444';
+        let dotShadow;
+        if (isCooling) {
+            dotColor = '#F59E0B';
+        } else if (isHealthy) {
+            dotColor = '#10B981';
+            dotShadow = '0 0 6px rgba(16,185,129,0.5)';
+        }
+
+        return (
+            <td style={tdStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        background: dotColor,
+                        boxShadow: dotShadow,
+                        flexShrink: 0,
+                    }} />
+                    {isCooling ? (
+                        <span className="badge badge-warning">
+                            Cooldown {cooldownRemaining(proxy.cooldown_until)}
+                        </span>
+                    ) : proxy.status === 'bound' ? (
+                        <span className="badge badge-info">Bound</span>
+                    ) : proxy.status === 'active' ? (
+                        <span className="badge badge-success">Ready</span>
+                    ) : proxy.status === 'exhausted' ? (
+                        <span className="badge badge-warning">Exhausted</span>
+                    ) : (
+                        <span className="badge badge-danger">{proxy.status}</span>
+                    )}
+                </div>
+            </td>
+        );
+    };
+
     /* ── GEO flag helper ── */
     const geoFlag = (geo) => {
         if (!geo) return '—';
@@ -182,6 +238,10 @@ export default function Proxies() {
                             <span className="engine-hero-chip-value">{bound} attached</span>
                         </div>
                         <div className="engine-hero-chip">
+                            <span className="engine-hero-chip-label">Cooldown</span>
+                            <span className="engine-hero-chip-value">{cooling} cooling</span>
+                        </div>
+                        <div className="engine-hero-chip">
                             <span className="engine-hero-chip-label">Selection</span>
                             <span className="engine-hero-chip-value">{selected.size} marked</span>
                         </div>
@@ -202,6 +262,7 @@ export default function Proxies() {
                     { label: 'Total', value: total, color: '#10B981', filterKey: null },
                     { label: 'Free', value: alive, color: '#10B981', filterKey: 'active' },
                     { label: 'Bound', value: bound, color: '#06B6D4', filterKey: 'bound' },
+                    { label: 'Cooldown', value: cooling, color: '#F59E0B', filterKey: 'cooldown' },
                     { label: 'Exhausted', value: exhausted, color: '#F59E0B', filterKey: 'exhausted' },
                     { label: 'Dead', value: dead, color: '#EF4444', filterKey: 'dead' },
                 ].map(s => (
@@ -358,15 +419,7 @@ export default function Proxies() {
                                         <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)}
                                             style={{ accentColor: selected.has(p.id) ? 'var(--danger)' : 'var(--accent)' }} />
                                     </td>
-                                    {/* Status dot — health indicator only */}
-                                    <td style={tdStyle}>
-                                        <div style={{
-                                            width: 10, height: 10, borderRadius: '50%',
-                                            background: (p.status === 'active' || p.status === 'bound') ? '#10B981'
-                                                : p.status === 'exhausted' ? '#F59E0B' : '#EF4444',
-                                            boxShadow: (p.status === 'active' || p.status === 'bound') ? '0 0 6px rgba(16,185,129,0.5)' : undefined,
-                                        }} />
-                                    </td>
+                                    {renderStatusCell(p)}
 
                                     {/* Host:Port */}
                                     <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82em' }}>

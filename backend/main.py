@@ -367,6 +367,16 @@ async def _startup():
         except Exception:
             pass
 
+        # proxies - cooldown_providers column (per-provider JSON cooldown timestamps)
+        try:
+            if "cooldown_providers" not in px_cols2:
+                conn.execute(text("ALTER TABLE proxies ADD COLUMN cooldown_providers TEXT"))
+                conn.commit()
+                _migration_count += 1
+                logger.info("Migrated: added cooldown_providers column to proxies")
+        except Exception:
+            pass
+
         # Schema version marker — track which version last ran migrations
         try:
             conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_meta (key VARCHAR PRIMARY KEY, value VARCHAR)"))

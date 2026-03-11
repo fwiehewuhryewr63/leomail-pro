@@ -6,6 +6,7 @@ Fail handling: soft fail = cooldown only (no burn), hard fail = fail_* +1 (perma
 """
 import random
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -74,6 +75,69 @@ class ProxyManager:
         logger.info(f"Imported {added} proxies, skipped {skipped}")
         return {"added": added, "skipped": skipped}
 
+    # ── Provider-local cooldown helpers ──
+
+    @staticmethod
+    def _get_provider_cooldowns(proxy) -> dict:
+        """Parse cooldown_providers JSON → dict of provider→datetime."""
+        raw = getattr(proxy, 'cooldown_providers', None)
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+            return {k: datetime.fromisoformat(v) for k, v in data.items() if v}
+        except (json.JSONDecodeError, ValueError):
+            return {}
+
+    @staticmethod
+    def _is_provider_cooled_down(proxy, provider: str) -> bool:
+        """Check if a specific provider is still in cooldown for this proxy."""
+        if not provider:
+            return False
+        raw = getattr(proxy, 'cooldown_providers', None)
+        if not raw:
+            return False
+        try:
+            data = json.loads(raw)
+            ts = data.get(provider.lower())
+            if ts:
+                return datetime.fromisoformat(ts) > datetime.utcnow()
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return False
+
+    def _set_provider_cooldown(self, proxy, provider: str, until: datetime):
+        """Set cooldown for a specific provider. Updates JSON blob + derived global."""
+        cooldowns = self._get_provider_cooldowns(proxy)
+        cooldowns[provider.lower()] = until.isoformat()
+        proxy.cooldown_providers = json.dumps({k: v.isoformat() if isinstance(v, datetime) else v for k, v in cooldowns.items()})
+        # Derive global cooldown_until = max of all active provider cooldowns (backward compat)
+        now = datetime.utcnow()
+        active_cooldowns = [dt for dt in cooldowns.values() if isinstance(dt, datetime) and dt > now]
+        proxy.cooldown_until = max(active_cooldowns) if active_cooldowns else None
+
+    @staticmethod
+    def _filter_by_provider_cooldown(candidates: list, provider: str) -> list:
+        """Post-filter: remove proxies that are in cooldown for a specific provider."""
+        if not provider:
+            return candidates
+        now = datetime.utcnow()
+        result = []
+        for p in candidates:
+            raw = getattr(p, 'cooldown_providers', None)
+            if not raw:
+                result.append(p)
+                continue
+            try:
+                data = json.loads(raw)
+                ts = data.get(provider.lower())
+                if ts and datetime.fromisoformat(ts) > now:
+                    continue  # skip — this proxy is cooled down for this provider
+            except (json.JSONDecodeError, ValueError):
+                pass
+            result.append(p)
+        return result
+
     def _parse_proxy_line(self, line: str) -> dict | None:
         """Parse a single proxy line into components."""
         result = {"protocol": "http"}
@@ -110,10 +174,10 @@ class ProxyManager:
 
         return result
 
-    def get_working_proxy(self, exclude_ids: list[int] = None) -> Proxy | None:
+    def get_working_proxy(self, exclude_ids: list[int] = None, provider: str = None) -> Proxy | None:
         """
         Get next working proxy with round-robin rotation.
-        Excludes specified IDs.
+        Excludes specified IDs. Optional provider for cooldown filtering.
         """
         query = self.db.query(Proxy).filter(Proxy.status == ProxyStatus.ACTIVE)
 
@@ -121,6 +185,10 @@ class ProxyManager:
             query = query.filter(~Proxy.id.in_(exclude_ids))
 
         proxies = query.order_by(Proxy.id).all()
+
+        # Provider-local cooldown post-filter
+        if provider:
+            proxies = self._filter_by_provider_cooldown(proxies, provider)
 
         if not proxies:
             return None
@@ -145,11 +213,9 @@ class ProxyManager:
         Marks fully exhausted proxies as EXHAUSTED.
         NO FALLBACK: returns None if no matching proxy found.
         """
-        now = datetime.utcnow()
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
-            (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
         )
 
         # Gmail: FORCE mobile proxy type (IP-based trust)
@@ -161,6 +227,9 @@ class ProxyManager:
             if group_filter is not None:
                 query = query.filter(group_filter)
         proxies = query.all()
+
+        # Provider-local cooldown post-filter
+        proxies = self._filter_by_provider_cooldown(proxies, provider)
 
         # Auto-mark exhausted proxies (all groups at limit)
         for p in list(proxies):
@@ -180,10 +249,8 @@ class ProxyManager:
         Gmail: mobile proxy type forced.
         NO FALLBACK: returns empty list if no matching proxies.
         """
-        now = datetime.utcnow()
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
-            (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
         )
 
         # Gmail: FORCE mobile proxy type (IP-based trust)
@@ -196,6 +263,9 @@ class ProxyManager:
                 query = query.filter(group_filter)
 
         proxies = query.all()
+
+        # Provider-local cooldown post-filter
+        proxies = self._filter_by_provider_cooldown(proxies, provider)
 
         # ── ASN-based filtering: skip datacenter proxies for strict services ──
         if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
@@ -311,11 +381,13 @@ class ProxyManager:
             attr = f"fail_{provider.lower()}"
             if hasattr(proxy, attr):
                 setattr(proxy, attr, (getattr(proxy, attr) or 0) + 1)
-            proxy.cooldown_until = now + timedelta(minutes=30)
+            duration = timedelta(minutes=30)
             logger.info(f"[Proxy] HARD fail {proxy.host}:{proxy.port} for {provider} — fail_* +1, cooldown 30m")
         else:
-            proxy.cooldown_until = now + timedelta(minutes=10)
+            duration = timedelta(minutes=10)
             logger.info(f"[Proxy] Soft fail {proxy.host}:{proxy.port} for {provider} — cooldown 10m (no burn)")
+        # Provider-local cooldown (only blocks this provider, not others)
+        self._set_provider_cooldown(proxy, provider, now + duration)
         proxy.total_fails = (proxy.total_fails or 0) + 1
         proxy.last_used_at = now
         self.db.commit()
@@ -345,12 +417,15 @@ class ProxyManager:
             query = query.filter(Proxy.protocol == protocol)
 
         candidates = query.all()
+        # Provider-local cooldown post-filter (provider from caller context if available)
+        candidates = self._filter_by_provider_cooldown(candidates, getattr(self, '_current_provider', None))
         if not candidates:
-            # Fallback: any active unbound proxy
-            candidates = self.db.query(Proxy).filter(
+            # Fallback: any active unbound proxy (still respects provider cooldown)
+            fallback = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
             ).all()
+            candidates = self._filter_by_provider_cooldown(fallback, getattr(self, '_current_provider', None))
 
         if not candidates:
             return None
@@ -394,11 +469,9 @@ class ProxyManager:
         exclude_ids: set of proxy IDs to skip (blacklisted/burned).
         provider: e.g. 'yahoo' - excludes proxies that hit per-provider usage limit.
         """
-        now = datetime.utcnow()
         query = self.db.query(Proxy).filter(
             Proxy.status == ProxyStatus.ACTIVE,
             Proxy.bound_account_id == None,  # noqa: E711
-            (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
         )
         if proxy_type:
             query = query.filter(Proxy.proxy_type == proxy_type)
@@ -412,6 +485,9 @@ class ProxyManager:
                 query = query.filter(group_filter)
 
         candidates = query.all()
+
+        # Provider-local cooldown post-filter
+        candidates = self._filter_by_provider_cooldown(candidates, provider)
 
         # ── ASN-based filtering: skip datacenter proxies for strict services ──
         if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
@@ -434,8 +510,8 @@ class ProxyManager:
             fallback = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
-                (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
             ).all()
+            fallback = self._filter_by_provider_cooldown(fallback, provider)
             if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
                 try:
                     from .asn_checker import is_suitable_for
@@ -565,6 +641,7 @@ class ProxyManager:
             p.use_count = 0
             p.last_used_at = None
             p.cooldown_until = None
+            p.cooldown_providers = None
             if p.status == ProxyStatus.EXHAUSTED:
                 p.status = ProxyStatus.ACTIVE
                 reactivated += 1
@@ -596,6 +673,7 @@ class ProxyManager:
         proxy.use_count = 0
         proxy.last_used_at = None
         proxy.cooldown_until = None
+        proxy.cooldown_providers = None
         if proxy.status == ProxyStatus.EXHAUSTED:
             proxy.status = ProxyStatus.ACTIVE
         self.db.commit()
@@ -625,6 +703,7 @@ class ProxyManager:
         proxy.status = ProxyStatus.ACTIVE
         proxy.fail_count = 0
         proxy.cooldown_until = None
+        proxy.cooldown_providers = None
         self.db.commit()
 
         bound_email = None

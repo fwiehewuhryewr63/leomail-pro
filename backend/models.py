@@ -119,7 +119,8 @@ class Proxy(Base):
     
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)  # cooldown: when proxy was last used for birth
-    cooldown_until = Column(DateTime, nullable=True)  # provider-local cooldown: proxy skipped until this time
+    cooldown_until = Column(DateTime, nullable=True)  # derived: max of all provider cooldowns (backward compat)
+    cooldown_providers = Column(Text, nullable=True)   # JSON: {"yahoo": "ISO timestamp", "outlook": "ISO timestamp"}
     created_at = Column(DateTime, default=datetime.utcnow)
 
     accounts = relationship("Account", back_populates="proxy")

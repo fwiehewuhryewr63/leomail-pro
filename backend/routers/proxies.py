@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
+from datetime import datetime
 from ..database import get_db
 from ..models import Proxy, ProxyStatus, Account
 from ..schemas import ProxyImportRequest
@@ -25,12 +26,15 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
     if status:
         query = query.filter(Proxy.status == status)
     proxies = query.all()
+    now = datetime.utcnow()
     result = []
     for p in proxies:
         bound_to = None
         if p.bound_account_id:
             acc = db.query(Account).filter(Account.id == p.bound_account_id).first()
             bound_to = acc.email if acc else None
+        cooldown_until = getattr(p, "cooldown_until", None)
+        cooldown_active = bool(cooldown_until and cooldown_until > now)
 
         result.append({
             "id": p.id,
@@ -58,6 +62,8 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "source": getattr(p, 'source', 'manual') or 'manual',
             "last_check": p.last_check.isoformat() if p.last_check else None,
             "last_used": p.last_used_at.isoformat() if getattr(p, 'last_used_at', None) else None,
+            "cooldown_until": cooldown_until.isoformat() if cooldown_until else None,
+            "cooldown_active": cooldown_active,
             "expires_at": p.expires_at.isoformat() if p.expires_at else None,
         })
     return result
@@ -512,6 +518,8 @@ async def reset_all_proxies(db: Session = Depends(get_db)):
         Proxy.fail_protonmail: 0,
         Proxy.fail_webde: 0,
         Proxy.use_count: 0,
+        Proxy.last_used_at: None,
+        Proxy.cooldown_until: None,
     }, synchronize_session=False)
     db.commit()
 
