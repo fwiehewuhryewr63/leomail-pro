@@ -73,3 +73,12 @@ export const PROXY_COLUMNS = [
     { label: 'P', providerKey: 'protonmail', dataKey: 'PT', failKey: 'fail_PT', limitKey: 'PT', defaultLimit: 3 },
     { label: 'WD', providerKey: 'webde', dataKey: 'WD', failKey: 'fail_WD', limitKey: 'WD', defaultLimit: 3 },
 ];
+
+/**
+ * Short provider labels for compact UI badges (e.g. cooldown pills).
+ */
+export const PROVIDER_SHORT = {
+    gmail: 'G', yahoo: 'YA', aol: 'YA',
+    outlook: 'OH', hotmail: 'OH',
+    protonmail: 'P', webde: 'WD',
+};

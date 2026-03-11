@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
 from datetime import datetime
+import json as _json
 from ..database import get_db
 from ..models import Proxy, ProxyStatus, Account
 from ..schemas import ProxyImportRequest
@@ -35,6 +36,17 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             bound_to = acc.email if acc else None
         cooldown_until = getattr(p, "cooldown_until", None)
         cooldown_active = bool(cooldown_until and cooldown_until > now)
+        # Parse per-provider cooldowns — expose only active entries
+        _cd_raw = getattr(p, 'cooldown_providers', None)
+        _cd_active = {}
+        if _cd_raw:
+            try:
+                for k, v in _json.loads(_cd_raw).items():
+                    dt = datetime.fromisoformat(v)
+                    if dt > now:
+                        _cd_active[k] = v
+            except (ValueError, TypeError):
+                pass
 
         result.append({
             "id": p.id,
@@ -64,6 +76,8 @@ async def list_proxies(status: str = None, db: Session = Depends(get_db)):
             "last_used": p.last_used_at.isoformat() if getattr(p, 'last_used_at', None) else None,
             "cooldown_until": cooldown_until.isoformat() if cooldown_until else None,
             "cooldown_active": cooldown_active,
+            "cooldown_providers": _cd_active,
+            "cooldown_provider_names": list(_cd_active.keys()),
             "expires_at": p.expires_at.isoformat() if p.expires_at else None,
         })
     return result

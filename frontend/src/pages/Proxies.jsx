@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Shield, Upload, Trash2, RefreshCw, CheckCircle, XCircle, Clock, WifiOff, Edit3, Unlink, Save, X, Zap, Link2 } from 'lucide-react';
 import { API } from '../api';
-import { PROVIDER_COLORS, providerBg, PROXY_COLUMNS } from '../utils/providers';
+import { PROVIDER_COLORS, providerBg, PROXY_COLUMNS, PROVIDER_SHORT } from '../utils/providers';
 
 export default function Proxies() {
     const [proxies, setProxies] = useState([]);
@@ -187,8 +187,17 @@ export default function Proxies() {
                         flexShrink: 0,
                     }} />
                     {isCooling ? (
-                        <span className="badge badge-warning">
+                        <span className="badge badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             Cooldown {cooldownRemaining(proxy.cooldown_until)}
+                            {proxy.cooldown_provider_names?.map(name => (
+                                <span key={name} style={{
+                                    padding: '1px 5px', borderRadius: 4,
+                                    fontSize: '0.78em', fontWeight: 800,
+                                    background: providerBg(name, 0.2),
+                                    color: PROVIDER_COLORS[name] || '#888',
+                                    border: `1px solid ${(PROVIDER_COLORS[name] || '#888')}33`,
+                                }}>{PROVIDER_SHORT[name] || name}</span>
+                            ))}
                         </span>
                     ) : proxy.status === 'bound' ? (
                         <span className="badge badge-info">Bound</span>
