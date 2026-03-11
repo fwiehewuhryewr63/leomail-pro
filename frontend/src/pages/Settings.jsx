@@ -53,6 +53,7 @@ export default function Settings() {
     const [testing, setTesting] = useState(null);
     const [testResult, setTestResult] = useState({});
     const [proxyLimits, setProxyLimits] = useState({});
+    const [cooldownTimings, setCooldownTimings] = useState({ soft: 10, hard: 30 });
     const [updateInfo, setUpdateInfo] = useState(null);
     const [updateChecking, setUpdateChecking] = useState(false);
     const [updateApplying, setUpdateApplying] = useState(false);
@@ -73,6 +74,8 @@ export default function Settings() {
                     limits[p.id] = pl[p.configKey] ?? 3;
                 });
                 setProxyLimits(limits);
+                const cd = d?.proxy_cooldown || {};
+                setCooldownTimings({ soft: cd.soft_min ?? 10, hard: cd.hard_min ?? 30 });
             })
             .catch(() => { /* ignore */ });
     };
@@ -300,6 +303,45 @@ export default function Settings() {
                 </div>
             </div>
 
+            {/* PROXY COOLDOWN TIMINGS */}
+            <div style={{ marginBottom: 20 }}>
+                <SectionHeader color="#F59E0B" title="Cooldown Timings" subtitle="How long a proxy pauses per provider after a failure" />
+                <div className="card settings-proxy-card" style={{ padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                        {[{ key: 'soft', label: 'Soft fail', desc: 'Timeout / transient', color: '#F59E0B', min: 1, max: 120 },
+                          { key: 'hard', label: 'Hard fail', desc: 'Provider block / ban', color: '#EF4444', min: 1, max: 240 }].map(t => (
+                            <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div>
+                                    <div style={{ fontSize: '0.82em', fontWeight: 800, color: t.color }}>{t.label}</div>
+                                    <div style={{ fontSize: '0.62em', color: 'var(--text-muted)', fontWeight: 600 }}>{t.desc}</div>
+                                </div>
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    value={cooldownTimings[t.key]}
+                                    onChange={e => setCooldownTimings(prev => ({ ...prev, [t.key]: parseInt(e.target.value) || 0 }))}
+                                    onBlur={e => {
+                                        const v = Math.max(t.min, Math.min(t.max, parseInt(e.target.value) || t.min));
+                                        setCooldownTimings(prev => ({ ...prev, [t.key]: v }));
+                                        const body = t.key === 'soft'
+                                            ? { proxy_soft_cooldown_min: v }
+                                            : { proxy_hard_cooldown_min: v };
+                                        fetch(`${API}/settings/`, {
+                                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(body)
+                                        }).then(() => loadSettings());
+                                    }}
+                                    style={{ width: 56, textAlign: 'center', fontSize: '0.95em', padding: '4px 2px', fontWeight: 700 }}
+                                    min={t.min}
+                                    max={t.max}
+                                />
+                                <span style={{ fontSize: '0.62em', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.5 }}>min</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
 
             <div style={{ marginBottom: 20 }}>
                 <SectionHeader color="#8B5CF6" title="Data Portability" subtitle="Move or back up live operating data" />
@@ -493,6 +535,8 @@ export default function Settings() {
                 PROXY_PROVIDERS.forEach(p => {
                     body[p.backendKey] = parseInt(proxyLimits[p.id]) || 3;
                 });
+                body.proxy_soft_cooldown_min = cooldownTimings.soft;
+                body.proxy_hard_cooldown_min = cooldownTimings.hard;
                 fetch(`${API}/settings/`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)

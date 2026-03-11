@@ -36,6 +36,9 @@ class SettingsUpdate(BaseModel):
     outlook_hotmail_proxy_limit: Optional[int] = None  # Outlook+Hotmail combined
     protonmail_proxy_limit: Optional[int] = None
     webde_proxy_limit: Optional[int] = None
+    # Proxy cooldown timings (minutes)
+    proxy_soft_cooldown_min: Optional[int] = None
+    proxy_hard_cooldown_min: Optional[int] = None
 
 @router.get("/")
 async def get_settings():
@@ -90,6 +93,11 @@ async def get_settings():
             "outlook_hotmail": config.get("proxy_limits", {}).get("outlook_hotmail", ProxyManager.OH_LIMIT),
             "protonmail": config.get("proxy_limits", {}).get("protonmail", ProxyManager.PT_LIMIT),
             "webde": config.get("proxy_limits", {}).get("webde", ProxyManager.WD_LIMIT),
+        },
+        # Proxy cooldown timings — read from config, fallback to ProxyManager defaults
+        "proxy_cooldown": {
+            "soft_min": config.get("proxy_cooldown", {}).get("soft_min", ProxyManager.SOFT_COOLDOWN_MIN),
+            "hard_min": config.get("proxy_cooldown", {}).get("hard_min", ProxyManager.HARD_COOLDOWN_MIN),
         }
     }
 
@@ -145,6 +153,17 @@ async def update_settings(update: SettingsUpdate):
         v = max(1, update.webde_proxy_limit)
         limits["webde"] = v
         ProxyManager.WD_LIMIT = v
+    
+    # Proxy cooldown timings — save to config AND update ProxyManager class constants
+    cd = config.setdefault("proxy_cooldown", {})
+    if update.proxy_soft_cooldown_min is not None:
+        v = max(1, min(120, update.proxy_soft_cooldown_min))
+        cd["soft_min"] = v
+        ProxyManager.SOFT_COOLDOWN_MIN = v
+    if update.proxy_hard_cooldown_min is not None:
+        v = max(1, min(240, update.proxy_hard_cooldown_min))
+        cd["hard_min"] = v
+        ProxyManager.HARD_COOLDOWN_MIN = v
     
     save_config(config)
     return {"status": "saved"}

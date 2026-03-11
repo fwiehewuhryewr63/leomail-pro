@@ -431,6 +431,12 @@ async def _startup():
     if "webde" in pl: _PM.WD_LIMIT = max(1, pl["webde"])
     logger.info(f"Proxy limits: Gmail={_PM.GMAIL_LIMIT}, YA={_PM.YA_LIMIT}, OH={_PM.OH_LIMIT}, PT={_PM.PT_LIMIT}, WD={_PM.WD_LIMIT}")
 
+    # Apply saved proxy cooldown timings
+    cd = config.get("proxy_cooldown", {})
+    if "soft_min" in cd: _PM.SOFT_COOLDOWN_MIN = max(1, min(120, cd["soft_min"]))
+    if "hard_min" in cd: _PM.HARD_COOLDOWN_MIN = max(1, min(240, cd["hard_min"]))
+    logger.info(f"Proxy cooldown: soft={_PM.SOFT_COOLDOWN_MIN}m, hard={_PM.HARD_COOLDOWN_MIN}m")
+
     proxy_cfg = config.get("proxy_monitor", {})
     interval = max(60, proxy_cfg.get("check_interval_sec", 120))
     max_fails = max(1, proxy_cfg.get("max_fail_count", 3))
