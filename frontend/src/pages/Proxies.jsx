@@ -187,17 +187,24 @@ export default function Proxies() {
                         flexShrink: 0,
                     }} />
                     {isCooling ? (
-                        <span className="badge badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            Cooldown {cooldownRemaining(proxy.cooldown_until)}
-                            {proxy.cooldown_provider_names?.map(name => (
-                                <span key={name} style={{
-                                    padding: '1px 5px', borderRadius: 4,
-                                    fontSize: '0.78em', fontWeight: 800,
-                                    background: providerBg(name, 0.2),
-                                    color: PROVIDER_COLORS[name] || '#888',
-                                    border: `1px solid ${(PROVIDER_COLORS[name] || '#888')}33`,
-                                }}>{PROVIDER_SHORT[name] || name}</span>
-                            ))}
+                        <span className="badge badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            {Object.keys(proxy.cooldown_providers || {}).length > 0 ? (
+                                Object.entries(proxy.cooldown_providers).map(([name, until], idx) => (
+                                    <span key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        {idx > 0 && <span style={{ color: 'rgba(245,158,11,0.5)', fontSize: '0.7em' }}>·</span>}
+                                        <span style={{
+                                            padding: '1px 5px', borderRadius: 4,
+                                            fontSize: '0.78em', fontWeight: 800,
+                                            background: providerBg(name, 0.2),
+                                            color: PROVIDER_COLORS[name] || '#888',
+                                            border: `1px solid ${(PROVIDER_COLORS[name] || '#888')}33`,
+                                        }}>{PROVIDER_SHORT[name] || name}</span>
+                                        <span style={{ fontSize: '0.85em', fontWeight: 700 }}>{cooldownRemaining(until)}</span>
+                                    </span>
+                                ))
+                            ) : (
+                                <span>Cooldown {cooldownRemaining(proxy.cooldown_until)}</span>
+                            )}
                         </span>
                     ) : proxy.status === 'bound' ? (
                         <span className="badge badge-info">Bound</span>
