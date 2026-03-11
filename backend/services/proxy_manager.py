@@ -434,6 +434,7 @@ class ProxyManager:
             fallback = self.db.query(Proxy).filter(
                 Proxy.status == ProxyStatus.ACTIVE,
                 Proxy.bound_account_id == None,  # noqa: E711
+                (Proxy.cooldown_until == None) | (Proxy.cooldown_until <= now),  # noqa: E711
             ).all()
             if provider and provider.lower() in ('yahoo', 'aol', 'gmail', 'outlook', 'hotmail'):
                 try:
@@ -623,6 +624,7 @@ class ProxyManager:
         # Reset health
         proxy.status = ProxyStatus.ACTIVE
         proxy.fail_count = 0
+        proxy.cooldown_until = None
         self.db.commit()
 
         bound_email = None
