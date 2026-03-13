@@ -122,10 +122,7 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
 
         # Try different separators
         parts = None
-        if ":" in line:
-            parts = line.split(":", 3)
-            fmt = "colon"
-        elif ";" in line:
+        if ";" in line:
             parts = line.split(";", 3)
             fmt = "semicolon"
         elif "|" in line:
@@ -134,6 +131,9 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
         elif "\t" in line:
             parts = line.split("\t", 3)
             fmt = "tab"
+        elif ":" in line:
+            parts = line.split(":", 3)
+            fmt = "colon"
         elif re.search(r"\s+", line):
             parts = re.split(r"\s+", line, maxsplit=3)
             fmt = "space"
