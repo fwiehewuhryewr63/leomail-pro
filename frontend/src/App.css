@@ -1534,7 +1534,7 @@ input[type="checkbox"] {
 }
 
 .page-header .page-title {
-  font-size: 1.35em;
+  font-size: 1.48em;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -2301,7 +2301,7 @@ select.form-input {
    ========================================================= */
 
 :root {
-  --sidebar-width: 228px;
+  --sidebar-width: 264px;
   --shell-topbar-height: 36px;
 }
 
@@ -2321,8 +2321,8 @@ select.form-input {
 }
 
 .sidebar-logo {
-  padding: 18px 18px 16px;
-  gap: 12px;
+  padding: 22px 20px 18px;
+  gap: 14px;
 }
 
 .sidebar-brand-wrap {
@@ -2332,22 +2332,22 @@ select.form-input {
 }
 
 .sidebar-brand {
-  font-size: 1.08em;
+  font-size: 1.22em;
   line-height: 1.05;
 }
 
 .sidebar-brand-sub {
   margin-top: 3px;
-  font-size: 0.62em;
+  font-size: 0.68em;
   font-weight: 700;
-  letter-spacing: 1.4px;
+  letter-spacing: 1.6px;
   color: rgba(255, 255, 255, 0.34);
   text-transform: uppercase;
 }
 
 .sidebar-nav {
-  padding: 10px 10px 14px;
-  gap: 10px;
+  padding: 14px 12px 18px;
+  gap: 12px;
 }
 
 .nav-section {
@@ -2357,18 +2357,18 @@ select.form-input {
 }
 
 .section-label {
-  padding: 10px 10px 6px;
-  font-size: 0.56em;
+  padding: 12px 12px 8px;
+  font-size: 0.64em;
   font-weight: 800;
-  letter-spacing: 2.4px;
+  letter-spacing: 2.8px;
   color: rgba(255, 255, 255, 0.26);
   opacity: 1;
 }
 
 .nav-item {
-  min-height: 40px;
-  gap: 12px;
-  padding: 9px 12px;
+  min-height: 50px;
+  gap: 14px;
+  padding: 11px 14px;
   border: 1px solid transparent;
 }
 
@@ -2393,12 +2393,12 @@ select.form-input {
 }
 
 .nav-icon-wrap {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
   flex-shrink: 0;
 }
@@ -2409,13 +2409,13 @@ select.form-input {
 }
 
 .nav-label {
-  font-size: 0.84em;
+  font-size: 0.95em;
   font-weight: 700;
-  letter-spacing: 0.18px;
+  letter-spacing: 0.24px;
 }
 
 .sidebar-footer {
-  padding: 14px 16px 15px;
+  padding: 16px 18px 18px;
   align-items: flex-start;
 }
 
@@ -2427,19 +2427,19 @@ select.form-input {
 }
 
 .sidebar-footer-title {
-  font-size: 0.78em;
+  font-size: 0.84em;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .sidebar-footer-sub {
-  font-size: 0.66em;
+  font-size: 0.72em;
   font-weight: 600;
   color: var(--text-muted);
 }
 
 .main-content {
-  padding: 22px 26px 28px;
+  padding: 18px 22px 24px;
 }
 
 .titlebar {
@@ -2631,7 +2631,7 @@ select.form-input {
 
 .dashboard-hero-chip,
 .settings-hero-chip {
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -2641,7 +2641,7 @@ select.form-input {
 .dashboard-hero-chip-label,
 .settings-hero-chip-label {
   display: block;
-  font-size: 0.62em;
+  font-size: 0.68em;
   font-weight: 800;
   letter-spacing: 1.6px;
   color: var(--text-muted);
@@ -2652,7 +2652,7 @@ select.form-input {
 .settings-hero-chip-value {
   display: block;
   margin-top: 4px;
-  font-size: 0.96em;
+  font-size: 1.04em;
   font-weight: 800;
   color: var(--text-primary);
 }
@@ -2671,20 +2671,20 @@ select.form-input {
 }
 
 .settings-section-title {
-  font-size: 0.88em;
+  font-size: 0.98em;
   font-weight: 800;
   color: var(--text-primary);
 }
 
 .settings-section-subtitle {
   margin-top: 2px;
-  font-size: 0.72em;
+  font-size: 0.78em;
   font-weight: 600;
   color: var(--text-muted);
 }
 
 .settings-service-card {
-  padding: 16px 18px;
+  padding: 18px 20px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 34%),
     var(--bg-card);
@@ -2698,7 +2698,7 @@ select.form-input {
 }
 
 .settings-field-label {
-  font-size: 0.72em;
+  font-size: 0.78em;
   font-weight: 700;
   color: var(--text-muted);
   margin-bottom: 4px;

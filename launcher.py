@@ -163,7 +163,7 @@ def find_chromium() -> str:
     return ""
 
 
-def open_native_window(port: int):
+def open_native_window(port: int, version: str):
     """Open Chromium/Chrome in --app mode (native window, no tabs)."""
     chrome_path = find_chromium()
     if not chrome_path:
@@ -189,7 +189,7 @@ def open_native_window(port: int):
 
     cmd = [
         chrome_path,
-        f"--app=http://127.0.0.1:{port}",
+        f"--app=http://127.0.0.1:{port}/?v={version}",
         f"--user-data-dir={user_data}",
         "--window-size=1400,900",
         "--disable-extensions",
@@ -277,7 +277,7 @@ def _main_inner():
 
     # Open native app window
     try:
-        open_native_window(port)
+        open_native_window(port, version)
     except KeyboardInterrupt:
         pass
     except Exception as e:
