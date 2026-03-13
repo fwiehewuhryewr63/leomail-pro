@@ -576,8 +576,16 @@ export default function Settings() {
                             {latestBackup ? (
                                 <>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                        <span className="badge badge-success" style={{ fontSize: '0.68em' }}>
-                                            {latestBackup.has_db ? 'DB backed up' : 'Backup ready'}
+                                        <span
+                                            className={`badge ${latestBackup.has_db ? 'badge-success' : ''}`}
+                                            style={{
+                                                fontSize: '0.68em',
+                                                background: latestBackup.has_db ? undefined : 'rgba(239,68,68,0.14)',
+                                                color: latestBackup.has_db ? undefined : '#FCA5A5',
+                                                border: latestBackup.has_db ? undefined : '1px solid rgba(239,68,68,0.22)',
+                                            }}
+                                        >
+                                            {latestBackup.has_db ? 'DB backed up' : 'Backup missing DB'}
                                         </span>
                                         <span style={{ fontSize: '0.74em', color: 'var(--text-secondary)', fontWeight: 700 }}>
                                             {latestBackup.size_mb} MB
@@ -636,18 +644,18 @@ export default function Settings() {
                                 </div>
                                 <button className="btn btn-success" onClick={async () => {
                                     const backupText = latestBackup
-                                        ? `Latest visible backup: ${latestBackup.name}`
+                                        ? `Latest visible backup: ${latestBackup.name}${latestBackup.has_db ? ' (DB included)' : ' (DB missing, a fresh backup will be created)'}`
                                         : 'A fresh backup will be created automatically';
                                     if (!confirm(`Update to v${updateInfo.remote_version}?\n${backupText}\nApp will restart.`)) return;
                                     setUpdateApplying(true);
                                     setUpdateStatus('');
                                     // Start polling progress
                                     let pollCount = 0;
-                                    const MAX_POLLS = 120; // 60 seconds at 500ms
+                                    const MAX_POLLS = 1800; // 30 minutes at 1s for large VPS downloads
                                     const pollId = setInterval(async () => {
                                         if (++pollCount > MAX_POLLS) {
                                             clearInterval(pollId);
-                                            setUpdateStatus('❌ Update timed out. Please restart the app.');
+                                            setUpdateStatus('⏳ Update is taking longer than expected. Keep the app open and check back in a minute.');
                                             setUpdateApplying(false);
                                             return;
                                         }
@@ -664,7 +672,7 @@ export default function Settings() {
                                                 if (p.step === 'applying') setUpdateStatus('🚀 Update downloaded! Restarting...');
                                             }
                                         } catch { /* server may be restarting */ clearInterval(pollId); setUpdateStatus('🔄 Restarting...'); }
-                                    }, 500);
+                                    }, 1000);
                                     try {
                                         const r = await fetch(`${API}/update/download-and-apply`, { method: 'POST' });
                                         const d = await r.json();
