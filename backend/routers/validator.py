@@ -23,7 +23,7 @@ from loguru import logger
 from ..database import SessionLocal, PROJECT_ROOT
 from ..models import Account, AccountStatus, Task, TaskStatus, ThreadLog, Proxy, Farm, farm_accounts
 from ..services.proxy_manager import ProxyManager
-from ..services.engine_manager import engine_manager, EngineType
+from ..services.engine_manager import engine_manager, EngineType, EngineStatus
 
 router = APIRouter(prefix="/api/validator", tags=["validator"])
 
@@ -59,6 +59,25 @@ _validator_state = {
 }
 
 UPLOADS_DIR = PROJECT_ROOT / "user_data" / "validator"
+
+
+def _reset_validator_runtime_state(*, clear_loaded: bool = False):
+    """Recover validator state after a failed or stale start without nuking uploaded input by default."""
+    _validator_state["running"] = False
+    _validator_state["valid"] = 0
+    _validator_state["invalid"] = 0
+    _validator_state["challenge"] = 0
+    _validator_state["skipped"] = 0
+    _validator_state["processing"] = 0
+    _validator_state["thread_logs"] = []
+    _validator_state["results"] = []
+    _validator_state["task_id"] = None
+    _validator_state["farm_id"] = None
+    if clear_loaded:
+        _validator_state["parsed_accounts"] = []
+        _validator_state["filename"] = None
+        _validator_state["format"] = None
+        _validator_state["total"] = 0
 
 
 # ─── Provider Detection ─────────────────────────────────────────────────────
@@ -248,6 +267,11 @@ class ValidatorStartRequest(BaseModel):
 @router.post("/start")
 async def start_validation(request: ValidatorStartRequest):
     """Start account validation."""
+    engine = engine_manager.get_engine(EngineType.VALIDATOR)
+    if _validator_state["running"] and engine.status == EngineStatus.IDLE and _validator_state["processing"] == 0:
+        logger.warning("[Validator] Detected stale running state with idle engine; recovering state before restart")
+        _reset_validator_runtime_state()
+
     if _validator_state["running"]:
         raise HTTPException(400, "Validator is already running")
     if not _validator_state["parsed_accounts"]:
@@ -265,74 +289,108 @@ async def start_validation(request: ValidatorStartRequest):
     _validator_state["thread_logs"] = []
 
     db = SessionLocal()
+    task_id = None
+    farm_id = None
 
-    # Skip existing accounts
-    accounts_to_validate = list(_validator_state["parsed_accounts"])
-    if request.skip_existing:
-        existing_emails = set(
-            row[0] for row in db.query(Account.email).all()
+    try:
+        # Skip existing accounts
+        accounts_to_validate = list(_validator_state["parsed_accounts"])
+        if request.skip_existing:
+            existing_emails = set(
+                row[0] for row in db.query(Account.email).all()
+            )
+            before = len(accounts_to_validate)
+            accounts_to_validate = [a for a in accounts_to_validate if a["email"] not in existing_emails]
+            skipped = before - len(accounts_to_validate)
+            if skipped > 0:
+                logger.info(f"[Validator] Skipped {skipped} existing accounts")
+                _validator_state["total"] = len(accounts_to_validate)
+
+        if not accounts_to_validate:
+            _validator_state["running"] = False
+            return {"status": "error", "message": "All accounts already exist in database"}
+
+        # Create task record
+        task = Task(
+            type="validator",
+            status=TaskStatus.RUNNING,
+            total_items=len(accounts_to_validate),
+            thread_count=request.threads,
+            details=f"Validating {len(accounts_to_validate)} accounts from {_validator_state['filename']}",
         )
-        before = len(accounts_to_validate)
-        accounts_to_validate = [a for a in accounts_to_validate if a["email"] not in existing_emails]
-        skipped = before - len(accounts_to_validate)
-        if skipped > 0:
-            logger.info(f"[Validator] Skipped {skipped} existing accounts")
-            _validator_state["total"] = len(accounts_to_validate)
+        db.add(task)
+        db.commit()
+        task_id = task.id
+        _validator_state["task_id"] = task_id
 
-    if not accounts_to_validate:
-        _validator_state["running"] = False
+        # Create farm
+        if request.farm_name:
+            farm_name = request.farm_name
+        else:
+            date_str = datetime.now().strftime('%Y.%m.%d')
+            providers = set(a["provider"] for a in accounts_to_validate)
+            provider_label = "+".join(sorted(p.capitalize() for p in providers))
+            farm_name = f"Import / {provider_label} / {date_str}"
+
+        farm = Farm(name=farm_name)
+        db.add(farm)
+        db.commit()
+        farm_id = farm.id
+        _validator_state["farm_id"] = farm_id
+        logger.info(f"[Validator] Created farm: {farm_name} (ID: {farm_id})")
+
+        # Integrate with EngineManager
+        engine_manager.start_engine(EngineType.VALIDATOR, request.threads, len(accounts_to_validate), task_id)
+
+        # Launch validation in a dedicated daemon thread.
+        # In the boxed/VPS runtime this is more predictable than relying on
+        # the request loop's default executor for a long-lived threaded worker pool.
+        launch_thread = threading.Thread(
+            target=_run_validator_pool,
+            args=(
+                accounts_to_validate,
+                request.threads,
+                request.save_session,
+                task_id,
+                farm_id,
+            ),
+            daemon=True,
+            name=f"ValidatorPool-{task_id}",
+        )
+        launch_thread.start()
+        logger.info(f"[Validator] Background pool launched (task={task_id}, farm={farm_id})")
+
+        return {
+            "status": "ok",
+            "message": f"Validation started: {len(accounts_to_validate)} accounts, {request.threads} threads",
+            "total": len(accounts_to_validate),
+            "farm_name": farm_name,
+        }
+    except Exception as e:
+        logger.exception(f"[Validator] Failed to start validation: {e}")
+        _reset_validator_runtime_state()
+
+        if engine_manager.get_engine(EngineType.VALIDATOR).status != EngineStatus.IDLE:
+            engine_manager.finish_engine(EngineType.VALIDATOR)
+
+        db.rollback()
+        try:
+            if task_id:
+                task = db.query(Task).get(task_id)
+                if task:
+                    task.status = TaskStatus.FAILED
+                    task.stop_reason = f"Failed to start validator: {str(e)[:200]}"
+                    task.completed_at = datetime.utcnow()
+            if farm_id:
+                farm = db.query(Farm).get(farm_id)
+                if farm:
+                    db.delete(farm)
+            db.commit()
+        except Exception:
+            db.rollback()
+        raise HTTPException(500, f"Failed to start validation: {str(e)[:160]}")
+    finally:
         db.close()
-        return {"status": "error", "message": "All accounts already exist in database"}
-
-    # Create task record
-    task = Task(
-        type="validator",
-        status=TaskStatus.RUNNING,
-        total_items=len(accounts_to_validate),
-        thread_count=request.threads,
-        details=f"Validating {len(accounts_to_validate)} accounts from {_validator_state['filename']}",
-    )
-    db.add(task)
-    db.commit()
-    _validator_state["task_id"] = task.id
-
-    # Create farm
-    if request.farm_name:
-        farm_name = request.farm_name
-    else:
-        date_str = datetime.now().strftime('%Y.%m.%d')
-        providers = set(a["provider"] for a in accounts_to_validate)
-        provider_label = "+".join(sorted(p.capitalize() for p in providers))
-        farm_name = f"Import / {provider_label} / {date_str}"
-
-    farm = Farm(name=farm_name)
-    db.add(farm)
-    db.commit()
-    _validator_state["farm_id"] = farm.id
-    logger.info(f"[Validator] Created farm: {farm_name} (ID: {farm.id})")
-
-    db.close()
-
-    # Integrate with EngineManager
-    engine_manager.start_engine(EngineType.VALIDATOR, request.threads, len(accounts_to_validate), task.id)
-
-    # Launch validation in background
-    asyncio.get_event_loop().run_in_executor(
-        None,
-        _run_validator_pool,
-        accounts_to_validate,
-        request.threads,
-        request.save_session,
-        task.id,
-        farm.id,
-    )
-
-    return {
-        "status": "ok",
-        "message": f"Validation started: {len(accounts_to_validate)} accounts, {request.threads} threads",
-        "total": len(accounts_to_validate),
-        "farm_name": farm_name,
-    }
 
 
 # ─── Stop Validation ────────────────────────────────────────────────────────
@@ -364,6 +422,11 @@ async def stop_validation():
 @router.get("/status")
 async def get_status():
     """Get validation progress."""
+    engine = engine_manager.get_engine(EngineType.VALIDATOR)
+    if _validator_state["running"] and engine.status == EngineStatus.IDLE and _validator_state["processing"] == 0:
+        logger.warning("[Validator] Status endpoint detected stale running state; recovering runtime flags")
+        _reset_validator_runtime_state()
+
     return {
         "running": _validator_state["running"],
         "filename": _validator_state["filename"],
@@ -689,8 +752,8 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                 except Exception:
                     db.rollback()
 
-        except Exception as e:
-            logger.error(f"[Validator] Worker {thread_idx} crashed: {e}", exc_info=True)
+        except Exception:
+            logger.exception(f"[Validator] Worker {thread_idx} crashed")
         finally:
             if browser_manager:
                 try:
@@ -699,6 +762,8 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     pass
             db.close()
             loop.close()
+
+    logger.info(f"[Validator] Worker pool bootstrapping: {len(accounts)} accounts, {threads} threads")
 
     # Launch worker threads
     worker_threads = []

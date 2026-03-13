@@ -72,7 +72,7 @@ export default function Validator() {
     const startValidation = () => {
         setRunning(true);
         setResult(null);
-        setProgress({ valid: 0, invalid: 0, processing: 0, total: uploadResult?.total || 0 });
+        setProgress({ valid: 0, invalid: 0, challenge: 0, skipped: 0, processing: 0, total: uploadResult?.total || 0 });
         setThreadLogs([]);
 
         fetch(`${API}/validator/start`, {
@@ -84,13 +84,19 @@ export default function Validator() {
                 save_session: saveSession,
                 farm_name: farmName,
             })
-        }).then(r => r.json()).then(d => {
+        }).then(async r => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                throw new Error(data.detail || data.message || 'Failed to start validation');
+            }
+            return data;
+        }).then(d => {
             if (d.status === 'error') {
                 setResult({ status: 'error', message: d.message });
                 setRunning(false);
             }
-        }).catch(() => {
-            setResult({ status: 'error', message: 'Failed to start validation' });
+        }).catch((e) => {
+            setResult({ status: 'error', message: e.message || 'Failed to start validation' });
             setRunning(false);
         });
     };
