@@ -52,7 +52,10 @@ export default function Validator() {
             const res = await fetch(`${API}/validator/upload`, { method: 'POST', body: formData });
             const data = await res.json();
             if (res.ok) {
+                setResult(null);
                 setUploadResult(data);
+                setProgress(null);
+                setThreadLogs([]);
             } else {
                 setResult({ status: 'error', message: data.detail || 'Upload failed' });
             }
@@ -94,6 +97,8 @@ export default function Validator() {
             if (d.status === 'error') {
                 setResult({ status: 'error', message: d.message });
                 setRunning(false);
+            } else {
+                setResult(null);
             }
         }).catch((e) => {
             setResult({ status: 'error', message: e.message || 'Failed to start validation' });

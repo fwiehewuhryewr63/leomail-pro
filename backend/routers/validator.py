@@ -911,13 +911,28 @@ async def _validate_browser(
         if not pwd_input:
             await debug_screenshot(page, f"val_{provider}_no_pwd_{safe_email}")
             current_url = page.url.lower()
-            if "challenge" in current_url or "rejected" in current_url or "blocked" in current_url:
-                _tlog["current_step"] = f"Blocked by {provider}"
-                logger.warning(f"[Validator] T-{thread_idx+1} {email}: blocked/challenged by {provider}")
+            page_text = await _get_page_text(page)
+            challenge_markers = [
+                "challenge", "verify", "blocked", "rejected", "2-step", "2 step",
+                "passkey", "security key", "unusual activity", "confirm it's you",
+                "confirm it", "try again later", "verify it is you", "phone number",
+                "recovery email", "choose an account", "sign in to continue",
+            ]
+            looks_like_challenge = (
+                provider == "gmail"
+                or any(marker in current_url for marker in ["challenge", "rejected", "blocked", "verify"])
+                or any(marker in page_text for marker in challenge_markers)
+            )
+            if looks_like_challenge:
+                _tlog["current_step"] = f"Challenge before password on {provider}"
+                logger.warning(
+                    f"[Validator] T-{thread_idx+1} {email}: no password field on {provider} "
+                    f"but page looks challenged/verification-gated"
+                )
                 await context.close()
                 return "challenge"  # Don't mark invalid — account may be alive
-            else:
-                _tlog["current_step"] = "No password field found"
+
+            _tlog["current_step"] = "No password field found"
             logger.warning(f"[Validator] T-{thread_idx+1} {email}: no password field on {provider}")
             await context.close()
             return False

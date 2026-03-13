@@ -1420,10 +1420,16 @@ class BrowserManager:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
-        # Kill any orphaned processes that survived
+        # Only do broad orphan cleanup when no engine is actively running.
+        # Otherwise one finished worker can kill live browsers owned by sibling
+        # validator/warm-up/campaign workers.
         try:
-            from ..services.browser_leak_guard import kill_orphaned_browsers
-            kill_orphaned_browsers(max_age_seconds=60)
+            from ..services.engine_manager import engine_manager, EngineType
+            if not any(engine_manager.is_running(etype) for etype in EngineType):
+                from ..services.browser_leak_guard import kill_orphaned_browsers
+                kill_orphaned_browsers(max_age_seconds=60)
+            else:
+                logger.debug("Skipping orphan cleanup in BrowserManager.stop() because another engine is still active")
         except Exception:
             pass
         logger.info("Browser engine stopped")
