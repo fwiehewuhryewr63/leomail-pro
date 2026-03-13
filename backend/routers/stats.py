@@ -30,14 +30,17 @@ async def get_summary(db: Session = Depends(get_db)):
         MailingStats.status == "limit"
     ).scalar() or 0
 
+    total_attempts = total_sent + total_errors + total_bounces + total_limits
+    delivery_rate = round(total_sent / max(1, total_attempts) * 100, 1)
+
     return {
         "total_sent": total_sent,
         "total_errors": total_errors,
         "total_bounces": total_bounces,
         "total_limits": total_limits,
-        "success_rate": round(
-            total_sent / max(1, total_sent + total_errors) * 100, 1
-        ),
+        "total_attempts": total_attempts,
+        "delivery_rate": delivery_rate,
+        "success_rate": delivery_rate,
     }
 
 
@@ -71,6 +74,17 @@ async def stats_by_account(db: Session = Depends(get_db)):
         if status == "sent":
             accounts[email]["sent"] = count
 
+    for account in accounts.values():
+        total_attempts = (
+            account["sent"]
+            + account["errors"]
+            + account["bounces"]
+            + account["limits"]
+        )
+        account["total_attempts"] = total_attempts
+        account["delivery_rate"] = round(account["sent"] / max(1, total_attempts) * 100, 1)
+        account["success_rate"] = account["delivery_rate"]
+
     return list(accounts.values())
 
 
@@ -91,6 +105,9 @@ async def stats_by_task(task_id: int, db: Session = Depends(get_db)):
     sent = sum(1 for s in stats if s.status == "sent")
     errors = sum(1 for s in stats if s.status == "error")
     bounces = sum(1 for s in stats if s.status == "bounce")
+    limits = sum(1 for s in stats if s.status == "limit")
+    total_attempts = sent + errors + bounces + limits
+    delivery_rate = round(sent / max(1, total_attempts) * 100, 1)
 
     return {
         "task_id": task_id,
@@ -102,12 +119,19 @@ async def stats_by_task(task_id: int, db: Session = Depends(get_db)):
             "sent": sent,
             "errors": errors,
             "bounces": bounces,
+            "limits": limits,
+            "total_attempts": total_attempts,
+            "delivery_rate": delivery_rate,
+            "success_rate": delivery_rate,
         },
         "recent": [
             {
                 "account": s.account_email,
                 "recipient": s.recipient_email,
                 "status": s.status,
+                "delivery_status": s.delivery_status,
+                "tracking_token": s.tracking_token,
+                "subject": s.message_subject or s.template_name,
                 "error": s.error_message,
                 "template": s.template_name,
                 "time": s.sent_at.isoformat() if s.sent_at else None,
@@ -134,6 +158,9 @@ async def recent_errors(limit: int = 50, db: Session = Depends(get_db)):
             "account": e.account_email,
             "recipient": e.recipient_email,
             "status": e.status,
+            "delivery_status": e.delivery_status,
+            "tracking_token": e.tracking_token,
+            "subject": e.message_subject or e.template_name,
             "error": e.error_message,
             "provider": e.provider,
             "time": e.sent_at.isoformat() if e.sent_at else None,

@@ -13,8 +13,10 @@ from loguru import logger
 from ..database import SessionLocal
 from ..models import (
     Campaign, CampaignStatus, CampaignTemplate, CampaignLink, CampaignRecipient,
-    Account, AccountStatus, Proxy, ProxyStatus,
+    Account, AccountStatus, Proxy, ProxyStatus, MailingStats,
 )
+from ..services.error_handler import error_handler
+from ..services.template_engine import render_template
 
 
 # ─── Global campaign registry ────────────────────────────────────────────────
@@ -280,16 +282,10 @@ class CampaignRunner:
                 email = account_data["email"]
                 password = account_data["password"]
                 provider = account_data["provider"]
-                from_name = account_data.get("first_name", "")
                 account_id = account_data.get("account_id")
                 daily_limit = PROVIDER_DAILY_LIMITS.get(provider, DEFAULT_DAILY_LIMIT)
 
                 # ── ErrorHandler for this account ──
-                error_handler = ErrorHandler(
-                    account_email=email,
-                    engine="campaign",
-                )
-
                 logger.info(f"Campaign send[{worker_id}]: starting with {email} (limit: {daily_limit}/day)")
 
                 consecutive_errors = 0
@@ -315,7 +311,11 @@ class CampaignRunner:
                             context = None
 
                 if not context:
-                    context = await bm.new_context(proxy=None)
+                    context = await bm.create_context(
+                        proxy=acc_obj.proxy if account_id and acc_obj else None,
+                        geo=acc_obj.geo if account_id and acc_obj else None,
+                        account_id=account_id,
+                    )
 
                 page = await context.new_page()
 
@@ -441,32 +441,39 @@ class CampaignRunner:
                     link_url = f"{link.esp_url}#{rand_hash}"
                     link_id = link.id
 
-                    # Render template with variables
-                    subject = template.subject
-                    body = template.body_html
-
                     to_email_str = recipient.email or ""
                     username = to_email_str.split("@")[0] if "@" in to_email_str else to_email_str
-                    subject = subject.replace("{{USERNAME}}", username)
-                    body = body.replace("{{USERNAME}}", username)
-
                     to_name = getattr(recipient, 'first_name', '') or ''
                     if not to_name:
                         to_name = username
-                    subject = subject.replace("{{NAME}}", to_name)
-                    body = body.replace("{{NAME}}", to_name)
-                    subject = subject.replace("{{FIRSTNAME}}", to_name)
-                    body = body.replace("{{FIRSTNAME}}", to_name)
-                    subject = subject.replace("{first_name}", from_name)
-                    body = body.replace("{first_name}", from_name)
+                    last_name = getattr(recipient, 'last_name', '') or ""
+
+                    # Generator-style templates use {{USERNAME}}, {{NAME}}, {{LINK}}.
+                    # Render those through the shared template engine, then keep the
+                    # old single-brace aliases for legacy campaign templates.
+                    subject, body = render_template(
+                        template.subject,
+                        template.body_html,
+                        recipient={
+                            "email": to_email_str,
+                            "name": to_name,
+                            "first_name": to_name,
+                            "last_name": last_name,
+                        },
+                        link_url=link_url,
+                    )
 
                     date_str = datetime.utcnow().strftime("%d/%m/%Y")
-                    subject = subject.replace("{{DATE}}", date_str).replace("{date}", date_str)
-                    body = body.replace("{{DATE}}", date_str).replace("{date}", date_str)
-
-                    body = body.replace("{{LINK}}", link_url)
-                    subject = subject.replace("{{LINK}}", link_url)
-                    body = body.replace("{link}", link_url)
+                    subject = subject.replace("{first_name}", to_name).replace("{date}", date_str).replace("{link}", link_url)
+                    body = body.replace("{first_name}", to_name).replace("{date}", date_str).replace("{link}", link_url)
+                    tracking_token = self._new_tracking_token()
+                    if "<" in body and ">" in body:
+                        lower_body = body.lower()
+                        tracking_marker = f"<!-- {tracking_token} -->"
+                        if "</body>" in lower_body:
+                            body = body.replace("</body>", f"{tracking_marker}</body>")
+                        else:
+                            body = f"{body}\n{tracking_marker}"
 
                     # Lock recipient
                     recipient.sent = True
@@ -491,11 +498,31 @@ class CampaignRunner:
 
                     # ═══ Process result via ErrorHandler ═══
                     if send_ok:
+                        delivery_status = "accepted"
+                        try:
+                            if await self._confirm_sent_attempt(page, provider, recipient.email, subject):
+                                delivery_status = "confirmed"
+                        except Exception as confirm_error:
+                            logger.debug(
+                                f"Campaign send[{worker_id}] {email}: sent confirmation skipped: {confirm_error}"
+                            )
                         recipient.result = "ok"
                         emails_sent += 1
                         warmup_level += 1
                         consecutive_errors = 0
-                        error_handler.record_sent()
+                        error_handler.record_sent(email)
+                        self._record_stat(
+                            db,
+                            account_email=email,
+                            recipient=recipient.email,
+                            status="sent",
+                            template_name=template.subject,
+                            provider=provider,
+                            message_subject=subject,
+                            tracking_token=tracking_token,
+                            delivery_status=delivery_status,
+                            checked_at=datetime.utcnow(),
+                        )
 
                         link = db.query(CampaignLink).filter(
                             CampaignLink.id == link_id
@@ -527,13 +554,26 @@ class CampaignRunner:
 
                     else:
                         # ── Use ErrorHandler for classification ──
-                        action = error_handler.handle_error(send_error)
+                        handled = error_handler.handle_error(send_error, email, recipient.email)
+                        action = handled.action
 
                         if action == "mark_dead":
                             # Undo recipient, mark account dead
                             recipient.sent = False
                             recipient.sent_at = None
                             recipient.result = None
+                            self._record_stat(
+                                db,
+                                account_email=email,
+                                recipient=recipient.email,
+                                status="error",
+                                error_msg=send_error,
+                                template_name=template.subject,
+                                provider=provider,
+                                message_subject=subject,
+                                tracking_token=tracking_token,
+                                delivery_status="error",
+                            )
                             account_dead = True
                             campaign = db.query(Campaign).filter(
                                 Campaign.id == self.campaign_id
@@ -551,11 +591,23 @@ class CampaignRunner:
                             )
                             break
 
-                        elif action == "pause":
+                        elif action in ("pause_1h", "pause_high_bounce"):
                             # Rate limited — undo recipient, re-queue with cooldown
                             recipient.sent = False
                             recipient.sent_at = None
                             recipient.result = None
+                            self._record_stat(
+                                db,
+                                account_email=email,
+                                recipient=recipient.email,
+                                status="limit",
+                                error_msg=send_error,
+                                template_name=template.subject,
+                                provider=provider,
+                                message_subject=subject,
+                                tracking_token=tracking_token,
+                                delivery_status="throttled",
+                            )
                             db.commit()
                             logger.warning(
                                 f"Campaign send[{worker_id}] {email} RATE LIMITED -> cooldown"
@@ -570,9 +622,47 @@ class CampaignRunner:
                                 pass
                             break
 
+                        elif action in ("warning_only", "mark_recipient_invalid"):
+                            recipient.result = "bounce"
+                            self._record_stat(
+                                db,
+                                account_email=email,
+                                recipient=recipient.email,
+                                status="bounce",
+                                error_msg=send_error,
+                                template_name=template.subject,
+                                provider=provider,
+                                message_subject=subject,
+                                tracking_token=tracking_token,
+                                delivery_status="rejected",
+                            )
+                            campaign = db.query(Campaign).filter(
+                                Campaign.id == self.campaign_id
+                            ).first()
+                            if campaign:
+                                campaign.total_errors = (campaign.total_errors or 0) + 1
+                            if account_id:
+                                acc = db.query(Account).filter(Account.id == account_id).first()
+                                if acc and error_handler.is_bounce_type(handled.error_type):
+                                    acc.bounces = (acc.bounces or 0) + 1
+                            db.commit()
+                            consecutive_errors += 1
+
                         else:
                             # Retry or unknown — generic error
                             recipient.result = "error"
+                            self._record_stat(
+                                db,
+                                account_email=email,
+                                recipient=recipient.email,
+                                status="error",
+                                error_msg=send_error,
+                                template_name=template.subject,
+                                provider=provider,
+                                message_subject=subject,
+                                tracking_token=tracking_token,
+                                delivery_status="unknown",
+                            )
                             campaign = db.query(Campaign).filter(
                                 Campaign.id == self.campaign_id
                             ).first()
@@ -650,6 +740,49 @@ class CampaignRunner:
         """
         from .browser_mail_sender import browser_compose_send
         await browser_compose_send(page, provider, to_email, subject, body)
+
+    async def _confirm_sent_attempt(self, page, provider: str, recipient: str, subject: str) -> bool:
+        """Best-effort Sent-folder confirmation for campaign truthfulness."""
+        from .browser_mail_actions import confirm_sent_email
+        return await confirm_sent_email(page, provider, subject, expected_recipient=recipient)
+
+    def _new_tracking_token(self) -> str:
+        """Return a compact internal campaign tracking token for future delivery correlation."""
+        return f"lmc-{''.join(random.choices(string.ascii_lowercase + string.digits, k=8))}"
+
+    def _record_stat(
+        self,
+        db,
+        account_email: str,
+        recipient: str,
+        status: str,
+        error_msg: str = None,
+        template_name: str = None,
+        provider: str = None,
+        message_subject: str = None,
+        tracking_token: str = None,
+        delivery_status: str = "unknown",
+        checked_at: datetime | None = None,
+    ):
+        """Persist one campaign send attempt for dashboard/reporting truthfulness."""
+        try:
+            stat = MailingStats(
+                campaign_id=self.campaign_id,
+                account_email=account_email,
+                recipient_email=recipient,
+                template_name=template_name or "",
+                message_subject=message_subject,
+                tracking_token=tracking_token,
+                status=status,
+                delivery_status=delivery_status,
+                checked_at=checked_at,
+                error_message=error_msg,
+                provider=provider,
+            )
+            db.add(stat)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Campaign stat record failed: {e}")
 
     # ─── Resource Monitor ─────────────────────────────────────────────────────
 

@@ -8,13 +8,14 @@ Inbox actions: reply, star, mark important, rescue from spam.
 import asyncio
 import os
 import random
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from ..models import Account, AccountStatus
+from ..models import Account, AccountStatus, WarmupEmail
 from ..config import get_warmup_config
 from ..services.engine_manager import EngineManager, EngineType
 
@@ -91,6 +92,92 @@ REPLY_BODIES = [
     "No problem at all.",
 ]
 
+WARMUP_TOKEN_RE = re.compile(r"\[lmw:([a-z0-9]{6,12})\]", re.IGNORECASE)
+
+
+def _normalize_subject(subject: str | None) -> str:
+    return " ".join((subject or "").strip().split()).lower()
+
+
+def _make_warmup_token(length: int = 6) -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(random.choice(alphabet) for _ in range(length))
+
+
+def _decorate_warmup_subject(base_subject: str) -> str:
+    token = _make_warmup_token()
+    return f"{base_subject} [lmw:{token}]"
+
+
+def _extract_warmup_token(subject: str | None) -> str:
+    match = WARMUP_TOKEN_RE.search(subject or "")
+    return (match.group(1) if match else "").lower()
+
+
+def _record_warmup_send(db: Session, sender_account_id: int, receiver_account_id: int, subject: str):
+    """Persist a warmup send so later inbox/spam/reply actions can update its fate."""
+    if not sender_account_id or not receiver_account_id or not subject:
+        return
+    db.add(
+        WarmupEmail(
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
+            subject=subject[:250],
+            delivery_status="pending",
+        )
+    )
+    db.flush()
+
+
+def _match_recent_warmup_email(
+    db: Session,
+    receiver_account_id: int,
+    subject: str,
+    statuses: tuple[str, ...] = ("pending", "inbox", "spam", "not_found"),
+) -> WarmupEmail | None:
+    """Best-effort match of a tracked warmup email by receiver + normalized subject."""
+    subject_norm = _normalize_subject(subject)
+    subject_token = _extract_warmup_token(subject)
+    if not receiver_account_id or not subject_norm:
+        return None
+
+    candidates = (
+        db.query(WarmupEmail)
+        .filter(
+            WarmupEmail.receiver_account_id == receiver_account_id,
+            WarmupEmail.delivery_status.in_(statuses),
+        )
+        .order_by(WarmupEmail.sent_at.desc())
+        .limit(25)
+        .all()
+    )
+    for candidate in candidates:
+        if subject_token and _extract_warmup_token(candidate.subject) == subject_token:
+            return candidate
+        if _normalize_subject(candidate.subject) == subject_norm:
+            return candidate
+    return None
+
+
+def _mark_warmup_delivery(db: Session, receiver_account_id: int, subject: str, status: str) -> bool:
+    tracked = _match_recent_warmup_email(db, receiver_account_id, subject)
+    if not tracked:
+        return False
+    tracked.delivery_status = status
+    tracked.checked_at = datetime.utcnow()
+    return True
+
+
+def _mark_warmup_reply(db: Session, receiver_account_id: int, subject: str) -> bool:
+    tracked = _match_recent_warmup_email(db, receiver_account_id, subject, statuses=("pending", "inbox", "spam"))
+    if not tracked:
+        return False
+    tracked.delivery_status = "inbox"
+    tracked.checked_at = datetime.utcnow()
+    tracked.replied = True
+    tracked.replied_at = datetime.utcnow()
+    return True
+
 
 # ── Phase calculation (dynamic, based on user settings) ──────────────────────
 
@@ -158,7 +245,7 @@ async def send_warmup_email_browser(
     subject: str = None,
     body: str = None,
     is_reply: bool = False,
-) -> bool:
+) -> tuple[bool, str]:
     """
     Send a single warm-up email via browser UI.
     Uses the shared browser_mail_sender module.
@@ -174,10 +261,10 @@ async def send_warmup_email_browser(
     try:
         await browser_compose_send(page, provider, to_email, subject, body)
         logger.debug(f"Warmup email sent via browser: -> {to_email}")
-        return True
+        return True, ""
     except Exception as e:
         logger.warning(f"Browser warmup send failed -> {to_email}: {e}")
-        return False
+        return False, str(e)
 
 
 # ── Main warm-up worker ───────────────────────────────────────────────────────
@@ -214,6 +301,8 @@ async def warmup_single_account(
         return result
 
     provider = account.provider or "outlook"
+    account_proxy = getattr(account, "proxy", None)
+    account_geo = getattr(account, "geo", None)
 
     # Calculate warmup day
     if not account.warmup_started_at:
@@ -274,12 +363,16 @@ async def warmup_single_account(
         try:
             context, session_path = await bm.load_session_context(
                 account_id=account.id,
-                proxy=None,  # warmup uses direct connection for now
-                geo=None,
+                proxy=account_proxy,
+                geo=account_geo,
             )
         except Exception as e:
             logger.warning(f"[WARN] {account.email}: session load failed: {e}")
-            context = await bm.create_context()
+            context = await bm.create_context(
+                proxy=account_proxy,
+                geo=account_geo,
+                account_id=account.id,
+            )
 
         page = await context.new_page()
 
@@ -334,10 +427,17 @@ async def warmup_single_account(
 
             # Send email via browser
             is_reply = random.random() < 0.3  # 30% chance of reply-style
-            success = await send_warmup_email_browser(
+            subject = _decorate_warmup_subject(random.choice(WARMUP_SUBJECTS))
+            body = random.choice(REPLY_BODIES if is_reply else WARMUP_BODIES)
+            if is_reply:
+                subject = f"Re: {subject}"
+
+            success, send_error = await send_warmup_email_browser(
                 page=page,
                 provider=provider,
                 to_email=to_email,
+                subject=subject,
+                body=body,
                 is_reply=is_reply,
             )
 
@@ -352,15 +452,17 @@ async def warmup_single_account(
                     error_handler.record_sent(account.email)
                 except Exception:
                     pass
+                _record_warmup_send(db, account.id, peer.id, subject)
             else:
                 result["errors"] += 1
-                account.bounces = (account.bounces or 0) + 1
                 # Classify error through ErrorHandler
                 try:
                     from ..services.error_handler import error_handler
-                    error_handler.handle_error(
-                        "warmup_send_failed", account.email, to_email
+                    handled = error_handler.handle_error(
+                        send_error or "warmup_send_failed", account.email, to_email
                     )
+                    if error_handler.is_bounce_type(handled.error_type):
+                        account.bounces = (account.bounces or 0) + 1
                 except Exception:
                     pass
                 # If too many errors, reduce health score
@@ -375,6 +477,8 @@ async def warmup_single_account(
                 # 1. Read inbox emails
                 inbox_emails = await read_inbox_emails(page, provider, max_emails=random.randint(2, 4))
                 result["received"] += len(inbox_emails)
+                for email_info in inbox_emails:
+                    _mark_warmup_delivery(db, account.id, email_info.get("subject"), "inbox")
 
                 # 2. Reply to warmup emails
                 if settings.enable_replies and inbox_emails:
@@ -391,7 +495,9 @@ async def warmup_single_account(
                             if replied:
                                 result["replied"] += 1
                                 reply_count += 1
+                                account.emails_sent_today = (account.emails_sent_today or 0) + 1
                                 account.total_emails_sent = (account.total_emails_sent or 0) + 1
+                                _mark_warmup_reply(db, account.id, email_info.get("subject"))
 
                 # 3. Star random emails
                 if settings.enable_starring and inbox_emails:
@@ -406,8 +512,10 @@ async def warmup_single_account(
                 # 4. Spam rescue (check spam folder, move warmup emails to inbox)
                 if settings.enable_spam_rescue and random.random() < settings.spam_check_chance:
                     await asyncio.sleep(random.uniform(3, 8))
-                    rescued = await rescue_from_spam(page, provider, max_emails=random.randint(1, 3))
-                    result["spam_rescued"] += rescued
+                    rescued_emails = await rescue_from_spam(page, provider, max_emails=random.randint(1, 3))
+                    result["spam_rescued"] += len(rescued_emails)
+                    for email_info in rescued_emails:
+                        _mark_warmup_delivery(db, account.id, email_info.get("subject"), "spam")
 
             except Exception as e:
                 logger.warning(f"[WARN] {account.email} inbox actions failed: {e}")

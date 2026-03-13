@@ -283,8 +283,9 @@ export default function Templates() {
                         fontSize: '0.75em', color: 'var(--text-secondary)', lineHeight: 1.8,
                     }}>
                         <strong style={{ color: '#10B981' }}>ZIP Format:</strong><br />
-                        <code>manifest.json</code> + <code>templates/*.html</code><br />
-                        Or just <code>.html</code> files (first line = <code>Subject: ...</code>)
+                        Preferred: <code>templates/letter_001/subject.txt</code> + <code>body.html</code> or <code>body.txt</code><br />
+                        Generator export: <code>manifest.json</code> + <code>templates/*.html</code> (subject taken from manifest)<br />
+                        Fallback: flat <code>.html</code> / <code>.txt</code> files with optional first line <code>Subject: ...</code>
                     </div>
 
                     <div
@@ -301,7 +302,7 @@ export default function Templates() {
                     >
                         <Upload size={28} style={{ color: 'var(--text-muted)', marginBottom: 6 }} />
                         <p style={{ fontSize: '0.88em', color: 'var(--text-muted)', margin: '4px 0' }}>Drop .zip file here or click to browse</p>
-                        <span style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>manifest.json + templates/*.html</span>
+                        <span style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>Folder-per-letter, manifest pack, or flat HTML/TXT</span>
                     </div>
                     <input ref={fileRef} type="file" accept=".zip" hidden onChange={e => e.target.files[0] && importZip(e.target.files[0])} />
 

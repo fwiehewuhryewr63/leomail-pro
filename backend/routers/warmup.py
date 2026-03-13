@@ -5,7 +5,7 @@ API endpoints for the warm-up engine.
 from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Account, AccountStatus, Farm
 from loguru import logger
 
@@ -45,13 +45,14 @@ _warmup_cancel = threading.Event()
 
 
 async def _run_warmup_task(
-    farm_ids: list[int], threads: int, accounts_limit: int, db: Session,
+    farm_ids: list[int], threads: int, accounts_limit: int,
     warmup_days: int = 30, emails_per_day: int = 0,
     enable_replies: bool = True, enable_starring: bool = True,
     enable_spam_rescue: bool = True,
 ):
     """Background task to run warm-up."""
     global _warmup_running, _warmup_stats
+    db = SessionLocal()
     _warmup_running = True
     _warmup_cancel.clear()
     _warmup_stats = {
@@ -109,6 +110,7 @@ async def _run_warmup_task(
     except Exception as e:
         logger.error(f"[Warmup] Error: {e}", exc_info=True)
     finally:
+        db.close()
         _warmup_running = False
 
 
@@ -124,7 +126,6 @@ async def start_warmup(request: WarmupRequest, background_tasks: BackgroundTasks
         farm_ids=request.farm_ids,
         threads=request.threads,
         accounts_limit=request.accounts_limit,
-        db=db,
         warmup_days=request.warmup_days,
         emails_per_day=request.emails_per_day,
         enable_replies=request.enable_replies,

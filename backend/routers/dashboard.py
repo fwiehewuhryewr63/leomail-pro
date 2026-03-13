@@ -164,7 +164,7 @@ async def dashboard_stats(db: Session = Depends(get_db), days: int = 7):
     total_bounced = db.query(MailingStats).filter(MailingStats.status == "bounce").count()
     total_limited = db.query(MailingStats).filter(MailingStats.status == "limit").count()
     total_mailed = total_sent + total_errors + total_bounced + total_limited
-    inbox_rate = round((total_sent / total_mailed * 100), 1) if total_mailed > 0 else 0
+    delivery_rate = round((total_sent / total_mailed * 100), 1) if total_mailed > 0 else 0
 
     # ─── FARM HEALTH ───
     farm_health = []
@@ -286,7 +286,8 @@ async def dashboard_stats(db: Session = Depends(get_db), days: int = 7):
             "total_errors": total_errors,
             "total_bounced": total_bounced,
             "total_limited": total_limited,
-            "inbox_rate": inbox_rate,
+            "delivery_rate": delivery_rate,
+            "inbox_rate": delivery_rate,  # backward compat for older frontend builds
         },
         "farm_health": farm_health,
         "database_progress": database_progress,
@@ -751,7 +752,7 @@ async def system_alerts(db: Session = Depends(get_db)):
 @router.get("/dashboard/campaign-stats")
 async def campaign_delivery_stats(db: Session = Depends(get_db)):
     """
-    Per-campaign delivery breakdown: sent, errors, bounced, inbox rate.
+    Per-campaign delivery breakdown: sent, errors, bounced, delivery rate.
     """
     from sqlalchemy import func
     from ..models import Campaign, MailingStats
@@ -772,7 +773,7 @@ async def campaign_delivery_stats(db: Session = Depends(get_db)):
             MailingStats.campaign_id == c.id, MailingStats.status == "limit"
         ).count()
         total = sent + errors + bounced + limited
-        inbox_rate = round(sent / total * 100, 1) if total > 0 else 0
+        delivery_rate = round(sent / total * 100, 1) if total > 0 else 0
 
         results.append({
             "id": c.id,
@@ -782,7 +783,8 @@ async def campaign_delivery_stats(db: Session = Depends(get_db)):
             "errors": errors,
             "bounced": bounced,
             "limited": limited,
-            "inbox_rate": inbox_rate,
+            "delivery_rate": delivery_rate,
+            "inbox_rate": delivery_rate,  # backward compat for older frontend builds
             "total_recipients": len(c.recipients) if c.recipients else 0,
         })
 

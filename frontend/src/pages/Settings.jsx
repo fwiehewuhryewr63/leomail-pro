@@ -59,6 +59,10 @@ export default function Settings() {
     const [updateApplying, setUpdateApplying] = useState(false);
     const [updateStatus, setUpdateStatus] = useState('');
     const [updateProgress, setUpdateProgress] = useState(null);
+    const [updateBackups, setUpdateBackups] = useState([]);
+    const [backupsLoading, setBackupsLoading] = useState(false);
+    const [backupCreating, setBackupCreating] = useState(false);
+    const [updateOutcome, setUpdateOutcome] = useState(null);
 
 
 
@@ -80,9 +84,24 @@ export default function Settings() {
             .catch(() => { /* ignore */ });
     };
 
+    const loadBackups = () => {
+        setBackupsLoading(true);
+        fetch(`${API}/update/backups`)
+            .then(r => r.json())
+            .then(d => setUpdateBackups(d?.backups || []))
+            .catch(() => setUpdateBackups([]))
+            .finally(() => setBackupsLoading(false));
+    };
+
+    const latestBackup = updateBackups?.[0] || null;
+
     useEffect(() => {
         loadSettings();
         fetch(`${API}/update/version`).then(r => r.json()).then(d => setUpdateInfo(prev => ({ ...prev, current_version: d.version || d.server_version }))).catch(() => { });
+        fetch(`${API}/update/last-result`).then(r => r.json()).then(d => {
+            if (d?.status) setUpdateOutcome(d);
+        }).catch(() => { });
+        loadBackups();
     }, []);
 
     const getKeyValue = (configPath) => {
@@ -342,6 +361,71 @@ export default function Settings() {
                 </div>
             </div>
 
+            <div style={{ marginBottom: 20 }}>
+                <SectionHeader color="#3B82F6" title="Runtime Layout" subtitle="How a boxed VPS install is structured on disk" />
+                <div className="card" style={{ padding: '18px 20px' }}>
+                    <div className="config-row-2">
+                        <div style={{
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: 'rgba(59,130,246,0.07)',
+                            border: '1px solid rgba(59,130,246,0.18)',
+                        }}>
+                            <div style={{ fontSize: '0.74em', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 700 }}>
+                                Boxed Install
+                            </div>
+                            <div style={{ fontSize: '0.78em', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                Runtime updates replace the boxed app only. Local operating data stays in <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>user_data/</span>.
+                            </div>
+                            <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+                                <div style={{ fontSize: '0.72em', color: 'var(--text-muted)' }}>Runtime folder</div>
+                                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.74em', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                                    {rawSettings?.runtime?.app_root || '...'}
+                                </div>
+                                <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 2 }}>Local data folder</div>
+                                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.74em', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                                    {rawSettings?.runtime?.user_data_path || '...'}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid var(--border-subtle)',
+                        }}>
+                            <div style={{ fontSize: '0.74em', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 700 }}>
+                                First-Run Rules
+                            </div>
+                            <div style={{ display: 'grid', gap: 5, fontSize: '0.72em', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                <div>1. Download and unpack the runtime ZIP</div>
+                                <div>2. Keep Google Chrome installed on the VPS</div>
+                                <div>3. Launch <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>Leomail.exe</span></div>
+                                <div>4. Keep this folder stable for future updates</div>
+                                <div>5. Do not replace or delete <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>user_data/</span> during updates</div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                                <span className={`badge ${rawSettings?.runtime?.db_present ? 'badge-success' : ''}`} style={{
+                                    background: rawSettings?.runtime?.db_present ? undefined : 'rgba(255,255,255,0.06)',
+                                    color: rawSettings?.runtime?.db_present ? undefined : 'var(--text-muted)',
+                                }}>
+                                    {rawSettings?.runtime?.db_present ? 'DB present' : 'DB not created yet'}
+                                </span>
+                                <span className={`badge ${rawSettings?.runtime?.config_present ? 'badge-success' : ''}`} style={{
+                                    background: rawSettings?.runtime?.config_present ? undefined : 'rgba(255,255,255,0.06)',
+                                    color: rawSettings?.runtime?.config_present ? undefined : 'var(--text-muted)',
+                                }}>
+                                    {rawSettings?.runtime?.config_present ? 'Config present' : 'Config not saved yet'}
+                                </span>
+                                <span className="badge" style={{ background: 'rgba(59,130,246,0.1)', color: '#60A5FA' }}>
+                                    {rawSettings?.runtime?.is_frozen ? 'Boxed EXE mode' : 'Dev mode'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
 
             <div style={{ marginBottom: 20 }}>
                 <SectionHeader color="#8B5CF6" title="Data Portability" subtitle="Move or back up live operating data" />
@@ -404,12 +488,58 @@ export default function Settings() {
             <div style={{ marginBottom: 20 }}>
                 <SectionHeader color="#8B5CF6" title="System Update" subtitle="Version checks, release notes, and boxed app rollout" />
                 <div className="card settings-update-card" style={{ padding: '16px 20px' }}>
+                    {updateOutcome?.status && (
+                        <div style={{
+                            marginBottom: 12,
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: updateOutcome.status === 'success' ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.1)',
+                            border: updateOutcome.status === 'success'
+                                ? '1px solid rgba(16,185,129,0.2)'
+                                : '1px solid rgba(245,158,11,0.22)',
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 12,
+                            }}>
+                                <div>
+                                    <div style={{
+                                        fontSize: '0.84em',
+                                        fontWeight: 800,
+                                        color: updateOutcome.status === 'success' ? '#10B981' : '#F59E0B',
+                                        marginBottom: 4,
+                                    }}>
+                                        {updateOutcome.status === 'success'
+                                            ? `Update complete · v${updateOutcome.current_version || updateInfo?.current_version || '...'}`
+                                            : `Update recovered · running v${updateOutcome.current_version || updateInfo?.current_version || '...'}`
+                                        }
+                                    </div>
+                                    <div style={{ fontSize: '0.73em', color: 'var(--text-muted)' }}>
+                                        {updateOutcome.status === 'success'
+                                            ? 'The app restarted successfully after replacing runtime files.'
+                                            : 'The previous runtime was restored after a failed update attempt.'
+                                        }
+                                        {updateOutcome.at ? ` ${updateOutcome.at}` : ''}
+                                    </div>
+                                </div>
+                                <button className="btn btn-sm" onClick={() => setUpdateOutcome(null)}>
+                                    Dismiss
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Version + Check */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                         <div>
                             <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', marginBottom: 2 }}>Current Version</div>
                             <div style={{ fontSize: '1.3em', fontWeight: 800, fontFamily: 'JetBrains Mono, monospace' }}>
                                 v{updateInfo?.current_version || '...'}
+                            </div>
+                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 6 }}>
+                                Updates replace runtime only. <strong style={{ color: 'var(--text-secondary)' }}>user_data is backed up automatically</strong> before apply.
                             </div>
                         </div>
                         <button className="btn btn-primary" onClick={async () => {
@@ -428,6 +558,72 @@ export default function Settings() {
                         </button>
                     </div>
 
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0, 1.2fr) minmax(220px, 0.9fr)',
+                        gap: 10,
+                        marginBottom: 12,
+                    }}>
+                        <div style={{
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid var(--border-subtle)',
+                        }}>
+                            <div style={{ fontSize: '0.74em', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 700 }}>
+                                Update Safety Point
+                            </div>
+                            {latestBackup ? (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                        <span className="badge badge-success" style={{ fontSize: '0.68em' }}>
+                                            {latestBackup.has_db ? 'DB backed up' : 'Backup ready'}
+                                        </span>
+                                        <span style={{ fontSize: '0.74em', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                            {latestBackup.size_mb} MB
+                                        </span>
+                                    </div>
+                                    <div style={{
+                                        fontSize: '0.77em',
+                                        color: 'var(--text-secondary)',
+                                        fontFamily: 'JetBrains Mono, monospace',
+                                        marginBottom: 4,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                    }}>
+                                        {latestBackup.name}
+                                    </div>
+                                    <div style={{ fontSize: '0.7em', color: 'var(--text-muted)' }}>
+                                        Latest backup: {new Date((latestBackup.created || 0) * 1000).toLocaleString()}
+                                    </div>
+                                </>
+                            ) : (
+                                <div style={{ fontSize: '0.74em', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                    No manual backup yet. A fresh backup will still be created automatically before apply.
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: 'rgba(139,92,246,0.08)',
+                            border: '1px solid rgba(139,92,246,0.18)',
+                        }}>
+                            <div style={{ fontSize: '0.74em', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 700 }}>
+                                Existing Install Flow
+                            </div>
+                            <div style={{ display: 'grid', gap: 4, fontSize: '0.72em', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                <div>1. Check release</div>
+                                <div>2. Backup <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>user_data/</span></div>
+                                <div>3. Download + verify runtime</div>
+                                <div>4. Replace runtime only</div>
+                                <div>5. Restart with your DB preserved</div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Update available banner */}
                     {updateInfo?.update_available && !updateApplying && (
                         <div style={{ background: 'rgba(139,92,246,0.1)', borderRadius: 10, padding: 16, marginBottom: 10, border: '1px solid rgba(139,92,246,0.25)' }}>
@@ -439,7 +635,10 @@ export default function Settings() {
                                     </span>
                                 </div>
                                 <button className="btn btn-success" onClick={async () => {
-                                    if (!confirm(`Update to v${updateInfo.remote_version}?\nApp will restart.`)) return;
+                                    const backupText = latestBackup
+                                        ? `Latest visible backup: ${latestBackup.name}`
+                                        : 'A fresh backup will be created automatically';
+                                    if (!confirm(`Update to v${updateInfo.remote_version}?\n${backupText}\nApp will restart.`)) return;
                                     setUpdateApplying(true);
                                     setUpdateStatus('');
                                     // Start polling progress
@@ -499,6 +698,115 @@ export default function Settings() {
                             )}
                         </div>
                     )}
+
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 12,
+                        marginBottom: 12,
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid var(--border-subtle)',
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '0.82em', fontWeight: 800, color: 'var(--text-primary)' }}>Backup Safety</div>
+                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 4 }}>
+                                Existing installs keep their live database in <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>user_data/</span>. Updates create a backup first.
+                            </div>
+                        </div>
+                        <button
+                            className="btn"
+                            disabled={backupCreating || updateApplying}
+                            onClick={async () => {
+                                setBackupCreating(true);
+                                setUpdateStatus('');
+                                try {
+                                    const r = await fetch(`${API}/update/backup`, { method: 'POST' });
+                                    const d = await r.json();
+                                    if (d.status === 'ok') {
+                                        setUpdateStatus('✅ Backup created successfully');
+                                        loadBackups();
+                                    } else {
+                                        setUpdateStatus(`❌ ${d.message || 'Backup failed'}`);
+                                    }
+                                } catch {
+                                    setUpdateStatus('❌ Backup failed');
+                                }
+                                setBackupCreating(false);
+                            }}
+                            style={{ whiteSpace: 'nowrap' }}
+                        >
+                            {backupCreating ? <><Loader size={14} className="spin" /> Creating...</> : <><Save size={14} /> Create Backup Now</>}
+                        </button>
+                    </div>
+
+                    <div style={{ marginBottom: updateApplying ? 10 : 0 }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 8,
+                        }}>
+                            <div style={{ fontSize: '0.78em', color: 'var(--text-muted)', fontWeight: 700 }}>
+                                Recent Backups
+                            </div>
+                            <button className="btn btn-sm" onClick={loadBackups} disabled={backupsLoading || updateApplying}>
+                                {backupsLoading ? <Loader size={12} className="spin" /> : <RefreshCw size={12} />}
+                            </button>
+                        </div>
+                        <div style={{ display: 'grid', gap: 8 }}>
+                            {(updateBackups || []).slice(0, 3).map((backup) => (
+                                <div key={backup.path} style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    background: 'rgba(255,255,255,0.025)',
+                                    border: '1px solid var(--border-subtle)',
+                                }}>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{
+                                            fontSize: '0.78em',
+                                            fontWeight: 700,
+                                            color: 'var(--text-secondary)',
+                                            fontFamily: 'JetBrains Mono, monospace',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}>
+                                            {backup.name}
+                                        </div>
+                                        <div style={{ fontSize: '0.68em', color: 'var(--text-muted)', marginTop: 3 }}>
+                                            {new Date((backup.created || 0) * 1000).toLocaleString()} · {backup.size_mb} MB
+                                        </div>
+                                    </div>
+                                    <span className={`badge ${backup.has_db ? 'badge-success' : ''}`} style={{
+                                        fontSize: '0.68em',
+                                        background: backup.has_db ? undefined : 'rgba(255,255,255,0.06)',
+                                        color: backup.has_db ? undefined : 'var(--text-muted)',
+                                    }}>
+                                        {backup.has_db ? 'DB included' : 'No DB'}
+                                    </span>
+                                </div>
+                            ))}
+                            {!backupsLoading && !(updateBackups || []).length && (
+                                <div style={{
+                                    padding: '12px 14px',
+                                    borderRadius: 10,
+                                    background: 'rgba(255,255,255,0.025)',
+                                    border: '1px dashed var(--border-subtle)',
+                                    fontSize: '0.75em',
+                                    color: 'var(--text-muted)',
+                                }}>
+                                    No backups yet. The app will create one automatically before applying an update.
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
                     {/* Progress bar during update */}
                     {updateApplying && (

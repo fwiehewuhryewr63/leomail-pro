@@ -26,7 +26,7 @@ logger.remove()
 logger.add(sys.stderr, level="DEBUG", format="{time:HH:mm:ss} | {level: <8} | {message}",
            colorize=True)
 
-from .database import engine as db_engine, Base
+from .database import engine as db_engine, Base, backup_database
 from .config import init_directories, load_config
 
 # Import routers
@@ -80,6 +80,10 @@ async def _startup():
     err_path = _PR / "user_data" / "logs" / "errors.log"
     logger.add(str(err_path), rotation="5 MB", retention=3, level="ERROR",
                format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}")
+
+    # Real startup backup should happen here, not at import time, so build tools
+    # and analyzers do not accidentally create runtime DB backups.
+    backup_database("startup")
 
     # Create all tables
     Base.metadata.create_all(bind=db_engine)
@@ -328,6 +332,10 @@ async def _startup():
             ms_cols = [c["name"] for c in inspector.get_columns("mailing_stats")]
             ms_migrations = {
                 "campaign_id": "INTEGER",
+                "message_subject": "VARCHAR",
+                "tracking_token": "VARCHAR",
+                "delivery_status": "VARCHAR DEFAULT 'unknown'",
+                "checked_at": "DATETIME",
             }
             for col, col_type in ms_migrations.items():
                 if col not in ms_cols:
@@ -380,7 +388,7 @@ async def _startup():
         # Schema version marker — track which version last ran migrations
         try:
             conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_meta (key VARCHAR PRIMARY KEY, value VARCHAR)"))
-            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.91"})
+            conn.execute(text("INSERT OR REPLACE INTO _schema_meta (key, value) VALUES ('schema_version', :v)"), {"v": "4.5.97"})
             conn.commit()
         except Exception:
             pass

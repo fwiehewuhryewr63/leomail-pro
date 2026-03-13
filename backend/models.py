@@ -376,9 +376,13 @@ class MailingStats(Base):
     account_email = Column(String, index=True)
     recipient_email = Column(String, index=True)
     template_name = Column(String, nullable=True)
+    message_subject = Column(String, nullable=True)
+    tracking_token = Column(String, nullable=True, index=True)
     status = Column(String, index=True)  # "sent", "error", "bounce", "limit"
+    delivery_status = Column(String, default="unknown", index=True)  # accepted | rejected | throttled | unknown
     error_message = Column(String, nullable=True)
     provider = Column(String, nullable=True)  # yahoo, aol, gmail, outlook
+    checked_at = Column(DateTime, nullable=True)
 
     sent_at = Column(DateTime, default=datetime.utcnow)
 

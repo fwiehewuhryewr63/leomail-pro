@@ -41,6 +41,7 @@ cd /d "%ROOT%"
 
 :: Step 3: Build EXE with PyInstaller
 echo  [3/4] Building EXE with PyInstaller...
+if exist "dist\Leomail" rmdir /s /q "dist\Leomail"
 python -m PyInstaller --clean --noconfirm Leomail.spec
 if errorlevel 1 (
     echo  [ERROR] PyInstaller build failed.
@@ -51,6 +52,13 @@ echo        PyInstaller build OK.
 
 :: Step 4: Prepare boxed runtime + archive
 echo  [4/4] Preparing boxed runtime...
+if exist "dist\Leomail\user_data" rmdir /s /q "dist\Leomail\user_data"
+if exist "dist\Leomail\_update_tmp" rmdir /s /q "dist\Leomail\_update_tmp"
+if exist "dist\Leomail\_internal.old" rmdir /s /q "dist\Leomail\_internal.old"
+if exist "dist\Leomail\Leomail.exe.bak" del /f /q "dist\Leomail\Leomail.exe.bak" >nul 2>&1
+if exist "dist\Leomail\_updater.bat" del /f /q "dist\Leomail\_updater.bat" >nul 2>&1
+if exist "dist\Leomail\_update_failed.log" del /f /q "dist\Leomail\_update_failed.log" >nul 2>&1
+if exist "dist\Leomail\_update_result.txt" del /f /q "dist\Leomail\_update_result.txt" >nul 2>&1
 if not exist "dist\Leomail\user_data" mkdir "dist\Leomail\user_data"
 if not exist "dist\Leomail\user_data\sessions" mkdir "dist\Leomail\user_data\sessions"
 if not exist "dist\Leomail\user_data\logs" mkdir "dist\Leomail\user_data\logs"

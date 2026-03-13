@@ -7,12 +7,13 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from sqlalchemy import desc
 import random
 import string
 
 from ..database import get_db
 from ..models import (
-    Campaign, CampaignStatus, CampaignTemplate, CampaignLink, CampaignRecipient,
+    Campaign, CampaignStatus, CampaignTemplate, CampaignLink, CampaignRecipient, MailingStats,
 )
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
@@ -100,6 +101,26 @@ async def list_campaigns(db: Session = Depends(get_db)):
             CampaignTemplate.campaign_id == c.id,
             CampaignTemplate.active == True  # noqa: E712
         ).count()
+        confirmed = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id,
+            MailingStats.delivery_status == "confirmed"
+        ).count()
+        accepted = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id,
+            MailingStats.delivery_status == "accepted"
+        ).count()
+        throttled = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id,
+            MailingStats.delivery_status == "throttled"
+        ).count()
+        rejected = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id,
+            MailingStats.delivery_status == "rejected"
+        ).count()
+        unknown = db.query(MailingStats).filter(
+            MailingStats.campaign_id == c.id,
+            MailingStats.delivery_status.in_(["unknown", "error"])
+        ).count()
 
         result.append({
             "id": c.id,
@@ -122,6 +143,13 @@ async def list_campaigns(db: Session = Depends(get_db)):
             "links_active": active_links,
             "links_total": total_links,
             "templates_active": active_templates,
+            "delivery_breakdown": {
+                "confirmed": confirmed,
+                "accepted": accepted,
+                "throttled": throttled,
+                "rejected": rejected,
+                "unknown": unknown,
+            },
             "created_at": c.created_at.isoformat() if c.created_at else None,
         })
     return result
@@ -220,7 +248,7 @@ async def create_campaign(req: CampaignCreate, db: Session = Depends(get_db)):
                             cr = CampaignRecipient(
                                 campaign_id=campaign.id,
                                 email=email,
-                                first_name=entry.get('first_name', '') or '',
+                                first_name=entry.get('first_name') or entry.get('name', '') or '',
                                 sent=False,
                             )
                             db.add(cr)
@@ -283,6 +311,35 @@ async def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
         CampaignLink.active == True  # noqa: E712
     ).count()
 
+    confirmed = db.query(MailingStats).filter(
+        MailingStats.campaign_id == c.id,
+        MailingStats.delivery_status == "confirmed"
+    ).count()
+    accepted = db.query(MailingStats).filter(
+        MailingStats.campaign_id == c.id,
+        MailingStats.delivery_status == "accepted"
+    ).count()
+    throttled = db.query(MailingStats).filter(
+        MailingStats.campaign_id == c.id,
+        MailingStats.delivery_status == "throttled"
+    ).count()
+    rejected = db.query(MailingStats).filter(
+        MailingStats.campaign_id == c.id,
+        MailingStats.delivery_status == "rejected"
+    ).count()
+    unknown = db.query(MailingStats).filter(
+        MailingStats.campaign_id == c.id,
+        MailingStats.delivery_status.in_(["unknown", "error"])
+    ).count()
+    attempts = confirmed + accepted + throttled + rejected + unknown
+    recent_attempts = (
+        db.query(MailingStats)
+        .filter(MailingStats.campaign_id == c.id)
+        .order_by(desc(MailingStats.sent_at))
+        .limit(8)
+        .all()
+    )
+
     return {
         "id": c.id,
         "name": c.name,
@@ -305,6 +362,26 @@ async def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
         "progress_pct": int((sent_r / total_r * 100)) if total_r > 0 else 0,
         "links_total": links_total,
         "links_active": links_active,
+        "delivery_breakdown": {
+            "confirmed": confirmed,
+            "accepted": accepted,
+            "throttled": throttled,
+            "rejected": rejected,
+            "unknown": unknown,
+            "attempts": attempts,
+        },
+        "recent_attempts": [
+            {
+                "recipient": m.recipient_email,
+                "subject": m.message_subject or m.template_name,
+                "status": m.status,
+                "delivery_status": m.delivery_status or "unknown",
+                "tracking_token": m.tracking_token,
+                "error": m.error_message,
+                "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+            }
+            for m in recent_attempts
+        ],
         "templates": [
             {"id": t.id, "subject": t.subject, "style": t.style,
              "use_count": t.use_count, "active": t.active}

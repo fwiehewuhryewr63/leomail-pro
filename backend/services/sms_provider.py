@@ -204,8 +204,10 @@ class GrizzlySMS(SMSProvider):
             try:
                 return float(result.split(":")[1])
             except ValueError:
-                return 0.0
-        return 0.0
+                raise RuntimeError(f"GrizzlySMS returned invalid balance format: {result}")
+        if result.startswith("ERROR:"):
+            raise RuntimeError(result[6:].strip())
+        raise RuntimeError(f"GrizzlySMS unexpected balance response: {result}")
 
     # Virtual country codes to ALWAYS exclude (these give non-working numbers)
     VIRTUAL_COUNTRY_CODES = {"187", "17"}  # us_v=187, us_v in simsms=17

@@ -67,11 +67,11 @@ export function domainToColor(domain) {
  * limitKey: key in proxyLimits state
  */
 export const PROXY_COLUMNS = [
-    { label: 'G', providerKey: 'gmail', dataKey: 'G', failKey: 'fail_G', limitKey: 'G', defaultLimit: 1 },
-    { label: 'Y/A', providerKey: 'yahoo', dataKey: 'YA', failKey: 'fail_YA', limitKey: 'YA', defaultLimit: 3 },
-    { label: 'O/H', providerKey: 'outlook', dataKey: 'OH', failKey: 'fail_OH', limitKey: 'OH', defaultLimit: 3 },
-    { label: 'P', providerKey: 'protonmail', dataKey: 'PT', failKey: 'fail_PT', limitKey: 'PT', defaultLimit: 3 },
-    { label: 'WD', providerKey: 'webde', dataKey: 'WD', failKey: 'fail_WD', limitKey: 'WD', defaultLimit: 3 },
+    { label: 'G', providerKey: 'gmail', dataKey: 'G', failKey: 'fail_G', limitKey: 'G', defaultLimit: 1, cooldownKeys: ['gmail'] },
+    { label: 'Y/A', providerKey: 'yahoo', dataKey: 'YA', failKey: 'fail_YA', limitKey: 'YA', defaultLimit: 3, cooldownKeys: ['yahoo', 'aol'] },
+    { label: 'O/H', providerKey: 'outlook', dataKey: 'OH', failKey: 'fail_OH', limitKey: 'OH', defaultLimit: 3, cooldownKeys: ['outlook', 'hotmail'] },
+    { label: 'P', providerKey: 'protonmail', dataKey: 'PT', failKey: 'fail_PT', limitKey: 'PT', defaultLimit: 3, cooldownKeys: ['protonmail'] },
+    { label: 'WD', providerKey: 'webde', dataKey: 'WD', failKey: 'fail_WD', limitKey: 'WD', defaultLimit: 3, cooldownKeys: ['webde'] },
 ];
 
 /**

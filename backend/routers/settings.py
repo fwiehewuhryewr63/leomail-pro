@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
+import sys
+from pathlib import Path
 from ..config import load_config, save_config, mask_key, get_api_key
 from ..services.sms_provider import GrizzlySMS
 from ..services.proxy_manager import ProxyManager
@@ -43,6 +45,11 @@ class SettingsUpdate(BaseModel):
 @router.get("/")
 async def get_settings():
     config = load_config()
+    if getattr(sys, 'frozen', False):
+        app_root = Path(sys.executable).parent
+    else:
+        app_root = Path(__file__).parent.parent.parent
+    user_data_dir = app_root / "user_data"
     return {
         "sms": {
             "grizzly": {
@@ -98,7 +105,14 @@ async def get_settings():
         "proxy_cooldown": {
             "soft_min": config.get("proxy_cooldown", {}).get("soft_min", ProxyManager.SOFT_COOLDOWN_MIN),
             "hard_min": config.get("proxy_cooldown", {}).get("hard_min", ProxyManager.HARD_COOLDOWN_MIN),
-        }
+        },
+        "runtime": {
+            "is_frozen": getattr(sys, 'frozen', False),
+            "app_root": str(app_root),
+            "user_data_path": str(user_data_dir),
+            "config_present": (user_data_dir / "config.json").exists(),
+            "db_present": (user_data_dir / "leomail.db").exists(),
+        },
     }
 
 @router.post("/")

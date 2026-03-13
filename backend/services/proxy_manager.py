@@ -119,6 +119,18 @@ class ProxyManager:
         active = [dt for dt in cooldowns.values() if dt > now]
         proxy.cooldown_until = max(active) if active else None
 
+    def _clear_provider_cooldown(self, proxy, provider: str):
+        """Remove a provider-local cooldown and recompute derived global state."""
+        if not provider:
+            return
+        now = datetime.utcnow()
+        cooldowns = self._get_provider_cooldowns(proxy)
+        cooldowns.pop(provider.lower(), None)
+        cooldowns = {k: v for k, v in cooldowns.items() if v > now}
+        proxy.cooldown_providers = json.dumps({k: v.isoformat() for k, v in cooldowns.items()}) if cooldowns else None
+        active = [dt for dt in cooldowns.values() if dt > now]
+        proxy.cooldown_until = max(active) if active else None
+
     @staticmethod
     def _filter_by_provider_cooldown(candidates: list, provider: str) -> list:
         """Post-filter: remove proxies that are in cooldown for a specific provider."""
@@ -212,6 +224,22 @@ class ProxyManager:
     # Cooldown durations (minutes)
     SOFT_COOLDOWN_MIN = 10   # transient/ambiguous failures
     HARD_COOLDOWN_MIN = 30   # strong provider rejection
+
+    @staticmethod
+    def _provider_group_fields(provider: str) -> tuple[list[str], list[str]]:
+        """Return use_/fail_ field names for the provider group."""
+        provider = (provider or "").lower()
+        if provider in ('yahoo', 'aol'):
+            return (['use_yahoo', 'use_aol'], ['fail_yahoo', 'fail_aol'])
+        if provider in ('outlook', 'hotmail'):
+            return (['use_outlook', 'use_hotmail'], ['fail_outlook', 'fail_hotmail'])
+        if provider == 'gmail':
+            return (['use_gmail'], ['fail_gmail'])
+        if provider == 'protonmail':
+            return (['use_protonmail'], ['fail_protonmail'])
+        if provider == 'webde':
+            return (['use_webde'], ['fail_webde'])
+        return ([], [])
 
     def get_unbound_proxy(self, provider: str = None) -> Proxy | None:
         """Get an active proxy NOT bound to any account.
@@ -686,6 +714,40 @@ class ProxyManager:
         self.db.commit()
         logger.info(f"[ProxyManager] Reset counters for proxy {proxy.host}:{proxy.port}")
         return {"status": "ok", "proxy_id": proxy.id}
+
+    def reset_provider_counters(self, provider: str) -> dict:
+        """Reset usage/fail counters and cooldown only for one provider group."""
+        use_fields, fail_fields = self._provider_group_fields(provider)
+        if not use_fields and not fail_fields:
+            return {"status": "error", "message": f"Unknown provider group: {provider}"}
+
+        proxies = self.db.query(Proxy).filter(
+            Proxy.status.in_([ProxyStatus.ACTIVE, ProxyStatus.EXHAUSTED])
+        ).all()
+
+        reset = 0
+        reactivated = 0
+        for proxy in proxies:
+            touched = False
+            before_cooldown = getattr(proxy, "cooldown_providers", None)
+            for field in use_fields + fail_fields:
+                if hasattr(proxy, field) and (getattr(proxy, field) or 0) != 0:
+                    setattr(proxy, field, 0)
+                    touched = True
+            before_status = proxy.status
+            self._clear_provider_cooldown(proxy, provider)
+            if getattr(proxy, "cooldown_providers", None) != before_cooldown:
+                touched = True
+            if before_status == ProxyStatus.EXHAUSTED and not self._is_exhausted(proxy):
+                proxy.status = ProxyStatus.ACTIVE
+                reactivated += 1
+                touched = True
+            if touched:
+                reset += 1
+
+        self.db.commit()
+        logger.info(f"[ProxyManager] Reset provider counters for {provider}: {reset} proxies, {reactivated} reactivated")
+        return {"status": "ok", "provider": provider, "reset": reset, "reactivated": reactivated}
 
     def refresh_proxy(self, proxy_id: int, new_host: str = None, new_port: int = None,
                       new_username: str = None, new_password: str = None) -> dict:

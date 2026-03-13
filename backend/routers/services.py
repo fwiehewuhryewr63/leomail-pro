@@ -13,9 +13,12 @@ class ServiceTestRequest(BaseModel):
 @router.post("/test")
 async def test_service(request: ServiceTestRequest):
     if request.service_type == "grizzly":
-        provider = GrizzlySMS(request.api_key)
-        balance = provider.get_balance()
-        return {"status": "ok", "message": f"Grizzly SMS connected. Balance: {balance}"}
+        try:
+            provider = GrizzlySMS(request.api_key)
+            balance = provider.get_balance()
+            return {"status": "ok", "message": f"Grizzly SMS connected. Balance: {balance}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
     
     elif request.service_type == "capguru":
         provider = CaptchaProvider()

@@ -202,7 +202,6 @@ def open_native_window(port: int):
         "--disable-gpu",
         "--disable-software-rasterizer",
         "--in-process-gpu",
-        "--disable-gpu-sandbox",
     ]
 
     log(f"[Leomail] Launching window...")

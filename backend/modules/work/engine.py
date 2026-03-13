@@ -51,10 +51,12 @@ def _load_recipients(db_record: RecipientDatabase) -> list[dict]:
             for entry in data:
                 email = entry.get("email", "").strip()
                 if "@" in email:
+                    first_name = (entry.get("first_name") or entry.get("name") or "").strip()
                     recipients.append({
                         "email": email,
-                        "first_name": entry.get("first_name", ""),
-                        "last_name": entry.get("last_name", ""),
+                        "first_name": first_name,
+                        "name": first_name,
+                        "last_name": (entry.get("last_name") or "").strip(),
                     })
         except Exception as e:
             logger.error(f"JSON parse error: {e}")
@@ -76,6 +78,7 @@ def _load_recipients(db_record: RecipientDatabase) -> list[dict]:
             recipients.append({
                 "email": email,
                 "first_name": first_name,
+                "name": first_name,
                 "last_name": last_name,
             })
 
@@ -350,6 +353,7 @@ class WorkSession:
 
                     # Record success stat
                     self._record_stat(db, recipient["email"], "sent", template_name=tmpl_name)
+                    error_handler.record_sent(self.account.email)
 
                     logger.debug(f"Work [{self.account.email}] -> {recipient['email']} ")
 
@@ -359,19 +363,23 @@ class WorkSession:
                     self.consecutive_errors += 1
                     logger.error(f"Work [{self.account.email}] -> {recipient['email']} : {error_msg}")
 
-                    # Record error stat
-                    self._record_stat(
-                        db, recipient["email"], "error",
-                        error_msg=error_msg, template_name=tmpl_name,
-                    )
-                    await debug_screenshot(page, "send_error", self.account.email, "work")
-
                     # Error handling
                     action = error_handler.handle_send_error(
                         email=self.account.email,
                         error=error_msg,
                         recipient=recipient["email"],
                     )
+
+                    status = action.get("status", "error")
+                    self._record_stat(
+                        db, recipient["email"], status,
+                        error_msg=error_msg, template_name=tmpl_name,
+                    )
+                    if status == "bounce":
+                        self.bounce_count += 1
+                        self.account.bounces = (self.account.bounces or 0) + 1
+
+                    await debug_screenshot(page, "send_error", self.account.email, "work")
 
                     if action.get("action") == "stop":
                         logger.warning(f"Work [{self.account.email}]: stopping (error handler)")

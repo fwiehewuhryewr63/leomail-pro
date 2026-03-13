@@ -28,6 +28,136 @@ async def _human_pause(min_s: float = 0.5, max_s: float = 2.0):
     await asyncio.sleep(random.uniform(min_s, max_s))
 
 
+async def _extract_email_subject(item, provider: str, fallback: str = "") -> str:
+    """Best-effort subject extraction from an inbox list item."""
+    candidates: list[str] = []
+    subject_selectors = {
+        "yahoo": [
+            '[data-test-id="message-subject"]',
+            '[data-test-id="message-list-item-subject"]',
+        ],
+        "aol": [
+            '[data-test-id="message-subject"]',
+            '[data-test-id="message-list-item-subject"]',
+        ],
+        "gmail": [
+            'span.bog',
+            'span[data-thread-id] span',
+        ],
+        "outlook": [
+            '[data-automationid="messageSubject"]',
+            '[aria-label*="Subject"]',
+        ],
+        "hotmail": [
+            '[data-automationid="messageSubject"]',
+            '[aria-label*="Subject"]',
+        ],
+        "proton": [
+            '[data-testid="message-column:subject"]',
+            '[data-testid="message-item:subject"]',
+        ],
+        "protonmail": [
+            '[data-testid="message-column:subject"]',
+            '[data-testid="message-item:subject"]',
+        ],
+        "webde": [
+            '[class*="subject"]',
+            '[data-testid="subject"]',
+        ],
+    }
+
+    for sel in subject_selectors.get(provider, []):
+        try:
+            loc = item.locator(sel).first
+            if await loc.count() > 0:
+                text = (await loc.inner_text()).strip()
+                if text:
+                    candidates.append(text)
+        except Exception:
+            continue
+
+    if not candidates:
+        try:
+            raw_text = (await item.inner_text()).strip()
+            candidates.extend(line.strip() for line in raw_text.splitlines() if line.strip())
+        except Exception:
+            pass
+
+    for text in candidates:
+        cleaned = " ".join(text.split())
+        if len(cleaned) >= 3:
+            return cleaned[:250]
+
+    return fallback or "unknown_subject"
+
+
+async def _extract_email_recipient(item, provider: str, fallback: str = "") -> str:
+    """Best-effort recipient extraction from a sent-list item."""
+    candidates: list[str] = []
+    recipient_selectors = {
+        "yahoo": [
+            '[data-test-id="message-from"]',
+            '[data-test-id="message-list-item-from"]',
+            '[data-test-id="message-to"]',
+        ],
+        "aol": [
+            '[data-test-id="message-from"]',
+            '[data-test-id="message-list-item-from"]',
+            '[data-test-id="message-to"]',
+        ],
+        "gmail": [
+            'span[email]',
+            'span[email*="@"]',
+            'span.yP',
+        ],
+        "outlook": [
+            '[data-automationid="senderOrRecipient"]',
+            '[aria-label*="@"]',
+        ],
+        "hotmail": [
+            '[data-automationid="senderOrRecipient"]',
+            '[aria-label*="@"]',
+        ],
+        "proton": [
+            '[data-testid="message-column:sender-address"]',
+            '[data-testid="message-column:recipient-address"]',
+        ],
+        "protonmail": [
+            '[data-testid="message-column:sender-address"]',
+            '[data-testid="message-column:recipient-address"]',
+        ],
+        "webde": [
+            '[class*="sender"]',
+            '[class*="recipient"]',
+            '[data-testid="recipient"]',
+        ],
+    }
+
+    for sel in recipient_selectors.get(provider, []):
+        try:
+            loc = item.locator(sel).first
+            if await loc.count() > 0:
+                text = " ".join((await loc.inner_text()).split()).strip()
+                if text:
+                    candidates.append(text)
+        except Exception:
+            continue
+
+    if not candidates:
+        try:
+            raw_text = " ".join((await item.inner_text()).split())
+            candidates.append(raw_text)
+        except Exception:
+            pass
+
+    for text in candidates:
+        lowered = text.lower()
+        if "@" in lowered:
+            return lowered[:250]
+
+    return (fallback or "").strip().lower()
+
+
 # ── Read inbox emails ────────────────────────────────────────────────────────
 
 async def read_inbox_emails(page, provider: str, max_emails: int = 3) -> list:
@@ -52,6 +182,7 @@ async def read_inbox_emails(page, provider: str, max_emails: int = 3) -> list:
         for i in range(read_count):
             try:
                 item = email_items[i]
+                subject = await _extract_email_subject(item, provider, fallback=f"email_{i}")
                 # Click to open email
                 await item.click(timeout=5000)
                 await _human_pause(2.0, 4.0)
@@ -60,7 +191,7 @@ async def read_inbox_emails(page, provider: str, max_emails: int = 3) -> list:
                 await _scroll_email(page)
                 await _human_pause(1.0, 3.0)
 
-                results.append({"index": i, "subject": f"email_{i}"})
+                results.append({"index": i, "subject": subject})
 
                 # Go back to inbox list
                 await _go_back_to_inbox(page, provider)
@@ -239,12 +370,12 @@ async def mark_as_important(page, provider: str, email_index: int) -> bool:
 
 # ── Rescue from spam ─────────────────────────────────────────────────────────
 
-async def rescue_from_spam(page, provider: str, max_emails: int = 2) -> int:
+async def rescue_from_spam(page, provider: str, max_emails: int = 2) -> list:
     """
     Navigate to spam/junk folder, move warmup emails back to inbox.
-    Returns count of rescued emails.
+    Returns rescued email info dicts.
     """
-    rescued = 0
+    rescued = []
     try:
         await _navigate_to_spam(page, provider)
         await _human_pause(1.5, 3.0)
@@ -262,12 +393,13 @@ async def rescue_from_spam(page, provider: str, max_emails: int = 2) -> int:
                 items = await _get_email_list_items(page, provider)
                 if not items:
                     break
+                subject = await _extract_email_subject(items[0], provider, fallback=f"spam_email_{i}")
                 await items[0].click(timeout=5000)
                 await _human_pause(1.0, 2.0)
 
                 not_spam_clicked = await _click_not_spam(page, provider)
                 if not_spam_clicked:
-                    rescued += 1
+                    rescued.append({"index": i, "subject": subject})
                     await _human_pause(1.0, 2.0)
                 else:
                     await _go_back_to_inbox(page, provider)
@@ -281,8 +413,8 @@ async def rescue_from_spam(page, provider: str, max_emails: int = 2) -> int:
         # Go back to inbox
         await _navigate_to_inbox(page, provider)
 
-        if rescued > 0:
-            logger.debug(f"[Warmup] Rescued {rescued} emails from spam in {provider}")
+        if rescued:
+            logger.debug(f"[Warmup] Rescued {len(rescued)} emails from spam in {provider}")
 
     except Exception as e:
         logger.warning(f"[Warmup] rescue_from_spam failed ({provider}): {e}")
@@ -382,6 +514,104 @@ async def _navigate_to_spam(page, provider: str):
     if loc:
         await loc.click()
         await _human_pause(1.0, 2.0)
+
+
+async def _navigate_to_sent(page, provider: str):
+    """Click on Sent folder in sidebar."""
+    if provider in ("yahoo", "aol"):
+        loc, _ = await _wait_for_any(page, [
+            'a[data-test-folder-container="Sent"]',
+            'a[title="Sent"]',
+            'a:has-text("Sent")',
+        ], timeout=5000)
+    elif provider == "gmail":
+        loc, _ = await _wait_for_any(page, [
+            'a[href*="#sent"]',
+            '[data-tooltip="Sent"]',
+            'a[title="Sent"]',
+            'span:has-text("Sent")',
+        ], timeout=5000)
+    elif provider in ("outlook", "hotmail"):
+        loc, _ = await _wait_for_any(page, [
+            '[title="Sent Items"]',
+            '[aria-label="Sent Items"]',
+            'span:has-text("Sent Items")',
+            'span:has-text("Sent")',
+        ], timeout=5000)
+    elif provider in ("proton", "protonmail"):
+        loc, _ = await _wait_for_any(page, [
+            '[data-testid="navigation-link:sent"]',
+            'a[title="Sent"]',
+            '[href="/sent"]',
+        ], timeout=5000)
+    elif provider == "webde":
+        loc, _ = await _wait_for_any(page, [
+            'a:has-text("Gesendet")',
+            '[aria-label="Gesendet"]',
+            'a[title="Gesendet"]',
+            'a:has-text("Sent")',
+        ], timeout=5000)
+    else:
+        return
+
+    if loc:
+        await loc.click()
+        await _human_pause(1.0, 2.0)
+
+
+def _normalize_subject(subject: str) -> str:
+    return " ".join((subject or "").strip().lower().split())
+
+
+async def confirm_sent_email(
+    page,
+    provider: str,
+    expected_subject: str,
+    expected_recipient: str = "",
+    max_scan: int = 5,
+) -> bool:
+    """
+    Best-effort confirmation that a just-sent email appears in the Sent folder.
+    This is stronger than plain browser send success, but still bounded and UI-driven.
+    """
+    target = _normalize_subject(expected_subject)
+    recipient_target = (expected_recipient or "").strip().lower()
+    if not target:
+        return False
+
+    try:
+        await _navigate_to_sent(page, provider)
+        await _human_pause(1.5, 3.0)
+        items = await _get_email_list_items(page, provider)
+        if not items:
+            return False
+
+        for item in items[:max_scan]:
+            subject = _normalize_subject(await _extract_email_subject(item, provider, fallback=""))
+            if not subject:
+                continue
+            subject_match = subject == target or target in subject or subject in target
+            if not subject_match:
+                continue
+            if not recipient_target:
+                return True
+
+            recipient = await _extract_email_recipient(item, provider, fallback="")
+            if recipient and recipient_target in recipient:
+                return True
+
+            # Fallback for providers/views that don't expose recipient cleanly in the Sent list.
+            if not recipient:
+                return True
+        return False
+    except Exception as e:
+        logger.debug(f"[MailActions] confirm_sent_email failed ({provider}): {e}")
+        return False
+    finally:
+        try:
+            await _navigate_to_inbox(page, provider)
+        except Exception:
+            pass
 
 
 async def _get_email_list_items(page, provider: str) -> list:

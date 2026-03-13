@@ -26,6 +26,25 @@ def detect_variables(text: str) -> list:
     return sorted(list(found))
 
 
+def split_embedded_subject(content: str) -> tuple[str | None, str]:
+    """
+    Generator legacy packs may store "Subject: ..." as the first line inside the
+    template file while also providing the same subject in manifest.json.
+    Return the embedded subject (if present) and the cleaned body.
+    """
+    if not content:
+        return None, ""
+
+    lines = content.split("\n", 1)
+    first_line = lines[0].strip()
+    if first_line.lower().startswith("subject:"):
+        embedded_subject = first_line[8:].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+        return embedded_subject, body
+
+    return None, content
+
+
 @router.get("/packs")
 async def list_template_packs(db: Session = Depends(get_db)):
     """List unique packs with count."""
@@ -259,6 +278,11 @@ async def import_zip(file: UploadFile = File(...), db: Session = Depends(get_db)
             if body is None:
                 errors.append(f"File not found: {tmpl_file}")
                 continue
+
+            embedded_subject, clean_body = split_embedded_subject(body)
+            if embedded_subject and subject == "No Subject":
+                subject = embedded_subject
+            body = clean_body if embedded_subject is not None else body
 
             content_type = "html" if tmpl_file.endswith((".html", ".htm")) else "text"
             variables = detect_variables(subject + " " + body)

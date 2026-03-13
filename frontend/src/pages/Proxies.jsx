@@ -26,6 +26,16 @@ export default function Proxies() {
     const exhausted = stats.exhausted || 0;
     const bound = proxies.filter(p => p.bound_to).length;
     const cooling = proxies.filter(p => p.cooldown_active).length;
+    const providerSignals = PROXY_COLUMNS.map(col => {
+        const limit = proxyLimits[col.limitKey] || col.defaultLimit;
+        const successTotal = proxies.reduce((sum, p) => sum + (p[`use_${col.dataKey}`] || 0), 0);
+        const hardFailTotal = proxies.reduce((sum, p) => sum + (p[col.failKey] || 0), 0);
+        const coolingCount = proxies.filter(p =>
+            (p.cooldown_provider_names || []).some(name => col.cooldownKeys.includes(name))
+        ).length;
+        const pressuredCount = proxies.filter(p => (p[`use_${col.dataKey}`] || 0) >= limit).length;
+        return { ...col, limit, successTotal, hardFailTotal, coolingCount, pressuredCount };
+    }).sort((a, b) => (b.coolingCount + b.hardFailTotal) - (a.coolingCount + a.hardFailTotal));
 
     const filteredProxies = filter ? proxies.filter(p => {
         if (filter === 'active') return p.status === 'active' && !p.bound_to;
@@ -376,6 +386,46 @@ export default function Proxies() {
                     )}
                 </div>
                 <input type="file" ref={fileRef} accept=".txt" style={{ display: 'none' }} onChange={handleFile} />
+            </div>
+
+            <div className="card engine-card" style={{ padding: '16px 20px', marginBottom: 20 }}>
+                <div className="section-header" style={{ marginBottom: 12 }}>
+                    <div>
+                        <div className="section-title">Proxy Signals</div>
+                        <div className="section-subtitle">Fast pressure view by provider: success load, hard burns, and live cooldown activity.</div>
+                    </div>
+                </div>
+                <div className="settings-hero-strip">
+                    {providerSignals.map(sig => (
+                        <div key={sig.label} className="engine-hero-chip">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    minWidth: sig.label.length > 1 ? 34 : 24,
+                                    height: 24,
+                                    borderRadius: 7,
+                                    padding: '0 8px',
+                                    background: providerBg(sig.providerKey, 0.18),
+                                    color: PROVIDER_COLORS[sig.providerKey],
+                                    border: `1px solid ${PROVIDER_COLORS[sig.providerKey]}33`,
+                                    fontSize: '0.82em',
+                                    fontWeight: 900,
+                                }}>{sig.label}</span>
+                                <span className="engine-hero-chip-label" style={{ margin: 0 }}>Live pressure</span>
+                            </div>
+                            <div className="engine-hero-chip-value" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10, fontSize: '0.82em' }}>
+                                <span style={{ color: '#10B981', fontWeight: 800 }}>{sig.successTotal} ok</span>
+                                <span style={{ color: '#EF4444', fontWeight: 800 }}>{sig.hardFailTotal} hard</span>
+                                <span style={{ color: '#F59E0B', fontWeight: 800 }}>{sig.coolingCount} cooling</span>
+                            </div>
+                            <div style={{ marginTop: 8, fontSize: '0.72em', color: 'var(--text-muted)', fontWeight: 700 }}>
+                                {sig.pressuredCount > 0 ? `${sig.pressuredCount} proxies at cap ${sig.limit}` : `cap ${sig.limit}`}
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             {/* ═══ Batch action bar ═══ */}

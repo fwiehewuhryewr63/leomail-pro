@@ -307,6 +307,7 @@ export default function Campaigns() {
                 {campaigns.map(c => {
                     const pct = c.recipients_total > 0 ? Math.round(c.recipients_sent / c.recipients_total * 100) : 0;
                     const sColor = STATUS_COLOR[c.status] || '#888';
+                    const delivery = c.delivery_breakdown || {};
                     return (
                         <div key={c.id} className="card" style={{
                             padding: '16px 18px', cursor: 'pointer',
@@ -331,6 +332,14 @@ export default function Campaigns() {
                             </div>
                             <div className="progress-bar" style={{ marginBottom: 10, height: 4 }}>
                                 <div className="progress-fill" style={{ width: `${pct}%`, background: sColor }} />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                                <MiniSignal color="#06b6d4" label="C" value={delivery.confirmed || 0} />
+                                <MiniSignal color="#10b981" label="A" value={delivery.accepted || 0} />
+                                <MiniSignal color="#f59e0b" label="T" value={delivery.throttled || 0} />
+                                <MiniSignal color="#ef4444" label="R" value={delivery.rejected || 0} />
+                                <MiniSignal color="var(--text-muted)" label="U" value={delivery.unknown || 0} />
                             </div>
 
                             {/* Stats + actions */}
@@ -364,4 +373,22 @@ const ActionBtn = ({ color, icon: Icon, onClick, title }) => (
     }}>
         <Icon size={13} />
     </button>
+);
+
+const MiniSignal = ({ color, label, value }) => (
+    <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '3px 8px',
+        borderRadius: 999,
+        fontSize: '0.64em',
+        fontWeight: 800,
+        letterSpacing: 0.4,
+        background: `${color}18`,
+        border: `1px solid ${color}33`,
+        color,
+    }}>
+        {label} {value}
+    </span>
 );

@@ -35,6 +35,16 @@ async def get_update_progress():
     return update_progress
 
 
+@router.get("/last-result")
+async def get_last_update_result():
+    """Read the one-shot result of the previous update/recovery cycle."""
+    from ..services.updater import read_and_clear_update_result, get_current_version
+    result = read_and_clear_update_result()
+    version_info = get_current_version()
+    result["current_version"] = version_info.get("version")
+    return result
+
+
 @router.post("/download-and-apply")
 async def download_and_apply():
     """
@@ -47,7 +57,8 @@ async def download_and_apply():
     """
     from ..services.updater import (
         check_for_updates, download_update, extract_and_prepare,
-        backup_user_data, cleanup_old_backups, set_progress, reset_progress
+        backup_user_data, cleanup_old_backups, set_progress, reset_progress,
+        get_last_backup_error,
     )
 
     reset_progress()
@@ -83,6 +94,9 @@ async def download_and_apply():
     if backup_path:
         result["steps"].append("backup_complete")
         result["backup_path"] = backup_path
+    else:
+        result["errors"].append(f"Backup failed: {get_last_backup_error() or 'unknown error'}")
+        return result
     cleanup_old_backups(keep_count=3)
 
     # Step 3: Download ZIP (progress tracked inside download_update)
@@ -166,11 +180,11 @@ async def restart_server():
 @router.post("/backup")
 async def manual_backup():
     """Manually trigger a user_data backup."""
-    from ..services.updater import backup_user_data
+    from ..services.updater import backup_user_data, get_last_backup_error
     path = backup_user_data()
     if path:
         return {"status": "ok", "backup_path": path}
-    return {"status": "error", "message": "Backup failed or no user_data found"}
+    return {"status": "error", "message": get_last_backup_error() or "Backup failed"}
 
 
 @router.get("/backups")

@@ -158,6 +158,12 @@ export default function Dashboard() {
     }, []);
 
     const ms = s.mailing_stats || {};
+    const deliveryRate = ms.delivery_rate ?? ms.inbox_rate ?? 0;
+    const campaignCards = Array.isArray(campaignStats?.campaigns)
+        ? campaignStats.campaigns
+        : Array.isArray(campaignStats)
+            ? campaignStats
+            : [];
     const proxyTotal = health?.proxies?.total || 0;
     const proxyAlive = health?.proxies?.alive || 0;
     const totalAccs = s.total_accounts || 0;
@@ -240,8 +246,8 @@ export default function Dashboard() {
                         <span className="dashboard-hero-chip-value">{(ms.total_sent || 0).toLocaleString()}</span>
                     </div>
                     <div className="dashboard-hero-chip">
-                        <span className="dashboard-hero-chip-label">Inbox Rate</span>
-                        <span className="dashboard-hero-chip-value">{ms.inbox_rate || 0}%</span>
+                        <span className="dashboard-hero-chip-label">Delivery Rate</span>
+                        <span className="dashboard-hero-chip-value">{deliveryRate}%</span>
                     </div>
                 </div>
             </div>
@@ -321,14 +327,14 @@ export default function Dashboard() {
                     </div>
                 </ClickCard>
 
-                {/* INBOX RATE */}
+                {/* DELIVERY RATE */}
                 <div className="card" style={{ padding: '14px 16px', borderLeft: '3px solid #22C55E' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                             <div style={{ fontSize: '1.8em', fontWeight: 900, color: '#22C55E', lineHeight: 1 }}>
-                                {ms.inbox_rate || 0}%
+                                {deliveryRate}%
                             </div>
-                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>INBOX RATE</div>
+                            <div style={{ fontSize: '0.65em', fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 4 }}>DELIVERY RATE</div>
                         </div>
                         <CheckCircle size={24} style={{ color: '#22C55E', opacity: 0.5, flexShrink: 0 }} />
                     </div>
@@ -650,40 +656,40 @@ export default function Dashboard() {
             </div>
 
             {/* ═══ CAMPAIGN DELIVERY STATS ═══ */}
-            {campaignStats && campaignStats.length > 0 && (
+            {campaignCards.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                         <Send size={14} style={{ color: '#06B6D4' }} />
                         <span style={{ fontSize: '0.85em', fontWeight: 700, color: 'var(--text-primary)' }}>Campaign Delivery</span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-                        {campaignStats.slice(0, 6).map((c, i) => {
-                            const inboxRate = c.total_sent > 0 ? Math.round(((c.total_sent - (c.total_errors || 0)) / c.total_sent) * 100) : 0;
+                        {campaignCards.slice(0, 6).map((c, i) => {
+                            const deliveryPct = c.delivery_rate ?? c.inbox_rate ?? 0;
                             return (
                                 <div key={i} className="card" style={{ padding: '14px 16px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                                         <span style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
-                                            {c.campaign_name || `Campaign #${c.campaign_id}`}
+                                            {c.name || `Campaign #${c.id}`}
                                         </span>
                                         <span style={{
                                             fontSize: '0.72em', fontWeight: 800,
-                                            color: inboxRate >= 80 ? '#10B981' : inboxRate >= 50 ? '#F59E0B' : '#EF4444',
+                                            color: deliveryPct >= 80 ? '#10B981' : deliveryPct >= 50 ? '#F59E0B' : '#EF4444',
                                         }}>
-                                            {inboxRate}% inbox
+                                            {deliveryPct}% delivery
                                         </span>
                                     </div>
                                     <div style={{ display: 'flex', gap: 6 }}>
                                         <div style={{ flex: 1, textAlign: 'center', padding: '6px 4px', borderRadius: 4, background: 'rgba(6,182,212,0.06)' }}>
-                                            <div style={{ fontSize: '1.1em', fontWeight: 800, color: '#06B6D4' }}>{c.total_sent || 0}</div>
+                                            <div style={{ fontSize: '1.1em', fontWeight: 800, color: '#06B6D4' }}>{c.sent || 0}</div>
                                             <div style={{ fontSize: '0.6em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Sent</div>
                                         </div>
                                         <div style={{ flex: 1, textAlign: 'center', padding: '6px 4px', borderRadius: 4, background: 'rgba(239,68,68,0.06)' }}>
-                                            <div style={{ fontSize: '1.1em', fontWeight: 800, color: '#EF4444' }}>{c.total_errors || 0}</div>
+                                            <div style={{ fontSize: '1.1em', fontWeight: 800, color: '#EF4444' }}>{c.errors || 0}</div>
                                             <div style={{ fontSize: '0.6em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Errors</div>
                                         </div>
                                         <div style={{ flex: 1, textAlign: 'center', padding: '6px 4px', borderRadius: 4, background: 'rgba(16,185,129,0.06)' }}>
-                                            <div style={{ fontSize: '1.1em', fontWeight: 800, color: '#10B981' }}>{c.accounts_used || 0}</div>
-                                            <div style={{ fontSize: '0.6em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Accounts</div>
+                                            <div style={{ fontSize: '1.1em', fontWeight: 800, color: '#10B981' }}>{c.total_recipients || 0}</div>
+                                            <div style={{ fontSize: '0.6em', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recipients</div>
                                         </div>
                                     </div>
                                 </div>

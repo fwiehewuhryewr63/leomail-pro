@@ -150,12 +150,12 @@ async def run_birth_task(request: BirthRequest):
 
         if not proxy_pool:
             # ── Auto-recovery: reset counters for this provider and retry ──
-            logger.warning(f"[Birth] No proxies for {request.provider} — auto-resetting usage counters...")
-            proxy_manager.reset_all_counters()
+            logger.warning(f"[Birth] No proxies for {request.provider} — auto-resetting provider-specific counters...")
+            proxy_manager.reset_provider_counters(request.provider)
             proxy_pool = proxy_manager.get_proxy_pool(
                 request.quantity, provider=request.provider,
             )
-            logger.info(f"[Birth] After counter reset: {len(proxy_pool)} proxies for {request.provider}")
+            logger.info(f"[Birth] After provider reset: {len(proxy_pool)} proxies for {request.provider}")
 
         if not proxy_pool:
             # No proxies available — user must add them manually
@@ -164,7 +164,7 @@ async def run_birth_task(request: BirthRequest):
         if not proxy_pool:
             # ── All recovery failed — stop this task (same task, not a new one) ──
             task.status = TaskStatus.STOPPED
-            task.stop_reason = f"No suitable proxies for {request.provider}. Counters were auto-reset. Load new proxies or check proxy health."
+            task.stop_reason = f"No suitable proxies for {request.provider}. Provider counters were auto-reset. Load new proxies or check proxy health."
             db.commit()
             return {"status": "error", "message": task.stop_reason}
 
@@ -295,17 +295,9 @@ async def run_birth_task(request: BirthRequest):
             db.commit()
             return
 
-        # Start browser
-        browser_manager = BrowserManager(headless=False)
+        # Start browser only after proxy availability is confirmed.
+        browser_manager = BrowserManager(headless=request.headless)
         await browser_manager.start()
-
-        # REQUIRE proxies - registration without proxy is forbidden
-        if not proxy_pool:
-            logger.error("[Birth] [FAIL] No proxies available! Registration requires at least 1 proxy.")
-            task.status = TaskStatus.STOPPED
-            task.stop_reason = "Process stopped - no proxies for registration"
-            db.commit()
-            return
 
         try:
             registered_accounts = []

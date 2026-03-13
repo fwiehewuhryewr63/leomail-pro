@@ -3,6 +3,7 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pathlib import Path
 import shutil
+import sqlite3
 import sys
 from datetime import datetime
 from loguru import logger
@@ -45,15 +46,48 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
 BACKUP_DIR = USER_DATA_DIR / "backups"
 
 
+def backup_sqlite_file(src: Path, dst: Path) -> bool:
+    """Create a consistent SQLite snapshot using the native backup API."""
+    if not src.exists():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src_conn = None
+    dst_conn = None
+    try:
+        src_conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=30)
+        dst_conn = sqlite3.connect(str(dst), timeout=30)
+        src_conn.backup(dst_conn)
+        return True
+    except Exception as e:
+        logger.warning(f"[DB] SQLite backup snapshot failed: {e}")
+        try:
+            dst.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
+    finally:
+        try:
+            if dst_conn:
+                dst_conn.close()
+        except Exception:
+            pass
+        try:
+            if src_conn:
+                src_conn.close()
+        except Exception:
+            pass
+
+
 def backup_database(reason: str = "auto") -> Path | None:
-    """Copy leomail.db to backups/ with timestamp. Returns backup path or None."""
+    """Create a consistent SQLite backup of leomail.db in backups/."""
     if not DB_PATH.exists():
         return None
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dst = BACKUP_DIR / f"leomail_{ts}_{reason}.db"
     try:
-        shutil.copy2(DB_PATH, dst)
+        if not backup_sqlite_file(DB_PATH, dst):
+            return None
         # Keep only last 5 backups
         backups = sorted(BACKUP_DIR.glob("leomail_*.db"), key=lambda p: p.stat().st_mtime)
         for old in backups[:-5]:
@@ -64,10 +98,6 @@ def backup_database(reason: str = "auto") -> Path | None:
         logger.warning(f"[DB] Backup failed: {e}")
         return None
 
-
-# Run auto-backup on import (= app startup)
-if DB_PATH.exists():
-    backup_database("startup")
 
 def get_db():
     db = SessionLocal()

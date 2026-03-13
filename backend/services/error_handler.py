@@ -141,6 +141,11 @@ class ErrorHandler:
 
         return ErrorType.UNKNOWN
 
+    @staticmethod
+    def is_bounce_type(error_type: str) -> bool:
+        """Return True when the classified outcome should count as a bounce-like delivery failure."""
+        return error_type in (ErrorType.MAILER_DAEMON, ErrorType.INVALID_RECIPIENT)
+
     def decide_action(self, error_type: str, account_email: str = "") -> str:
         """Decide what action to take based on error type."""
         actions = {
@@ -176,7 +181,7 @@ class ErrorHandler:
         self.errors.append(error)
 
         # Track bounces
-        if error_type in (ErrorType.MAILER_DAEMON, ErrorType.INVALID_RECIPIENT):
+        if self.is_bounce_type(error_type):
             self.account_bounces[account_email] = self.account_bounces.get(account_email, 0) + 1
             if recipient_email:
                 domain = recipient_email.split("@")[-1] if "@" in recipient_email else ""
@@ -185,6 +190,30 @@ class ErrorHandler:
 
         logger.info(f"Error [{error_type}] account={account_email} -> action={action}")
         return error
+
+    def resolve_send_outcome(self, raw_error: str, account_email: str = "", recipient_email: str = "") -> dict:
+        """
+        Normalize a raw send failure into a compact outcome contract shared by send engines.
+        Returns a dict with:
+          - action: stop | skip | continue
+          - status: error | bounce | limit
+          - error_type
+          - handled: SendError
+        """
+        handled = self.handle_error(raw_error, account_email, recipient_email)
+        action = handled.action
+
+        if action == "mark_dead":
+            return {"action": "stop", "status": "error", "error_type": handled.error_type, "handled": handled}
+        if action in ("pause_1h", "pause_high_bounce"):
+            return {"action": "skip", "status": "limit", "error_type": handled.error_type, "handled": handled}
+        if action in ("warning_only", "mark_recipient_invalid"):
+            return {"action": "skip", "status": "bounce", "error_type": handled.error_type, "handled": handled}
+        return {"action": "continue", "status": "error", "error_type": handled.error_type, "handled": handled}
+
+    def handle_send_error(self, email: str, error: str, recipient: str = "") -> dict:
+        """Backward-compatible send outcome wrapper for older engine code paths."""
+        return self.resolve_send_outcome(error, email, recipient)
 
     def record_sent(self, account_email: str):
         """Record a successful send for bounce rate calculation."""

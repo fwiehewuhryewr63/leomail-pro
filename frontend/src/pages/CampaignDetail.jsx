@@ -32,6 +32,7 @@ export default function CampaignDetail() {
     if (!c) return <div className="page" style={{ padding: 40, color: 'var(--text-muted)' }}>Loading...</div>;
 
     const pct = c.recipients_total > 0 ? Math.round(c.recipients_sent / c.recipients_total * 100) : 0;
+    const delivery = c.delivery_breakdown || {};
 
     const action = async (act) => { await fetch(`${API}/campaigns/${id}/${act}`, { method: 'POST' }); load(); loadPreflight(); };
 
@@ -106,6 +107,14 @@ export default function CampaignDetail() {
                         <span className="engine-hero-chip-label">Links Left</span>
                         <span className="engine-hero-chip-value">{linksLeft}</span>
                     </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Confirmed</span>
+                        <span className="engine-hero-chip-value">{delivery.confirmed || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Accepted</span>
+                        <span className="engine-hero-chip-value">{delivery.accepted || 0}</span>
+                    </div>
                 </div>
             </div>
 
@@ -128,6 +137,89 @@ export default function CampaignDetail() {
                 <StatBox label="Acc Dead" value={c.accounts_dead || 0} color="var(--danger)" icon={XCircle} />
                 <StatBox label="Progress" value={`${pct}%`} color="var(--accent)" icon={CheckCircle} />
             </div>
+
+            <div className="card engine-card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                    Delivery Lifecycle
+                </div>
+                <div className="engine-hero-strip" style={{ marginBottom: 0 }}>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Confirmed</span>
+                        <span className="engine-hero-chip-value">{delivery.confirmed || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Accepted</span>
+                        <span className="engine-hero-chip-value">{delivery.accepted || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Rejected</span>
+                        <span className="engine-hero-chip-value">{delivery.rejected || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Throttled</span>
+                        <span className="engine-hero-chip-value">{delivery.throttled || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Unknown</span>
+                        <span className="engine-hero-chip-value">{delivery.unknown || 0}</span>
+                    </div>
+                    <div className="engine-hero-chip">
+                        <span className="engine-hero-chip-label">Attempts</span>
+                        <span className="engine-hero-chip-value">{delivery.attempts || 0}</span>
+                    </div>
+                </div>
+            </div>
+
+            {c.recent_attempts?.length > 0 && (
+                <div className="card engine-card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+                    <div style={{ fontSize: '0.72em', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                        Recent Attempts
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {c.recent_attempts.map((row, idx) => (
+                            <div key={`${row.tracking_token || row.recipient || idx}-${idx}`} style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(180px, 1.6fr) auto auto',
+                                gap: 10,
+                                alignItems: 'center',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px solid rgba(255,255,255,0.06)',
+                            }}>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: '0.8em', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {row.recipient}
+                                    </div>
+                                    <div style={{ fontSize: '0.7em', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {row.subject || 'No subject'}
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '0.68em', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {row.error || row.tracking_token || 'No extra details'}
+                                </div>
+                                <span style={{
+                                    justifySelf: 'start',
+                                    fontSize: '0.68em',
+                                    fontWeight: 700,
+                                    padding: '4px 8px',
+                                    borderRadius: 999,
+                                    background: `${attemptStatusColor(row.delivery_status)}20`,
+                                    border: `1px solid ${attemptStatusColor(row.delivery_status)}44`,
+                                    color: attemptStatusColor(row.delivery_status),
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.5,
+                                }}>
+                                    {row.delivery_status || 'unknown'}
+                                </span>
+                                <div style={{ fontSize: '0.68em', color: 'var(--text-muted)', textAlign: 'right' }}>
+                                    {row.sent_at ? new Date(row.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Progress bar */}
             {c.recipients_total > 0 && (
@@ -321,6 +413,14 @@ const ImportButtons = ({ onTextImport, onFileSelect, importing, disabled, fileRe
 // --- helpers ---
 const statusColor = (s) => ({ draft: 'var(--text-muted)', running: 'var(--success)', paused: 'var(--warning)', completed: 'var(--info)', stopped: 'var(--danger)' }[s] || 'var(--text-muted)');
 const statusLabel = (s) => ({ draft: 'DRAFT', running: 'RUNNING', paused: 'PAUSED', completed: 'DONE', stopped: 'STOPPED' }[s] || s);
+const attemptStatusColor = (s) => ({
+    confirmed: '#06b6d4',
+    accepted: 'var(--success)',
+    throttled: 'var(--warning)',
+    rejected: 'var(--danger)',
+    error: '#f97316',
+    unknown: 'var(--text-muted)',
+}[s] || 'var(--text-muted)');
 
 const StatBox = ({ label, value, color, icon: Icon }) => (
     <div className="card" style={{ padding: '12px 14px', textAlign: 'center' }}>

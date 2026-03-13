@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import shutil
+import sqlite3
 import zipfile
 import tempfile
 from pathlib import Path
@@ -15,6 +16,7 @@ from loguru import logger
 
 # Current version - read from version.json at import time
 VERSION_FILE = "version.json"
+UPDATE_RESULT_FILE = "_update_result.txt"
 
 def _read_version_from_file() -> str:
     """Read version from version.json, checking multiple possible locations."""
@@ -37,6 +39,7 @@ def _read_version_from_file() -> str:
     return "0.0.0"
 
 VERSION = _read_version_from_file()
+_LAST_BACKUP_ERROR = ""
 
 # GitHub repo for releases
 GITHUB_REPO = "fwiehewuhryewr63/leomail-pro"
@@ -48,6 +51,47 @@ def get_app_root() -> Path:
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).parent
     return Path(__file__).parent.parent.parent
+
+
+def get_update_result_path() -> Path:
+    """Marker file used to report the last update/rollback result after restart."""
+    return get_app_root() / UPDATE_RESULT_FILE
+
+
+def get_last_backup_error() -> str:
+    return _LAST_BACKUP_ERROR
+
+
+def _set_last_backup_error(message: str = ""):
+    global _LAST_BACKUP_ERROR
+    _LAST_BACKUP_ERROR = message
+
+
+def read_and_clear_update_result() -> dict:
+    """Read one-shot update result marker and remove it."""
+    path = get_update_result_path()
+    if not path.exists():
+        return {"status": None}
+
+    data = {}
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                data[key.strip()] = value.strip()
+    except Exception as e:
+        logger.warning(f"[Update] Failed to read update result marker: {e}")
+    finally:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return {
+        "status": data.get("status"),
+        "detail": data.get("detail", ""),
+        "at": data.get("at", ""),
+    }
 
 
 def get_current_version() -> dict:
@@ -77,6 +121,54 @@ def save_version_info(version: str, extra: dict = None):
     if extra:
         info.update(extra)
     (root / VERSION_FILE).write_text(json.dumps(info, indent=2), encoding="utf-8")
+
+
+def _backup_sqlite_snapshot(src: Path, dst: Path) -> bool:
+    """Create a consistent SQLite snapshot for live user_data backups."""
+    if not src.exists():
+        return False
+    src_conn = None
+    dst_conn = None
+    try:
+        src_conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=30)
+        dst_conn = sqlite3.connect(str(dst), timeout=30)
+        src_conn.backup(dst_conn)
+        return True
+    except Exception as e:
+        logger.error(f"[Backup] SQLite snapshot failed: {e}")
+        try:
+            dst.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _safe_copy_for_backup(src: str, dst: str, *, follow_symlinks: bool = True):
+    """
+    Best-effort file copy for live user_data backups.
+    Chrome profile files can be locked while the app is running; those should
+    not abort the whole safety backup when the DB snapshot is preserved
+    separately.
+    """
+    try:
+        return shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
+    except OSError as e:
+        msg = str(e).lower()
+        if getattr(e, "winerror", None) == 32 or "being used by another process" in msg:
+            logger.warning(f"[Backup] Skipping locked file during backup: {src}")
+            return dst
+        raise
+        return False
+    finally:
+        try:
+            if dst_conn:
+                dst_conn.close()
+        except Exception:
+            pass
+        try:
+            if src_conn:
+                src_conn.close()
+        except Exception:
+            pass
 
 
 def check_for_updates() -> dict:
@@ -301,6 +393,8 @@ def extract_and_prepare(zip_path: str) -> dict:
             '',
             'echo Leomail.exe closed. Applying update...',
             '',
+            f'if exist "{UPDATE_RESULT_FILE}" del /f "{UPDATE_RESULT_FILE}"',
+            '',
             ':: Phase 1: Rename current runtime aside (recoverable)',
             'echo [1/4] Backing up current version...',
             'if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"',
@@ -335,6 +429,9 @@ def extract_and_prepare(zip_path: str) -> dict:
             'echo ==========================================',
             'echo   Update complete! Starting Leomail...',
             'echo ==========================================',
+            f'> "{UPDATE_RESULT_FILE}" echo status=success',
+            f'>> "{UPDATE_RESULT_FILE}" echo detail=runtime_updated',
+            f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
             'timeout /t 2 /nobreak >nul',
             'start "" "Leomail.exe"',
             '(goto) 2>nul & del "%~f0"',
@@ -356,6 +453,9 @@ def extract_and_prepare(zip_path: str) -> dict:
             '',
             'echo Update failed at %date% %time% > "_update_failed.log"',
             'echo Previous version preserved. Recovery from .bak/.old files. >> "_update_failed.log"',
+            f'> "{UPDATE_RESULT_FILE}" echo status=rollback',
+            f'>> "{UPDATE_RESULT_FILE}" echo detail=previous_version_restored',
+            f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
             '',
             'echo.',
             'echo Previous version has been restored.',
@@ -378,30 +478,43 @@ def extract_and_prepare(zip_path: str) -> dict:
 
 
 def backup_user_data() -> str | None:
-    """Backup user_data directory. Returns backup path."""
+    """Backup user_data directory with a consistent SQLite snapshot for leomail.db."""
     root = get_app_root()
     user_data = root / "user_data"
+    _set_last_backup_error("")
 
     if not user_data.exists():
         logger.info("No user_data to backup")
+        _set_last_backup_error("user_data directory not found")
         return None
 
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     backup_dir = root / f"user_data_backup_{timestamp}"
+    db_src = user_data / "leomail.db"
+    db_dst = backup_dir / "leomail.db"
 
     try:
-        shutil.copytree(str(user_data), str(backup_dir))
+        shutil.copytree(
+            str(user_data),
+            str(backup_dir),
+            ignore=shutil.ignore_patterns("leomail.db", "leomail.db-wal", "leomail.db-shm"),
+            copy_function=_safe_copy_for_backup,
+        )
+        if db_src.exists() and not _backup_sqlite_snapshot(db_src, db_dst):
+            shutil.rmtree(str(backup_dir), ignore_errors=True)
+            _set_last_backup_error("SQLite snapshot backup failed")
+            return None
         logger.info(f"[Backup] user_data backed up to {backup_dir}")
 
-        db_path = backup_dir / "leomail.db"
-        if db_path.exists():
-            logger.info(f"   leomail.db size: {db_path.stat().st_size} bytes")
+        if db_dst.exists():
+            logger.info(f"   leomail.db size: {db_dst.stat().st_size} bytes")
         else:
             logger.warning("   [WARN] leomail.db NOT in backup!")
 
         return str(backup_dir)
     except Exception as e:
         logger.error(f"Backup failed: {e}")
+        _set_last_backup_error(str(e))
         return None
 
 
