@@ -191,7 +191,7 @@ export default function Validator() {
                             {file ? file.name : 'Drop file here or click to browse'}
                         </div>
                         <div style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>
-                            email:password · email:password:recovery · email;password
+                            email:password · email;password · email|password · optional recovery as third field
                         </div>
                         <input ref={fileInputRef} type="file" accept=".txt,.csv,.tsv" hidden
                             onChange={(e) => handleFileUpload(e.target.files[0])} />

@@ -94,6 +94,8 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
         email:password:recovery
         email;password
         email;password;recovery
+        email|password
+        email|password|recovery
         email password
         email\tpassword
     Returns (accounts_list, detected_format)
@@ -112,27 +114,27 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
         # Try different separators
         parts = None
         if ":" in line:
-            parts = line.split(":")
+            parts = line.split(":", 2)
             fmt = "colon"
         elif ";" in line:
-            parts = line.split(";")
+            parts = line.split(";", 2)
             fmt = "semicolon"
         elif "|" in line:
-            parts = line.split("|")
+            parts = line.split("|", 2)
             fmt = "pipe"
         elif "\t" in line:
-            parts = line.split("\t")
+            parts = line.split("\t", 2)
             fmt = "tab"
-        elif " " in line:
-            parts = line.split(" ", 2)
+        elif re.search(r"\s+", line):
+            parts = re.split(r"\s+", line, maxsplit=2)
             fmt = "space"
 
         if not parts or len(parts) < 2:
             continue
 
-        email = parts[0].strip()
-        password = parts[1].strip()
-        recovery = parts[2].strip() if len(parts) > 2 else None
+        email = parts[0].strip().strip('"').strip("'")
+        password = parts[1].strip().strip('"').strip("'")
+        recovery = parts[2].strip().strip('"').strip("'") if len(parts) > 2 else None
 
         # Basic email validation
         if "@" not in email or "." not in email:
@@ -186,7 +188,11 @@ async def upload_accounts_file(file: UploadFile = File(...)):
     # Parse
     accounts, fmt = parse_accounts_file(content)
     if not accounts:
-        raise HTTPException(400, "No valid accounts found in file. Supported: email:password or email:password:recovery")
+        raise HTTPException(
+            400,
+            "No valid accounts found in file. Supported: email:password, email;password, "
+            "email|password, email password, email<TAB>password, and optional :recovery / ;recovery / |recovery",
+        )
 
     # Detect providers
     providers = set(a["provider"] for a in accounts)
