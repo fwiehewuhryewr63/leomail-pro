@@ -100,6 +100,15 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
         email\tpassword
     Returns (accounts_list, detected_format)
     """
+    def normalize_optional_recovery(value: str | None) -> str | None:
+        if not value:
+            return None
+        candidate = value.strip().strip('"').strip("'")
+        # Ignore trailing metadata like webhooks or notes; only keep plausible recovery emails.
+        if "@" in candidate and "." in candidate:
+            return candidate
+        return None
+
     accounts = []
     fmt = "unknown"
     # Strip BOM (Byte Order Mark) — UTF-8 BOM files have invisible \ufeff prefix
@@ -114,19 +123,19 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
         # Try different separators
         parts = None
         if ":" in line:
-            parts = line.split(":", 2)
+            parts = line.split(":", 3)
             fmt = "colon"
         elif ";" in line:
-            parts = line.split(";", 2)
+            parts = line.split(";", 3)
             fmt = "semicolon"
         elif "|" in line:
-            parts = line.split("|", 2)
+            parts = line.split("|", 3)
             fmt = "pipe"
         elif "\t" in line:
-            parts = line.split("\t", 2)
+            parts = line.split("\t", 3)
             fmt = "tab"
         elif re.search(r"\s+", line):
-            parts = re.split(r"\s+", line, maxsplit=2)
+            parts = re.split(r"\s+", line, maxsplit=3)
             fmt = "space"
 
         if not parts or len(parts) < 2:
@@ -134,7 +143,7 @@ def parse_accounts_file(content: str) -> tuple[list[dict], str]:
 
         email = parts[0].strip().strip('"').strip("'")
         password = parts[1].strip().strip('"').strip("'")
-        recovery = parts[2].strip().strip('"').strip("'") if len(parts) > 2 else None
+        recovery = normalize_optional_recovery(parts[2]) if len(parts) > 2 else None
 
         # Basic email validation
         if "@" not in email or "." not in email:
@@ -191,7 +200,8 @@ async def upload_accounts_file(file: UploadFile = File(...)):
         raise HTTPException(
             400,
             "No valid accounts found in file. Supported: email:password, email;password, "
-            "email|password, email password, email<TAB>password, and optional :recovery / ;recovery / |recovery",
+            "email|password, email password, email<TAB>password, optional recovery as the third field, "
+            "and extra trailing fields are ignored",
         )
 
     # Detect providers
