@@ -1743,12 +1743,16 @@ window.Blob.toString=function(){return'function Blob() { [native code] }'};
 
             async def _anti_cdp_route(route):
                 try:
-                    response = await route.fetch()
-                    ct = response.headers.get("content-type", "")
                     request_url = route.request.url
                     if _should_bypass_prepage_stealth(request_url):
-                        await route.fulfill(response=response)
-                    elif "text/html" in ct:
+                        # Google auth/mail flows are too sensitive to proxying the
+                        # response through fetch/fulfill. Let them pass untouched.
+                        await route.continue_()
+                        return
+
+                    response = await route.fetch()
+                    ct = response.headers.get("content-type", "")
+                    if "text/html" in ct:
                         body = await response.text()
                         if "<head>" in body:
                             body = body.replace("<head>", "<head>" + _full_pre_page_script, 1)
