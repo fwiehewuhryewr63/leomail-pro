@@ -1,0 +1,6 @@
+Updater reliability fix:
+
+- Stop updater from self-terminating via `taskkill /t` on the live runtime PID.
+- Use delayed-expansion `!errorlevel!` in the wait loop so close detection is evaluated correctly.
+- Add `_update_phase.txt` markers so live VPS update cycles leave a truthful phase trail on disk.
+- Fail fast with `runtime_did_not_exit` instead of hanging forever when the old runtime refuses to close.
