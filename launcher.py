@@ -94,6 +94,44 @@ def ensure_version_at_root():
             log(f"[Leomail] Warning: could not copy version.json: {e}")
 
 
+def resume_pending_update_if_needed(root: Path) -> bool:
+    """
+    If a staged update exists but never actually started applying, relaunch the
+    local updater before booting the old runtime again.
+    """
+    if not getattr(sys, 'frozen', False):
+        return False
+
+    updater_bat = root / "_updater.bat"
+    update_tmp = root / "_update_tmp"
+    started_marker = root / "_update_started.txt"
+    result_marker = root / "_update_result.txt"
+
+    if result_marker.exists():
+        return False
+    if not updater_bat.exists() or not update_tmp.exists():
+        return False
+    if started_marker.exists():
+        return False
+
+    log("[Leomail] Pending staged update detected before startup. Relaunching updater...")
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/d", "/c", str(updater_bat)],
+            cwd=str(root),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        log("[Leomail] Updater relaunch dispatched. Exiting old runtime so apply can continue.")
+        return True
+    except Exception as e:
+        log(f"[Leomail] Failed to relaunch staged updater: {e}")
+        return False
+
+
 def _can_bind_local_port(port: int) -> bool:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -316,6 +354,9 @@ def _main_inner():
 
     # Ensure version.json is at app root for updater
     ensure_version_at_root()
+
+    if resume_pending_update_if_needed(root):
+        sys.exit(0)
 
     version = read_version()
     port = find_free_port()

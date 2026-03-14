@@ -8,6 +8,7 @@ import sys
 import json
 import shutil
 import sqlite3
+import subprocess
 import zipfile
 import tempfile
 from pathlib import Path
@@ -123,30 +124,39 @@ def mark_updater_launch(status: str, detail: str = ""):
 def launch_updater_detached(bat_path: str) -> dict:
     """
     Launch updater.bat in a way that survives the parent windowed EXE process.
-    Plain `cmd /c updater.bat` proved unreliable on VPS/windowed runtime.
+    Require an early started-marker acknowledgement so the caller does not
+    report "restarting" when the batch never actually began.
     """
     bat_path = str(Path(bat_path))
     workdir = str(Path(bat_path).parent)
+    started_path = get_update_started_path()
+    try:
+        started_path.unlink(missing_ok=True)
+    except Exception:
+        pass
     mark_updater_launch("dispatching", bat_path)
     try:
         subprocess.Popen(
-            ["cmd.exe", "/c", "start", "", "/min", bat_path],
+            ["cmd.exe", "/d", "/c", bat_path],
             cwd=workdir,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             close_fds=True,
         )
-        mark_updater_launch("dispatched", bat_path)
-        return {"success": True}
+        for _ in range(20):
+            if started_path.exists():
+                mark_updater_launch("started_ack", bat_path)
+                return {"success": True}
+            import time
+            time.sleep(0.1)
+        mark_updater_launch("start_not_acknowledged", bat_path)
+        return {"success": False, "error": "Updater batch did not acknowledge start"}
     except Exception as primary_error:
-        logger.warning(f"[Update] start/cmd detached launch failed: {primary_error}")
-        try:
-            os.startfile(bat_path)  # type: ignore[attr-defined]
-            mark_updater_launch("dispatched_startfile", bat_path)
-            return {"success": True}
-        except Exception as fallback_error:
-            logger.error(f"[Update] Updater launch failed: {fallback_error}")
-            mark_updater_launch("launch_failed", str(fallback_error))
-            return {"success": False, "error": str(fallback_error)}
+        logger.error(f"[Update] Detached updater launch failed: {primary_error}")
+        mark_updater_launch("launch_failed", str(primary_error))
+        return {"success": False, "error": str(primary_error)}
 
 
 def get_current_version() -> dict:
