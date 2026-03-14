@@ -89,15 +89,38 @@ def ensure_version_at_root():
             log(f"[Leomail] Warning: could not copy version.json: {e}")
 
 
+def _can_bind_local_port(port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('127.0.0.1', port))
+            return True
+    except OSError:
+        return False
+
+
 def find_free_port(start=8000, end=8100) -> int:
+    """
+    In boxed EXE mode Leomail should behave like a single desktop app, not
+    silently spin up shadow instances on 8001/8002. Dev mode still keeps the
+    old scan behavior for convenience.
+    """
+    if getattr(sys, 'frozen', False):
+        fixed_port = 8000
+        if _can_bind_local_port(fixed_port):
+            return fixed_port
+        show_error(
+            "Leomail — Already Running",
+            "Another Leomail instance is still running or shutting down.\n\n"
+            "Wait a few seconds and try again.\n"
+            "If an update is in progress, let it finish.\n\n"
+            "Leomail will now exit."
+        )
+        sys.exit(1)
+
     for port in range(start, end):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('127.0.0.1', port))
-                return port
-        except OSError:
-            continue
-    # No free port found — fail visibly instead of silent fallback
+        if _can_bind_local_port(port):
+            return port
+
     show_error(
         "Leomail — Port Conflict",
         f"Could not find a free port in range {start}-{end}.\n\n"
