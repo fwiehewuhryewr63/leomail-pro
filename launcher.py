@@ -14,6 +14,11 @@ import shutil
 import traceback
 from pathlib import Path
 
+try:
+    import psutil
+except Exception:
+    psutil = None
+
 # ── Fix for PyInstaller windowed mode (no console) ──
 if sys.stdin is None:
     sys.stdin = open(os.devnull, 'r')
@@ -231,8 +236,47 @@ def open_native_window(port: int, version: str):
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     log(f"[Leomail] Window opened (PID: {proc.pid})")
 
-    # Wait for Chrome to close
-    proc.wait()
+    # On Windows, the initial chrome.exe process can exit immediately after
+    # spawning the real app-window process. If we just `wait()` on the first
+    # PID, Leomail.exe dies, the backend thread dies with it, and the orphaned
+    # app window is left showing 127.0.0.1 refused. Track the real app window.
+    app_url = f"http://127.0.0.1:{port}/?v={version}".lower()
+    profile_marker = str(user_data).lower()
+
+    if psutil:
+        app_pid = None
+        appear_deadline = time.time() + 15
+        while time.time() < appear_deadline:
+            app_pids = []
+            for p in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    name = (p.info.get("name") or "").lower()
+                    if "chrome" not in name:
+                        continue
+                    cmdline = " ".join(p.info.get("cmdline") or []).lower()
+                    if "--app=" in cmdline and app_url in cmdline and profile_marker in cmdline:
+                        app_pids.append(p.info["pid"])
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            if app_pids:
+                app_pid = app_pids[0]
+                log(f"[Leomail] App window attached (PID: {app_pid})")
+                break
+            time.sleep(0.5)
+
+        if app_pid:
+            while True:
+                try:
+                    if not psutil.pid_exists(app_pid):
+                        break
+                except Exception:
+                    break
+                time.sleep(1)
+        else:
+            # Fallback if we fail to detect the handoff PID.
+            proc.wait()
+    else:
+        proc.wait()
     log("[Leomail] Window closed.")
 
 
