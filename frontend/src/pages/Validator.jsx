@@ -34,6 +34,7 @@ export default function Validator() {
     const [result, setResult] = useState(null);
     const [progress, setProgress] = useState(null);
     const [threadLogs, setThreadLogs] = useState([]);
+    const [finalResults, setFinalResults] = useState([]);
     const [stopModal, setStopModal] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const fileInputRef = useRef(null);
@@ -86,6 +87,7 @@ export default function Validator() {
     const startValidation = () => {
         setRunning(true);
         setResult(null);
+        setFinalResults([]);
         setProgress(buildProgress({ total: uploadResult?.total || 0 }));
         setThreadLogs([]);
 
@@ -148,6 +150,10 @@ export default function Validator() {
                         status: 'completed',
                         message: `Done: ${parts.join(', ')}`
                     });
+                    // Fetch full results for persistent challenge detail display
+                    fetch(`${API}/validator/results`).then(r => r.json()).then(rd => {
+                        if (Array.isArray(rd.results)) setFinalResults(rd.results);
+                    }).catch(() => {});
                 }
             }).catch(() => { });
         }, 2000);
@@ -375,6 +381,59 @@ export default function Validator() {
                 }}>
                     <div style={{ fontSize: '0.95em', fontWeight: 700, color: result.status === 'error' || result.status === 'stopped' ? 'var(--danger)' : 'var(--success)' }}>
                         {result.message}
+                    </div>
+                </div>
+            )}
+
+            {/* ═══════════════ Batch Results Detail ═══════════════ */}
+            {!running && finalResults.length > 0 && (
+                <div className="card" style={{ padding: '16px 24px', marginTop: 16 }}>
+                    <div className="card-section-header">Batch Results</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {finalResults.map((r, i) => {
+                            const isValid = r.status === 'valid';
+                            const isChallenge = r.status === 'challenge';
+                            const isSkipped = r.status === 'skipped';
+                            const statusColor = isValid ? 'var(--success)' : isChallenge ? '#f59e0b' : isSkipped ? 'var(--text-muted)' : 'var(--danger)';
+                            const statusIcon = isValid ? <CheckCircle size={13} style={{ color: 'var(--success)' }} />
+                                : isChallenge ? <AlertTriangle size={13} style={{ color: '#f59e0b' }} />
+                                    : isSkipped ? <Circle size={13} style={{ color: 'var(--text-muted)' }} />
+                                        : <XCircle size={13} style={{ color: 'var(--danger)' }} />;
+                            const provider = r.email ? r.email.split('@').pop()?.split('.')[0] : null;
+                            const reason = r.challenge_detail?.reason;
+                            const detail = r.challenge_detail?.detail;
+
+                            return (
+                                <div key={i} style={{
+                                    display: 'grid', gridTemplateColumns: '30px 28px 1fr auto',
+                                    alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 6,
+                                    background: isChallenge ? 'rgba(245,158,11,0.04)' : isValid ? 'rgba(16,185,129,0.04)' : 'rgba(255,255,255,0.01)',
+                                    borderLeft: `3px solid ${statusColor}`,
+                                }}>
+                                    <div>{statusIcon}</div>
+                                    {provider && <ProviderLogo provider={provider} size={20} />}
+                                    {!provider && <div />}
+                                    <div style={{ overflow: 'hidden' }}>
+                                        <div style={{ fontSize: '0.82em', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {r.email}
+                                        </div>
+                                        {reason && (
+                                            <div style={{ fontSize: '0.72em', color: '#f59e0b', fontWeight: 600, marginTop: 2 }}>
+                                                {reason}{detail ? ` — ${detail}` : ''}
+                                            </div>
+                                        )}
+                                        {!reason && r.error && (
+                                            <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', marginTop: 2 }}>
+                                                {r.error}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: '0.72em', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                        {r.time_sec > 0 ? `${r.time_sec}s` : ''}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}

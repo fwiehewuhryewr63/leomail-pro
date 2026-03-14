@@ -60,6 +60,9 @@ _validator_state = {
 
 UPLOADS_DIR = PROJECT_ROOT / "user_data" / "validator"
 
+# Per-run set of emails confirmed as gmail_pre_password_gate — skip retries within the same batch
+_gmail_gated_emails: set[str] = set()
+
 
 def _reset_validator_runtime_state(*, clear_loaded: bool = False):
     """Recover validator state after a failed or stale start without nuking uploaded input by default."""
@@ -73,6 +76,7 @@ def _reset_validator_runtime_state(*, clear_loaded: bool = False):
     _validator_state["results"] = []
     _validator_state["task_id"] = None
     _validator_state["farm_id"] = None
+    _gmail_gated_emails.clear()
     if clear_loaded:
         _validator_state["parsed_accounts"] = []
         _validator_state["filename"] = None
@@ -287,6 +291,7 @@ async def start_validation(request: ValidatorStartRequest):
     _validator_state["threads"] = request.threads
     _validator_state["results"] = []
     _validator_state["thread_logs"] = []
+    _gmail_gated_emails.clear()  # ensure no stale gate data from previous batch
 
     db = SessionLocal()
     task_id = None
@@ -627,6 +632,28 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     }
                     continue
 
+                # ── Gmail pre-password gate skip (confirmed in this run) ──
+                if provider == "gmail" and email in _gmail_gated_emails:
+                    reason_text = "⚠ Gmail pre-password gate (confirmed earlier in this batch)"
+                    logger.info(f"[Validator] T-{thread_idx+1} {email}: skipping — already confirmed gated")
+                    with _state_lock:
+                        _validator_state["challenge"] += 1
+                        _validator_state["results"].append({
+                            "email": email, "provider": provider,
+                            "status": "challenge", "time_sec": 0,
+                            "error": reason_text,
+                            "challenge_detail": {
+                                "reason": "gmail_pre_password_gate",
+                                "detail": "Skipped — confirmed gated earlier in this batch",
+                            },
+                        })
+                    _validator_state["thread_logs"][thread_idx] = {
+                        "index": thread_idx, "status": "challenge",
+                        "email": email, "current_step": reason_text,
+                        "error": reason_text,
+                    }
+                    continue
+
                 # Update thread log
                 _validator_state["thread_logs"][thread_idx] = {
                     "index": thread_idx,
@@ -639,8 +666,9 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     _validator_state["processing"] += 1
 
                 start_time = time.time()
-                validation_result = False  # True, False, or string status ("challenge")
+                validation_result = False  # True, False, string "challenge", or dict {status, reason, ...}
                 error_msg = None
+                challenge_detail = None  # populated for structured challenge results
 
                 try:
                     # Start browser if not running
@@ -700,11 +728,22 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     _validator_state["processing"] -= 1
 
                 # ── Classify result ──
+                is_challenge = (
+                    validation_result == "challenge"
+                    or (isinstance(validation_result, dict) and validation_result.get("status") == "challenge")
+                )
+                if isinstance(validation_result, dict) and is_challenge:
+                    challenge_detail = validation_result
+                    error_msg = challenge_detail.get("detail") or challenge_detail.get("reason", "challenge")
+                    # Track gmail pre-password gate for batch-level skip
+                    if challenge_detail.get("reason") == "gmail_pre_password_gate":
+                        _gmail_gated_emails.add(email)
+
                 if validation_result is True:
                     status = "valid"
                     with _state_lock:
                         _validator_state["valid"] += 1
-                elif validation_result == "challenge":
+                elif is_challenge:
                     status = "challenge"
                     with _state_lock:
                         _validator_state["challenge"] += 1
@@ -718,21 +757,26 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
                     step_text = "Valid ✓"
                     log_status = "completed"
                 elif status == "challenge":
-                    step_text = error_msg or "⚠ Challenge / verification required"
+                    reason_label = challenge_detail.get("reason", "") if challenge_detail else ""
+                    detail_label = challenge_detail.get("detail", "") if challenge_detail else ""
+                    step_text = f"⚠ {reason_label}: {detail_label}" if reason_label else (error_msg or "⚠ Challenge / verification required")
                     log_status = "challenge"
                 else:
                     step_text = error_msg or "Invalid credentials"
                     log_status = "error"
 
                 # Record result
+                result_entry = {
+                    "email": email,
+                    "provider": provider,
+                    "status": status,
+                    "time_sec": elapsed,
+                    "error": error_msg,
+                }
+                if challenge_detail:
+                    result_entry["challenge_detail"] = challenge_detail
                 with _state_lock:
-                    _validator_state["results"].append({
-                        "email": email,
-                        "provider": provider,
-                        "status": status,
-                        "time_sec": elapsed,
-                        "error": error_msg,
-                    })
+                    _validator_state["results"].append(result_entry)
 
                 # Update thread log
                 _validator_state["thread_logs"][thread_idx] = {
@@ -799,6 +843,7 @@ def _run_validator_pool(accounts: list, threads: int, save_session_flag: bool, t
         f"{_validator_state['skipped']} skipped out of {len(accounts)}"
     )
     engine_manager.finish_engine(EngineType.VALIDATOR)
+    _gmail_gated_emails.clear()  # release gate data — must not leak into next batch
 
 
 # ─── Universal Browser Validation ──────────────────────────────────────────
@@ -970,8 +1015,9 @@ async def _validate_browser(
                         await asyncio.sleep(2)
 
         if not pwd_input:
-            await debug_screenshot(page, f"val_{provider}_no_pwd_{safe_email}")
+            screenshot_path = await debug_screenshot(page, f"val_{provider}_no_pwd_{safe_email}")
             current_url = page.url.lower()
+            page_title = await _get_page_title(page)
             page_text = await _get_page_text(page)
             challenge_markers = [
                 "challenge", "verify", "blocked", "rejected", "2-step", "2 step",
@@ -980,19 +1026,41 @@ async def _validate_browser(
                 "recovery email", "choose an account", "sign in to continue",
                 "something went wrong", "restart",
             ]
+            # Build human-readable detail from detected signals
+            detected_signals = [m for m in challenge_markers if m in page_text]
             looks_like_challenge = (
                 provider == "gmail"
                 or any(marker in current_url for marker in ["challenge", "rejected", "blocked", "verify"])
-                or any(marker in page_text for marker in challenge_markers)
+                or bool(detected_signals)
             )
             if looks_like_challenge:
-                _tlog["current_step"] = f"Challenge before password on {provider}"
+                # Determine specific reason
+                # Catch the known live Google 400 page, "Something went wrong", and
+                # other gate/error UI that appears before the password field.
+                is_pre_password_gate = provider == "gmail" and (
+                    any(s in page_text for s in ["something went wrong", "restart", "try again"])
+                    or any(s in current_url for s in ["/error", "400", "errorpage"])
+                    or "error" in page_title.lower()
+                    # Gmail-specific: no password field + still on identifier/signin = gate
+                    or any(s in current_url for s in ["identifier", "signin/v2", "signin/rejected"])
+                )
+                reason = "gmail_pre_password_gate" if is_pre_password_gate else "pre_password_challenge"
+                detail_text = ", ".join(detected_signals[:5]) if detected_signals else "verification-gated page"
+                _tlog["current_step"] = f"⚠ {reason}: {detail_text}"
                 logger.warning(
-                    f"[Validator] T-{thread_idx+1} {email}: no password field on {provider} "
-                    f"but page looks challenged/verification-gated"
+                    f"[Validator] T-{thread_idx+1} {email}: {reason} on {provider} — "
+                    f"signals=[{detail_text}] url={current_url[:120]} title={page_title[:80]}"
                 )
                 await context.close()
-                return "challenge"  # Don't mark invalid — account may be alive
+                return {
+                    "status": "challenge",
+                    "reason": reason,
+                    "detail": detail_text,
+                    "url": current_url[:200],
+                    "page_title": page_title[:120],
+                    "text_snippet": page_text[:500],
+                    "screenshot": screenshot_path,
+                }
 
             _tlog["current_step"] = "No password field found"
             logger.warning(f"[Validator] T-{thread_idx+1} {email}: no password field on {provider}")
@@ -1034,7 +1102,9 @@ async def _validate_browser(
 
         # Try recovery email if challenge detected
         if "challenge" in current_url or "verify" in current_url:
-            await debug_screenshot(page, f"val_{provider}_challenge_{safe_email}")
+            challenge_screenshot = await debug_screenshot(page, f"val_{provider}_challenge_{safe_email}")
+            challenge_title = await _get_page_title(page)
+            challenge_text = await _get_page_text(page)
             if recovery and config.get("recovery_selectors"):
                 _tlog["current_step"] = f"Entering recovery: {recovery[:15]}..."
                 recovery_input = await _find_element(page, config["recovery_selectors"])
@@ -1052,23 +1122,51 @@ async def _validate_browser(
                     # Google may show a SECOND verification step even after recovery email
                     post_recovery_url = page.url.lower()
                     if "challenge" in post_recovery_url or "verify" in post_recovery_url:
-                        _tlog["current_step"] = "⚠ Challenge persists after recovery"
+                        # Capture FRESH evidence from the post-recovery page state
+                        post_recovery_screenshot = await debug_screenshot(page, f"val_{provider}_post_recovery_challenge_{safe_email}")
+                        post_recovery_title = await _get_page_title(page)
+                        post_recovery_text = await _get_page_text(page)
+                        _tlog["current_step"] = "⚠ gmail_post_recovery_challenge: verification persists after recovery"
                         logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge persists after recovery on {provider}")
                         await context.close()
-                        return "challenge"
+                        return {
+                            "status": "challenge",
+                            "reason": "gmail_post_recovery_challenge",
+                            "detail": "Verification persists after recovery email submission",
+                            "url": post_recovery_url[:200],
+                            "page_title": post_recovery_title[:120],
+                            "text_snippet": post_recovery_text[:500],
+                            "screenshot": post_recovery_screenshot,
+                        }
                 else:
                     # Recovery selectors didn't match — challenge we can't handle
-                    _tlog["current_step"] = "⚠ Challenge — recovery input not found"
+                    _tlog["current_step"] = "⚠ recovery_input_not_found: challenge page, recovery field missing"
                     logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge, recovery input not found")
                     await context.close()
-                    return "challenge"
+                    return {
+                        "status": "challenge",
+                        "reason": "recovery_input_not_found",
+                        "detail": "Challenge page detected but recovery input selector did not match",
+                        "url": current_url[:200],
+                        "page_title": challenge_title[:120],
+                        "text_snippet": challenge_text[:500],
+                        "screenshot": challenge_screenshot,
+                    }
             else:
                 # No recovery email or no recovery selectors — can't handle challenge
-                detail = "no recovery email" if not recovery else "no recovery selectors"
-                _tlog["current_step"] = f"⚠ Challenge — {detail}"
+                detail = "no recovery email provided" if not recovery else "provider has no recovery selectors"
+                _tlog["current_step"] = f"⚠ no_recovery_available: {detail}"
                 logger.info(f"[Validator] T-{thread_idx+1} {email}: challenge on {provider}, {detail}")
                 await context.close()
-                return "challenge"
+                return {
+                    "status": "challenge",
+                    "reason": "no_recovery_available",
+                    "detail": detail,
+                    "url": current_url[:200],
+                    "page_title": challenge_title[:120],
+                    "text_snippet": challenge_text[:500],
+                    "screenshot": challenge_screenshot,
+                }
 
         # ── Skip non-critical prompts (2FA, passkey, app promo, "Stay signed in?", etc.) ──
         for _ in range(5):
@@ -1291,6 +1389,14 @@ async def _get_page_text(page) -> str:
     """Get page body text (lowercased), safely."""
     try:
         return (await page.locator('body').inner_text(timeout=3000))[:2000].lower()
+    except Exception:
+        return ""
+
+
+async def _get_page_title(page) -> str:
+    """Get page title, safely."""
+    try:
+        return (await page.title()) or ""
     except Exception:
         return ""
 
