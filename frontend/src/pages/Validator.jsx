@@ -1,10 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     Play, StopCircle, Upload, CheckCircle, XCircle, RefreshCw, Circle,
-    FileText, ShieldCheck, AlertTriangle
+    FileText, AlertTriangle
 } from 'lucide-react';
 import { API } from '../api';
 import { ProviderLogo } from '../components/ProviderLogos';
+
+function normalizeCount(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildProgress(data = {}) {
+    return {
+        valid: normalizeCount(data.valid),
+        invalid: normalizeCount(data.invalid),
+        challenge: normalizeCount(data.challenge),
+        skipped: normalizeCount(data.skipped),
+        processing: normalizeCount(data.processing),
+        total: normalizeCount(data.total),
+    };
+}
 
 export default function Validator() {
     /* ── State ── */
@@ -27,13 +43,8 @@ export default function Validator() {
         fetch(`${API}/validator/status`).then(r => r.json()).then(d => {
             if (d.running) {
                 setRunning(true);
-                setUploadResult({ total: d.total, filename: d.filename, format: d.format });
-                setProgress({
-                    valid: d.valid || 0, invalid: d.invalid || 0,
-                    challenge: d.challenge || 0, skipped: d.skipped || 0,
-                    processing: d.processing || 0,
-                    total: d.total || 0,
-                });
+                setUploadResult({ total: normalizeCount(d.total), filename: d.filename, format: d.format });
+                setProgress(buildProgress(d));
                 if (Array.isArray(d.thread_logs)) setThreadLogs(d.thread_logs);
             }
         }).catch(() => { });
@@ -53,7 +64,7 @@ export default function Validator() {
             const data = await res.json();
             if (res.ok) {
                 setResult(null);
-                setUploadResult(data);
+                setUploadResult({ ...data, total: normalizeCount(data.total) });
                 setProgress(null);
                 setThreadLogs([]);
             } else {
@@ -75,7 +86,7 @@ export default function Validator() {
     const startValidation = () => {
         setRunning(true);
         setResult(null);
-        setProgress({ valid: 0, invalid: 0, challenge: 0, skipped: 0, processing: 0, total: uploadResult?.total || 0 });
+        setProgress(buildProgress({ total: uploadResult?.total || 0 }));
         setThreadLogs([]);
 
         fetch(`${API}/validator/start`, {
@@ -112,7 +123,7 @@ export default function Validator() {
             .then(() => {
                 setRunning(false);
                 setStopModal(false);
-                setResult({ status: 'stopped', message: '⛔ Validation stopped by user' });
+                setResult({ status: 'stopped', message: 'Validation stopped by user' });
             })
             .catch(() => { setRunning(false); setStopModal(false); });
     };
@@ -122,20 +133,20 @@ export default function Validator() {
         if (!running) return;
         const iv = setInterval(() => {
             fetch(`${API}/validator/status`).then(r => r.json()).then(d => {
-                setProgress({
-                    valid: d.valid || 0, invalid: d.invalid || 0,
-                    challenge: d.challenge || 0, skipped: d.skipped || 0,
-                    processing: d.processing || 0, total: d.total || 0,
-                });
+                setProgress(buildProgress(d));
                 if (Array.isArray(d.thread_logs)) setThreadLogs(d.thread_logs);
                 if (!d.running) {
                     setRunning(false);
-                    const parts = [`${d.valid} valid`, `${d.invalid} invalid`];
-                    if (d.challenge) parts.push(`${d.challenge} challenge`);
-                    if (d.skipped) parts.push(`${d.skipped} skipped`);
+                    const valid = normalizeCount(d.valid);
+                    const invalid = normalizeCount(d.invalid);
+                    const challenge = normalizeCount(d.challenge);
+                    const skipped = normalizeCount(d.skipped);
+                    const parts = [`${valid} valid`, `${invalid} invalid`];
+                    if (challenge) parts.push(`${challenge} challenge`);
+                    if (skipped) parts.push(`${skipped} skipped`);
                     setResult({
                         status: 'completed',
-                        message: `✅ Done: ${parts.join(', ')}`
+                        message: `Done: ${parts.join(', ')}`
                     });
                 }
             }).catch(() => { });
@@ -143,7 +154,7 @@ export default function Validator() {
         return () => clearInterval(iv);
     }, [running]);
 
-    const safeProgress = progress || { valid: 0, invalid: 0, challenge: 0, skipped: 0, processing: 0, total: 0 };
+    const safeProgress = progress || buildProgress();
     const completed = safeProgress.valid + safeProgress.invalid + safeProgress.challenge + safeProgress.skipped;
     const pct = safeProgress.total > 0 ? Math.round(completed / safeProgress.total * 100) : 0;
     const queued = Math.max(0, safeProgress.total - completed - safeProgress.processing);
@@ -202,7 +213,7 @@ export default function Validator() {
                             {file ? file.name : 'Drop file here or click to browse'}
                         </div>
                         <div style={{ fontSize: '0.75em', color: 'var(--text-muted)' }}>
-                            email:password · email;password · email|password · optional recovery as third field · extra fields ignored
+                            email:password / email;password / email|password / optional recovery as third field / extra fields ignored
                         </div>
                         <input ref={fileInputRef} type="file" accept=".txt,.csv,.tsv" hidden
                             onChange={(e) => handleFileUpload(e.target.files[0])} />
@@ -344,10 +355,10 @@ export default function Validator() {
                                     {provider && <ProviderLogo provider={provider} size={24} />}
                                     {!provider && <div />}
                                     <span style={{ fontSize: '0.82em', color: tLog.email ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: tLog.email ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {tLog.email || '—'}
+                                        {tLog.email || '-'}
                                     </span>
                                     <span style={{ fontSize: '0.78em', color: statusColor, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {tLog.current_step || (isValid ? 'Valid ✓' : isError ? 'Invalid' : 'Idle')}
+                                        {tLog.current_step || (isValid ? 'Valid' : isError ? 'Invalid' : 'Idle')}
                                     </span>
                                 </div>
                             );
