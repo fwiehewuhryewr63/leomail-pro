@@ -1,0 +1,5 @@
+Updater root fix:
+
+- Replace fragile batch-loop updater with a detached PowerShell helper.
+- After successful updater handoff, the live frozen runtime now self-exits so apply can proceed automatically.
+- Preserve phase/result markers for truthful VPS debugging and rollback visibility.

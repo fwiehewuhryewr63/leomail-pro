@@ -23,6 +23,7 @@ UPDATE_STARTED_FILE = "_update_started.txt"
 UPDATE_LAUNCH_FILE = "_update_launch.txt"
 UPDATE_FAILED_LOG = "_update_failed.log"
 UPDATE_PHASE_FILE = "_update_phase.txt"
+UPDATER_SCRIPT_FILE = "_updater.ps1"
 
 def _read_version_from_file() -> str:
     """Read version from version.json, checking multiple possible locations."""
@@ -118,6 +119,7 @@ def cleanup_preexisting_update_state() -> dict:
 
     remove_path(root / "_update_tmp", "_update_tmp")
     remove_path(root / "_updater.bat", "_updater.bat")
+    remove_path(root / UPDATER_SCRIPT_FILE, UPDATER_SCRIPT_FILE)
     remove_path(root / UPDATE_STARTED_FILE, UPDATE_STARTED_FILE)
     remove_path(root / UPDATE_LAUNCH_FILE, UPDATE_LAUNCH_FILE)
     remove_path(root / UPDATE_FAILED_LOG, UPDATE_FAILED_LOG)
@@ -183,23 +185,32 @@ def mark_updater_launch(status: str, detail: str = ""):
         logger.warning(f"[Update] Failed to write update launch marker: {e}")
 
 
-def launch_updater_detached(bat_path: str) -> dict:
+def launch_updater_detached(script_path: str) -> dict:
     """
-    Launch updater.bat in a way that survives the parent windowed EXE process.
+    Launch updater script in a way that survives the parent windowed EXE process.
     Require an early started-marker acknowledgement so the caller does not
     report "restarting" when the batch never actually began.
     """
-    bat_path = str(Path(bat_path))
-    workdir = str(Path(bat_path).parent)
+    script_path = str(Path(script_path))
+    workdir = str(Path(script_path).parent)
     started_path = get_update_started_path()
     try:
         started_path.unlink(missing_ok=True)
     except Exception:
         pass
-    mark_updater_launch("dispatching", bat_path)
+    mark_updater_launch("dispatching", script_path)
     try:
         subprocess.Popen(
-            ["cmd.exe", "/d", "/c", bat_path],
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                script_path,
+            ],
             cwd=workdir,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
             stdin=subprocess.DEVNULL,
@@ -209,12 +220,12 @@ def launch_updater_detached(bat_path: str) -> dict:
         )
         for _ in range(20):
             if started_path.exists():
-                mark_updater_launch("started_ack", bat_path)
+                mark_updater_launch("started_ack", script_path)
                 return {"success": True}
             import time
             time.sleep(0.1)
-        mark_updater_launch("start_not_acknowledged", bat_path)
-        return {"success": False, "error": "Updater batch did not acknowledge start"}
+        mark_updater_launch("start_not_acknowledged", script_path)
+        return {"success": False, "error": "Updater script did not acknowledge start"}
     except Exception as primary_error:
         logger.error(f"[Update] Detached updater launch failed: {primary_error}")
         mark_updater_launch("launch_failed", str(primary_error))
@@ -499,179 +510,143 @@ def extract_and_prepare(zip_path: str, current_pid: int | None = None) -> dict:
 
         logger.info(f"[Update] Found update in: {exe_found}")
 
-        # Generate updater.bat with rollback-safe atomic swap
+        # Generate updater.ps1 with rollback-safe atomic swap
         exe_rel = exe_found.relative_to(root) if exe_found.is_relative_to(root) else exe_found
-        src = str(exe_rel)
-        bat_lines = [
-            '@echo off',
-            'setlocal EnableExtensions EnableDelayedExpansion',
-            'chcp 65001 >nul',
-            'cd /d "%~dp0"',
-            f'set TARGET_PID={current_pid or 0}',
-            'echo ==========================================',
-            'echo   Leomail Auto-Updater',
-            'echo ==========================================',
-            'echo.',
-            f'> "{UPDATE_STARTED_FILE}" echo status=started',
-            f'>> "{UPDATE_STARTED_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_STARTED_FILE}" echo at=%date% %time%',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=started',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            'echo Waiting for Leomail.exe to close...',
-            '',
-            'set WAIT_SECS=0',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=waiting_for_exit',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            ':wait_loop',
-            'if not "%TARGET_PID%"=="0" (',
-            '    tasklist /FI "PID eq %TARGET_PID%" 2>nul | find /i "%TARGET_PID%" >nul',
-            ') else (',
-            '    tasklist /FI "IMAGENAME eq Leomail.exe" 2>nul | find /i "Leomail.exe" >nul',
-            ')',
-            'if !errorlevel! EQU 0 (',
-            '    if !WAIT_SECS! GEQ 5 goto force_close',
-            '    set /a WAIT_SECS+=1',
-            '    timeout /t 1 /nobreak >nul',
-            '    goto wait_loop',
-            ')',
-            '',
-            'goto apply_update',
-            '',
-            ':force_close',
-            'echo Leomail.exe did not exit in time. Force-closing lingering runtime...',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=force_close',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            'if not "%TARGET_PID%"=="0" taskkill /f /pid "%TARGET_PID%" >nul 2>&1',
-            f'>> "{UPDATE_PHASE_FILE}" echo taskkill_pid_exit=!errorlevel!',
-            'taskkill /f /im "Leomail.exe" >nul 2>&1',
-            f'>> "{UPDATE_PHASE_FILE}" echo taskkill_image_exit=!errorlevel!',
-            'set FORCE_WAIT_SECS=0',
-            ':force_wait_loop',
-            'if not "%TARGET_PID%"=="0" (',
-            '    tasklist /FI "PID eq %TARGET_PID%" 2>nul | find /i "%TARGET_PID%" >nul',
-            ') else (',
-            '    tasklist /FI "IMAGENAME eq Leomail.exe" 2>nul | find /i "Leomail.exe" >nul',
-            ')',
-            'if !errorlevel! EQU 0 (',
-            '    if !FORCE_WAIT_SECS! GEQ 10 goto runtime_still_alive',
-            '    set /a FORCE_WAIT_SECS+=1',
-            '    timeout /t 1 /nobreak >nul',
-            '    goto force_wait_loop',
-            ')',
-            '',
-            'goto apply_update',
-            '',
-            ':runtime_still_alive',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=runtime_still_alive',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            f'echo Update failed at %date% %time% > "{UPDATE_FAILED_LOG}"',
-            'echo Runtime did not terminate after forced close attempt. >> "_update_failed.log"',
-            f'> "{UPDATE_RESULT_FILE}" echo status=failed',
-            f'>> "{UPDATE_RESULT_FILE}" echo detail=runtime_did_not_exit',
-            f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
-            f'if exist "{UPDATE_STARTED_FILE}" del /f "{UPDATE_STARTED_FILE}" >nul 2>&1',
-            f'if exist "{UPDATE_LAUNCH_FILE}" del /f "{UPDATE_LAUNCH_FILE}" >nul 2>&1',
-            '(goto) 2>nul & del "%~f0"',
-            '',
-            ':apply_update',
-            'echo Leomail.exe closed. Applying update...',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=apply_update',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            '',
-            f'if exist "{UPDATE_RESULT_FILE}" del /f "{UPDATE_RESULT_FILE}"',
-            f'if exist "{UPDATE_FAILED_LOG}" del /f "{UPDATE_FAILED_LOG}"',
-            '',
-            ':: Phase 1: Rename current runtime aside (recoverable)',
-            'echo [1/4] Backing up current version...',
-            'if exist "Leomail.exe.bak" del /f "Leomail.exe.bak"',
-            'if exist "_internal.old" rmdir /s /q "_internal.old"',
-            'if exist "Leomail.exe" rename "Leomail.exe" "Leomail.exe.bak"',
-            'if exist "_internal" rename "_internal" "_internal.old"',
-            '',
-            ':: Phase 2: Copy new files (with error checking)',
-            'echo [2/4] Installing new version...',
-            f'xcopy /e /y /q "{src}\\_internal" "_internal\\" >nul',
-            'if errorlevel 1 goto :rollback',
-            f'copy /y "{src}\\Leomail.exe" "Leomail.exe" >nul',
-            'if errorlevel 1 goto :rollback',
-            f'if exist "{src}\\version.json" copy /y "{src}\\version.json" "version.json" >nul',
-            '',
-            ':: Phase 3: Verify new files exist',
-            'echo [3/4] Verifying update...',
-            'if not exist "Leomail.exe" goto :rollback',
-            'if not exist "_internal" goto :rollback',
-            '',
-            ':: Phase 4: Success - cleanup staging, keep .old/.bak as safety net',
-            'echo [4/4] Cleaning up...',
-            'if exist "_update_tmp" rmdir /s /q "_update_tmp"',
-            'echo NOTE: _internal.old and Leomail.exe.bak kept until next update.',
-            'echo They will be auto-cleaned on next successful update.', 
-            '',
-            ':: Clear Chromium UI cache (correct path)',
-            'if exist "user_data\\chromium_profile\\Cache" rmdir /s /q "user_data\\chromium_profile\\Cache"',
-            'if exist "user_data\\chromium_profile\\Code Cache" rmdir /s /q "user_data\\chromium_profile\\Code Cache"',
-            '',
-            'echo.',
-            'echo ==========================================',
-            'echo   Update complete! Starting Leomail...',
-            'echo ==========================================',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=success',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            f'> "{UPDATE_RESULT_FILE}" echo status=success',
-            f'>> "{UPDATE_RESULT_FILE}" echo detail=runtime_updated',
-            f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
-            f'if exist "{UPDATE_STARTED_FILE}" del /f "{UPDATE_STARTED_FILE}" >nul 2>&1',
-            f'if exist "{UPDATE_LAUNCH_FILE}" del /f "{UPDATE_LAUNCH_FILE}" >nul 2>&1',
-            'timeout /t 2 /nobreak >nul',
-            'start "" /d "%~dp0" "%~dp0Leomail.exe"',
-            '(goto) 2>nul & del "%~f0"',
-            '',
-            ':: Rollback: restore previous version on failure',
-            ':rollback',
-            'echo.',
-            'echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
-            'echo   UPDATE FAILED - Rolling back...',
-            'echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
-            '',
-            ':: Force-remove any broken/partial new files',
-            'if exist "Leomail.exe" del /f "Leomail.exe"',
-            'if exist "_internal" rmdir /s /q "_internal"',
-            '',
-            ':: Restore previous known-good runtime',
-            'if exist "Leomail.exe.bak" rename "Leomail.exe.bak" "Leomail.exe"',
-            'if exist "_internal.old" rename "_internal.old" "_internal"', 
-            '',
-            f'> "{UPDATE_PHASE_FILE}" echo phase=rollback',
-            f'>> "{UPDATE_PHASE_FILE}" echo pid=%TARGET_PID%',
-            f'>> "{UPDATE_PHASE_FILE}" echo at=%date% %time%',
-            f'echo Update failed at %date% %time% > "{UPDATE_FAILED_LOG}"',
-            f'echo Previous version preserved. Recovery from .bak/.old files. >> "{UPDATE_FAILED_LOG}"',
-            f'> "{UPDATE_RESULT_FILE}" echo status=rollback',
-            f'>> "{UPDATE_RESULT_FILE}" echo detail=previous_version_restored',
-            f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
-            f'if exist "{UPDATE_STARTED_FILE}" del /f "{UPDATE_STARTED_FILE}" >nul 2>&1',
-            f'if exist "{UPDATE_LAUNCH_FILE}" del /f "{UPDATE_LAUNCH_FILE}" >nul 2>&1',
-            '',
-            'echo.',
-            'echo Previous version has been restored.',
-            'echo Starting Leomail in 3 seconds...',
-            'echo.',
-            'timeout /t 3 /nobreak >nul',
-            'if exist "Leomail.exe" start "" /d "%~dp0" "%~dp0Leomail.exe"',
-            '(goto) 2>nul & del "%~f0"',
+        src = str(exe_rel).replace("\\", "\\\\")
+        script_lines = [
+            "$ErrorActionPreference = 'Stop'",
+            "$root = Split-Path -Parent $MyInvocation.MyCommand.Path",
+            "Set-Location $root",
+            f"$TargetPid = {current_pid or 0}",
+            f"$StartedPath = Join-Path $root '{UPDATE_STARTED_FILE}'",
+            f"$LaunchPath = Join-Path $root '{UPDATE_LAUNCH_FILE}'",
+            f"$ResultPath = Join-Path $root '{UPDATE_RESULT_FILE}'",
+            f"$FailedPath = Join-Path $root '{UPDATE_FAILED_LOG}'",
+            f"$PhasePath = Join-Path $root '{UPDATE_PHASE_FILE}'",
+            f"$NewRoot = Join-Path $root '{src}'",
+            "$ExeBak = Join-Path $root 'Leomail.exe.bak'",
+            "$InternalOld = Join-Path $root '_internal.old'",
+            "$LiveExe = Join-Path $root 'Leomail.exe'",
+            "$LiveInternal = Join-Path $root '_internal'",
+            "$NewExe = Join-Path $NewRoot 'Leomail.exe'",
+            "$NewInternal = Join-Path $NewRoot '_internal'",
+            "$NewVersion = Join-Path $NewRoot 'version.json'",
+            "",
+            "function Write-Phase([string]$phase, [string[]]$extra = @()) {",
+            "  $lines = @(",
+            "    \"phase=$phase\",",
+            "    \"pid=$TargetPid\",",
+            "    \"at=$([DateTime]::Now.ToString('s'))\"",
+            "  )",
+            "  if ($extra) { $lines += $extra }",
+            "  Set-Content -Path $PhasePath -Value $lines -Encoding UTF8",
+            "}",
+            "",
+            "function Remove-Markers() {",
+            "  Remove-Item $StartedPath -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item $LaunchPath -Force -ErrorAction SilentlyContinue",
+            "}",
+            "",
+            "Set-Content -Path $StartedPath -Value @(",
+            "  'status=started',",
+            "  \"pid=$TargetPid\",",
+            "  \"at=$([DateTime]::Now.ToString('s'))\"",
+            ") -Encoding UTF8",
+            "Write-Phase 'waiting_for_exit'",
+            "",
+            "$deadline = (Get-Date).AddSeconds(5)",
+            "while ((Get-Date) -lt $deadline) {",
+            "  $proc = if ($TargetPid -ne 0) { Get-Process -Id $TargetPid -ErrorAction SilentlyContinue } else { Get-Process Leomail -ErrorAction SilentlyContinue }",
+            "  if (-not $proc) { break }",
+            "  Start-Sleep -Seconds 1",
+            "}",
+            "",
+            "$proc = if ($TargetPid -ne 0) { Get-Process -Id $TargetPid -ErrorAction SilentlyContinue } else { Get-Process Leomail -ErrorAction SilentlyContinue }",
+            "if ($proc) {",
+            "  Write-Phase 'force_close'",
+            "  if ($TargetPid -ne 0) { Stop-Process -Id $TargetPid -Force -ErrorAction SilentlyContinue }",
+            "  Get-Process Leomail -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
+            "  $deadline = (Get-Date).AddSeconds(10)",
+            "  while ((Get-Date) -lt $deadline) {",
+            "    $proc = if ($TargetPid -ne 0) { Get-Process -Id $TargetPid -ErrorAction SilentlyContinue } else { Get-Process Leomail -ErrorAction SilentlyContinue }",
+            "    if (-not $proc) { break }",
+            "    Start-Sleep -Seconds 1",
+            "  }",
+            "  $proc = if ($TargetPid -ne 0) { Get-Process -Id $TargetPid -ErrorAction SilentlyContinue } else { Get-Process Leomail -ErrorAction SilentlyContinue }",
+            "  if ($proc) {",
+            "    Write-Phase 'runtime_still_alive'",
+            "    Set-Content -Path $FailedPath -Value @(",
+            "      \"Update failed at $([DateTime]::Now.ToString('s'))\",",
+            "      'Runtime did not terminate after forced close attempt.'",
+            "    ) -Encoding UTF8",
+            "    Set-Content -Path $ResultPath -Value @(",
+            "      'status=failed',",
+            "      'detail=runtime_did_not_exit',",
+            "      \"at=$([DateTime]::Now.ToString('s'))\"",
+            "    ) -Encoding UTF8",
+            "    Remove-Markers",
+            "    exit 1",
+            "  }",
+            "}",
+            "",
+            "Write-Phase 'apply_update'",
+            "Remove-Item $ResultPath -Force -ErrorAction SilentlyContinue",
+            "Remove-Item $FailedPath -Force -ErrorAction SilentlyContinue",
+            "",
+            "try {",
+            "  Remove-Item $ExeBak -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item $InternalOld -Recurse -Force -ErrorAction SilentlyContinue",
+            "  if (Test-Path $LiveExe) { Move-Item $LiveExe $ExeBak -Force }",
+            "  if (Test-Path $LiveInternal) { Move-Item $LiveInternal $InternalOld -Force }",
+            "",
+            "  Copy-Item $NewInternal $LiveInternal -Recurse -Force",
+            "  Copy-Item $NewExe $LiveExe -Force",
+            "  if (Test-Path $NewVersion) { Copy-Item $NewVersion (Join-Path $root 'version.json') -Force }",
+            "",
+            "  if (-not (Test-Path $LiveExe)) { throw 'Leomail.exe missing after copy' }",
+            "  if (-not (Test-Path $LiveInternal)) { throw '_internal missing after copy' }",
+            "",
+            "  Remove-Item (Join-Path $root '_update_tmp') -Recurse -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item (Join-Path $root 'user_data\\chromium_profile\\Cache') -Recurse -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item (Join-Path $root 'user_data\\chromium_profile\\Code Cache') -Recurse -Force -ErrorAction SilentlyContinue",
+            "",
+            "  Write-Phase 'success'",
+            "  Set-Content -Path $ResultPath -Value @(",
+            "    'status=success',",
+            "    'detail=runtime_updated',",
+            "    \"at=$([DateTime]::Now.ToString('s'))\"",
+            "  ) -Encoding UTF8",
+            "  Remove-Markers",
+            "  Start-Sleep -Seconds 2",
+            "  Start-Process $LiveExe",
+            "  exit 0",
+            "} catch {",
+            "  Remove-Item $LiveExe -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item $LiveInternal -Recurse -Force -ErrorAction SilentlyContinue",
+            "  if (Test-Path $ExeBak) { Move-Item $ExeBak $LiveExe -Force }",
+            "  if (Test-Path $InternalOld) { Move-Item $InternalOld $LiveInternal -Force }",
+            "  Write-Phase 'rollback'",
+            "  Set-Content -Path $FailedPath -Value @(",
+            "    \"Update failed at $([DateTime]::Now.ToString('s'))\",",
+            "    ('Rollback triggered: ' + $_.Exception.Message)",
+            "  ) -Encoding UTF8",
+            "  Set-Content -Path $ResultPath -Value @(",
+            "    'status=rollback',",
+            "    'detail=previous_version_restored',",
+            "    \"at=$([DateTime]::Now.ToString('s'))\"",
+            "  ) -Encoding UTF8",
+            "  Remove-Markers",
+            "  Start-Sleep -Seconds 3",
+            "  if (Test-Path $LiveExe) { Start-Process $LiveExe }",
+            "  exit 1",
+            "}",
         ]
-        bat_content = '\r\n'.join(bat_lines) + '\r\n'
-        bat_path = root / "_updater.bat"
-        bat_path.write_text(bat_content, encoding="utf-8")
-        logger.info(f"[Update] Updater script ready: {bat_path}")
+        script_content = '\r\n'.join(script_lines) + '\r\n'
+        script_path = root / UPDATER_SCRIPT_FILE
+        script_path.write_text(script_content, encoding="utf-8")
+        logger.info(f"[Update] Updater script ready: {script_path}")
 
-        return {"success": True, "bat_path": str(bat_path)}
+        return {"success": True, "bat_path": str(script_path)}
 
     except Exception as e:
         logger.error(f"Extract failed: {e}")

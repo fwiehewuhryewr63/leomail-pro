@@ -5,6 +5,8 @@ EXE auto-update via GitHub Releases.
 import os
 import sys
 import subprocess
+import threading
+import time
 from fastapi import APIRouter
 from loguru import logger
 
@@ -130,7 +132,10 @@ async def download_and_apply():
         result["steps"].append("updater_launched")
         result["success"] = True
         result["message"] = "Update downloaded. App will restart with new version."
-        # The detached updater owns process shutdown/restart.
+        def _exit_after_handoff():
+            time.sleep(1.5)
+            os._exit(0)
+        threading.Thread(target=_exit_after_handoff, daemon=True).start()
     else:
         # Dev mode - just report ready
         result["success"] = True
