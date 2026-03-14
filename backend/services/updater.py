@@ -17,6 +17,8 @@ from loguru import logger
 # Current version - read from version.json at import time
 VERSION_FILE = "version.json"
 UPDATE_RESULT_FILE = "_update_result.txt"
+UPDATE_STARTED_FILE = "_update_started.txt"
+UPDATE_LAUNCH_FILE = "_update_launch.txt"
 
 def _read_version_from_file() -> str:
     """Read version from version.json, checking multiple possible locations."""
@@ -58,6 +60,14 @@ def get_update_result_path() -> Path:
     return get_app_root() / UPDATE_RESULT_FILE
 
 
+def get_update_started_path() -> Path:
+    return get_app_root() / UPDATE_STARTED_FILE
+
+
+def get_update_launch_path() -> Path:
+    return get_app_root() / UPDATE_LAUNCH_FILE
+
+
 def get_last_backup_error() -> str:
     return _LAST_BACKUP_ERROR
 
@@ -92,6 +102,51 @@ def read_and_clear_update_result() -> dict:
         "detail": data.get("detail", ""),
         "at": data.get("at", ""),
     }
+
+
+def mark_updater_launch(status: str, detail: str = ""):
+    """Write a small marker so live VPS debugging can tell whether launch handoff happened."""
+    path = get_update_launch_path()
+    try:
+        path.write_text(
+            "\n".join([
+                f"status={status}",
+                f"detail={detail}",
+                f"at={datetime.utcnow().isoformat()}",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning(f"[Update] Failed to write update launch marker: {e}")
+
+
+def launch_updater_detached(bat_path: str) -> dict:
+    """
+    Launch updater.bat in a way that survives the parent windowed EXE process.
+    Plain `cmd /c updater.bat` proved unreliable on VPS/windowed runtime.
+    """
+    bat_path = str(Path(bat_path))
+    workdir = str(Path(bat_path).parent)
+    mark_updater_launch("dispatching", bat_path)
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/c", "start", "", "/min", bat_path],
+            cwd=workdir,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            close_fds=True,
+        )
+        mark_updater_launch("dispatched", bat_path)
+        return {"success": True}
+    except Exception as primary_error:
+        logger.warning(f"[Update] start/cmd detached launch failed: {primary_error}")
+        try:
+            os.startfile(bat_path)  # type: ignore[attr-defined]
+            mark_updater_launch("dispatched_startfile", bat_path)
+            return {"success": True}
+        except Exception as fallback_error:
+            logger.error(f"[Update] Updater launch failed: {fallback_error}")
+            mark_updater_launch("launch_failed", str(fallback_error))
+            return {"success": False, "error": str(fallback_error)}
 
 
 def get_current_version() -> dict:
@@ -339,7 +394,7 @@ def download_update(download_url: str, expected_sha256: str = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def extract_and_prepare(zip_path: str) -> dict:
+def extract_and_prepare(zip_path: str, current_pid: int | None = None) -> dict:
     """
     Extract downloaded ZIP and prepare updater.bat.
     ZIP should contain Leomail/ folder with Leomail.exe + _internal/.
@@ -379,17 +434,25 @@ def extract_and_prepare(zip_path: str) -> dict:
             '@echo off',
             'setlocal EnableExtensions EnableDelayedExpansion',
             'chcp 65001 >nul',
+            f'set TARGET_PID={current_pid or 0}',
             'echo ==========================================',
             'echo   Leomail Auto-Updater',
             'echo ==========================================',
             'echo.',
+            f'> "{UPDATE_STARTED_FILE}" echo status=started',
+            f'>> "{UPDATE_STARTED_FILE}" echo pid=%TARGET_PID%',
+            f'>> "{UPDATE_STARTED_FILE}" echo at=%date% %time%',
             'echo Waiting for Leomail.exe to close...',
             '',
             'set WAIT_SECS=0',
             ':wait_loop',
-            'tasklist /FI "IMAGENAME eq Leomail.exe" 2>nul | find /i "Leomail.exe" >nul',
+            'if not "%TARGET_PID%"=="0" (',
+            '    tasklist /FI "PID eq %TARGET_PID%" 2>nul | find /i "%TARGET_PID%" >nul',
+            ') else (',
+            '    tasklist /FI "IMAGENAME eq Leomail.exe" 2>nul | find /i "Leomail.exe" >nul',
+            ')',
             'if %errorlevel%==0 (',
-            '    if !WAIT_SECS! GEQ 15 goto force_close',
+            '    if !WAIT_SECS! GEQ 5 goto force_close',
             '    set /a WAIT_SECS+=1',
             '    timeout /t 1 /nobreak >nul',
             '    goto wait_loop',
@@ -399,6 +462,7 @@ def extract_and_prepare(zip_path: str) -> dict:
             '',
             ':force_close',
             'echo Leomail.exe did not exit in time. Force-closing lingering runtime...',
+            'if not "%TARGET_PID%"=="0" taskkill /f /pid "%TARGET_PID%" /t >nul 2>&1',
             'taskkill /f /im "Leomail.exe" /t >nul 2>&1',
             'timeout /t 2 /nobreak >nul',
             '',

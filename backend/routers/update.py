@@ -59,6 +59,7 @@ async def download_and_apply():
         check_for_updates, download_update, extract_and_prepare,
         backup_user_data, cleanup_old_backups, set_progress, reset_progress,
         get_last_backup_error,
+        launch_updater_detached,
     )
 
     reset_progress()
@@ -109,7 +110,7 @@ async def download_and_apply():
 
     # Step 4: Extract and prepare updater.bat (progress tracked inside extract_and_prepare)
     logger.info("Step 4: Extracting and preparing updater...")
-    prep = extract_and_prepare(dl["zip_path"])
+    prep = extract_and_prepare(dl["zip_path"], current_pid=os.getpid())
     if not prep["success"]:
         result["errors"].append(f"Extract failed: {prep.get('error')}")
         return result
@@ -121,27 +122,14 @@ async def download_and_apply():
         logger.info("Step 5: Launching updater.bat and exiting...")
         bat_path = prep["bat_path"]
 
-        # Launch updater.bat detached from this process
-        subprocess.Popen(
-            ["cmd", "/c", bat_path],
-            cwd=str(os.path.dirname(bat_path)),
-            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
-        )
+        launch = launch_updater_detached(bat_path)
+        if not launch.get("success"):
+            result["errors"].append(f"Updater launch failed: {launch.get('error')}")
+            return result
         result["steps"].append("updater_launched")
         result["success"] = True
         result["message"] = "Update downloaded. App will restart with new version."
-
-        # Schedule exit
-        import asyncio
-
-        async def _exit():
-            await asyncio.sleep(2)  # Let response be sent
-            logger.info("Exiting for update...")
-            # os._exit required: runs in async task on backend (daemon) thread.
-            # sys.exit would only raise SystemExit in this coroutine, not kill the process.
-            os._exit(0)
-
-        asyncio.create_task(_exit())
+        # The detached updater owns process shutdown/restart.
     else:
         # Dev mode - just report ready
         result["success"] = True
