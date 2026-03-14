@@ -1,0 +1,4 @@
+Updater canary release:
+
+- No new scope beyond the `v4.6.13` updater reliability hardening
+- Intended only to prove one clean live in-app update cycle from the fixed `v4.6.13` base
