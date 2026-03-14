@@ -1,0 +1,4 @@
+Updater canary release:
+
+- Same updater/runtime code as v4.6.15.
+- Used to prove a real in-app update cycle from the new fixed updater base.
