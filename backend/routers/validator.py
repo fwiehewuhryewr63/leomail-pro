@@ -824,6 +824,57 @@ async def _validate_browser(
     safe_email = email.split("@")[0][:20]
     _tlog = _validator_state["thread_logs"][thread_idx]
 
+    async def retry_gmail_identifier_once() -> bool:
+        current_url = (page.url or "").lower()
+        page_text = await _get_page_text(page)
+        email_field_visible = await _find_element(page, config["email_selectors"])
+        looks_stuck_on_identifier = (
+            provider == "gmail"
+            and email_field_visible is not None
+            and (
+                "identifier" in current_url
+                or "something went wrong" in page_text
+                or "try again" in page_text
+                or "restart" in page_text
+            )
+        )
+        if not looks_stuck_on_identifier:
+            return False
+
+        _tlog["current_step"] = "Retrying Gmail identifier step..."
+        logger.info(
+            f"[Validator] T-{thread_idx+1} {email}: Gmail stalled before password, retrying identifier step once"
+        )
+
+        restart_clicked = await _click_any(page, [
+            'button:has-text("Restart")',
+            'div[role="button"]:has-text("Restart")',
+            'button:has-text("Try again")',
+            'div[role="button"]:has-text("Try again")',
+        ])
+        if not restart_clicked:
+            try:
+                await page.reload(wait_until="domcontentloaded", timeout=25000)
+            except Exception:
+                return False
+        await asyncio.sleep(random.uniform(2, 4))
+
+        retry_email_input = await _find_element(page, config["email_selectors"])
+        if not retry_email_input:
+            return False
+
+        await retry_email_input.click()
+        await asyncio.sleep(random.uniform(0.3, 0.7))
+        await retry_email_input.fill("")
+        await retry_email_input.type(email, delay=random.randint(30, 80))
+        await asyncio.sleep(random.uniform(1, 2))
+
+        if config["email_next"]:
+            await _click_any(page, config["email_next"])
+            await asyncio.sleep(random.uniform(3, 5))
+        await debug_screenshot(page, f"val_{provider}_after_email_retry_{safe_email}")
+        return True
+
     try:
         # ── Create anti-detect browser context ──
         _tlog["current_step"] = "Creating browser context..."
@@ -909,6 +960,16 @@ async def _validate_browser(
             await asyncio.sleep(2)
 
         if not pwd_input:
+            if provider == "gmail":
+                retried = await retry_gmail_identifier_once()
+                if retried:
+                    for _ in range(3):
+                        pwd_input = await _find_element(page, config["password_selectors"])
+                        if pwd_input:
+                            break
+                        await asyncio.sleep(2)
+
+        if not pwd_input:
             await debug_screenshot(page, f"val_{provider}_no_pwd_{safe_email}")
             current_url = page.url.lower()
             page_text = await _get_page_text(page)
@@ -917,6 +978,7 @@ async def _validate_browser(
                 "passkey", "security key", "unusual activity", "confirm it's you",
                 "confirm it", "try again later", "verify it is you", "phone number",
                 "recovery email", "choose an account", "sign in to continue",
+                "something went wrong", "restart",
             ]
             looks_like_challenge = (
                 provider == "gmail"

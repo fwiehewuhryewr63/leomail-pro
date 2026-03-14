@@ -29,6 +29,17 @@ except ImportError:
 from ..data.geo_data import get_country
 
 
+GOOGLE_STEALTH_BYPASS_HOSTS = (
+    "accounts.google.com",
+    "mail.google.com",
+)
+
+
+def _should_bypass_prepage_stealth(url: str) -> bool:
+    lowered = (url or "").lower()
+    return any(host in lowered for host in GOOGLE_STEALTH_BYPASS_HOSTS)
+
+
 # ─── User-Agent Pool ───────────────────────────────────────────────────────────
 
 CHROME_VERSIONS = [
@@ -1684,7 +1695,8 @@ class BrowserManager:
                     try:
                         # Re-apply stealth as BACKUP (Layer 1 already ran for HTML pages)
                         # This catches: about:blank, JS redirects, SPA navigations
-                        await page.evaluate(context._leomail_stealth_js)
+                        if not _should_bypass_prepage_stealth(url):
+                            await page.evaluate(context._leomail_stealth_js)
                     except Exception:
                         pass  # page may have navigated away
                     return response
@@ -1733,7 +1745,10 @@ window.Blob.toString=function(){return'function Blob() { [native code] }'};
                 try:
                     response = await route.fetch()
                     ct = response.headers.get("content-type", "")
-                    if "text/html" in ct:
+                    request_url = route.request.url
+                    if _should_bypass_prepage_stealth(request_url):
+                        await route.fulfill(response=response)
+                    elif "text/html" in ct:
                         body = await response.text()
                         if "<head>" in body:
                             body = body.replace("<head>", "<head>" + _full_pre_page_script, 1)
