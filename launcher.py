@@ -12,6 +12,8 @@ import socket
 import subprocess
 import shutil
 import traceback
+import re
+import ctypes
 from pathlib import Path
 
 try:
@@ -29,6 +31,7 @@ if sys.stderr is None:
 
 # Log file for debugging
 _log_file = None
+_instance_mutex = None
 
 
 def log(msg: str):
@@ -57,6 +60,39 @@ def show_error(title: str, message: str):
         pass  # If MessageBox fails too, at least we logged it
 
 
+def acquire_single_instance_guard():
+    """
+    Port probing alone is not strong enough during update/restart races.
+    Use a Windows named mutex so a second launch cannot survive alongside the
+    real boxed runtime.
+    """
+    global _instance_mutex
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    mutex_name = "Local\\Leomail.BoxedRuntime"
+    handle = kernel32.CreateMutexW(None, False, mutex_name)
+    if not handle:
+        log("[Leomail] Warning: failed to create instance mutex; continuing with port guard only.")
+        return
+
+    _instance_mutex = handle
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+        try:
+            kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+        show_error(
+            "Leomail - Already Running",
+            "Another Leomail instance is already running or finishing an update.\n\n"
+            "Wait a few seconds and try again.\n"
+            "If an update is in progress, let it finish.\n\n"
+            "Leomail will now exit."
+        )
+        sys.exit(1)
+
+
 def get_app_root() -> Path:
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).parent
@@ -80,6 +116,21 @@ def read_version() -> str:
     return "0.0.0"
 
 
+def parse_version_tuple(version: str) -> tuple[int, ...]:
+    parts = re.findall(r"\d+", version or "")
+    if not parts:
+        return (0,)
+    return tuple(int(part) for part in parts[:4])
+
+
+def read_version_file(vpath: Path) -> str:
+    try:
+        data = json.loads(vpath.read_text(encoding="utf-8"))
+        return data.get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
 def ensure_version_at_root():
     """Copy version.json from _MEIPASS to exe root if missing (for updater.py)."""
     if not getattr(sys, 'frozen', False):
@@ -92,6 +143,34 @@ def ensure_version_at_root():
             log(f"[Leomail] Copied version.json to app root")
         except Exception as e:
             log(f"[Leomail] Warning: could not copy version.json: {e}")
+
+
+def cleanup_stale_update_artifacts(root: Path, reason: str):
+    for name in ["_updater.bat", "_update_launch.txt", "_update_started.txt"]:
+        path = root / name
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            log(f"[Leomail] Warning: could not remove {name}: {e}")
+    try:
+        update_tmp = root / "_update_tmp"
+        if update_tmp.exists():
+            shutil.rmtree(str(update_tmp), ignore_errors=True)
+    except Exception as e:
+        log(f"[Leomail] Warning: could not remove _update_tmp: {e}")
+    log(f"[Leomail] Cleared stale update artifacts: {reason}")
+
+
+def read_staged_update_version(root: Path) -> str:
+    update_tmp = root / "_update_tmp" / "extracted"
+    if not update_tmp.exists():
+        return "0.0.0"
+    for vfile in update_tmp.rglob("version.json"):
+        staged = read_version_file(vfile)
+        if staged != "0.0.0":
+            return staged
+    return "0.0.0"
 
 
 def resume_pending_update_if_needed(root: Path) -> bool:
@@ -110,8 +189,26 @@ def resume_pending_update_if_needed(root: Path) -> bool:
     if result_marker.exists():
         return False
     if not updater_bat.exists() or not update_tmp.exists():
+        if started_marker.exists() or (root / "_update_launch.txt").exists():
+            cleanup_stale_update_artifacts(root, "markers without staged update")
         return False
+
+    current_version = read_version()
+    staged_version = read_staged_update_version(root)
+
+    if staged_version == "0.0.0":
+        cleanup_stale_update_artifacts(root, "staged update missing version metadata")
+        return False
+
+    if parse_version_tuple(staged_version) <= parse_version_tuple(current_version):
+        cleanup_stale_update_artifacts(
+            root,
+            f"staged version {staged_version} is not newer than current version {current_version}",
+        )
+        return False
+
     if started_marker.exists():
+        log(f"[Leomail] Staged update {staged_version} already acknowledged; letting updater continue.")
         return False
 
     log("[Leomail] Pending staged update detected before startup. Relaunching updater...")
@@ -351,6 +448,8 @@ def _main_inner():
         _log_file.write(f"\n{'=' * 60}\n")
     except Exception:
         pass
+
+    acquire_single_instance_guard()
 
     # Ensure version.json is at app root for updater
     ensure_version_at_root()

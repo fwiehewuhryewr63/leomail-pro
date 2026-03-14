@@ -1,0 +1,7 @@
+Updater reliability hardening:
+
+- Clear stale update staging, updater scripts, and handoff markers before every fresh update cycle
+- Use explicit app-root working directory inside the generated updater batch
+- Relaunch Leomail via an explicit absolute app-root path after success or rollback
+- Remove stale updater markers on batch success/rollback so old state cannot poison the next cycle
+- Add a stronger boxed single-instance guard so update/restart races cannot leave two Leomail.exe processes alive

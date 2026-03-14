@@ -59,10 +59,11 @@ async def download_and_apply():
         check_for_updates, download_update, extract_and_prepare,
         backup_user_data, cleanup_old_backups, set_progress, reset_progress,
         get_last_backup_error,
-        launch_updater_detached,
+        launch_updater_detached, cleanup_preexisting_update_state,
     )
 
     reset_progress()
+    cleanup_preexisting_update_state()
     result = {
         "success": False,
         "steps": [],

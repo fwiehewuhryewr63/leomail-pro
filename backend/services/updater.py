@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import zipfile
 import tempfile
+import re
 from pathlib import Path
 from datetime import datetime
 from loguru import logger
@@ -20,6 +21,7 @@ VERSION_FILE = "version.json"
 UPDATE_RESULT_FILE = "_update_result.txt"
 UPDATE_STARTED_FILE = "_update_started.txt"
 UPDATE_LAUNCH_FILE = "_update_launch.txt"
+UPDATE_FAILED_LOG = "_update_failed.log"
 
 def _read_version_from_file() -> str:
     """Read version from version.json, checking multiple possible locations."""
@@ -39,6 +41,28 @@ def _read_version_from_file() -> str:
                 return data.get("version", "0.0.0")
             except Exception:
                 continue
+    return "0.0.0"
+
+
+def _parse_version_tuple(version: str) -> tuple[int, ...]:
+    parts = re.findall(r"\d+", version or "")
+    if not parts:
+        return (0,)
+    return tuple(int(part) for part in parts[:4])
+
+
+def _read_staged_update_version(root: Path) -> str:
+    staged_root = root / "_update_tmp" / "extracted"
+    if not staged_root.exists():
+        return "0.0.0"
+    for vpath in staged_root.rglob(VERSION_FILE):
+        try:
+            data = json.loads(vpath.read_text(encoding="utf-8"))
+            version = data.get("version", "0.0.0")
+            if version and version != "0.0.0":
+                return version
+        except Exception:
+            continue
     return "0.0.0"
 
 VERSION = _read_version_from_file()
@@ -67,6 +91,42 @@ def get_update_started_path() -> Path:
 
 def get_update_launch_path() -> Path:
     return get_app_root() / UPDATE_LAUNCH_FILE
+
+
+def cleanup_preexisting_update_state() -> dict:
+    """
+    A fresh update attempt must not inherit stale staged files or handoff
+    markers from an interrupted older cycle.
+    """
+    root = get_app_root()
+    current_version = get_current_version().get("version", "0.0.0")
+    staged_version = _read_staged_update_version(root)
+    cleaned: list[str] = []
+
+    def remove_path(path: Path, label: str):
+        try:
+            if path.is_dir():
+                if path.exists():
+                    shutil.rmtree(str(path), ignore_errors=True)
+                    cleaned.append(label)
+            elif path.exists():
+                path.unlink(missing_ok=True)
+                cleaned.append(label)
+        except Exception as e:
+            logger.warning(f"[Update] Failed to remove stale {label}: {e}")
+
+    remove_path(root / "_update_tmp", "_update_tmp")
+    remove_path(root / "_updater.bat", "_updater.bat")
+    remove_path(root / UPDATE_STARTED_FILE, UPDATE_STARTED_FILE)
+    remove_path(root / UPDATE_LAUNCH_FILE, UPDATE_LAUNCH_FILE)
+    remove_path(root / UPDATE_FAILED_LOG, UPDATE_FAILED_LOG)
+
+    if cleaned:
+        logger.info(
+            "[Update] Cleared stale update state before new cycle "
+            f"(current={current_version}, staged={staged_version}): {', '.join(cleaned)}"
+        )
+    return {"cleaned": cleaned, "current_version": current_version, "staged_version": staged_version}
 
 
 def get_last_backup_error() -> str:
@@ -444,6 +504,7 @@ def extract_and_prepare(zip_path: str, current_pid: int | None = None) -> dict:
             '@echo off',
             'setlocal EnableExtensions EnableDelayedExpansion',
             'chcp 65001 >nul',
+            'cd /d "%~dp0"',
             f'set TARGET_PID={current_pid or 0}',
             'echo ==========================================',
             'echo   Leomail Auto-Updater',
@@ -480,6 +541,7 @@ def extract_and_prepare(zip_path: str, current_pid: int | None = None) -> dict:
             'echo Leomail.exe closed. Applying update...',
             '',
             f'if exist "{UPDATE_RESULT_FILE}" del /f "{UPDATE_RESULT_FILE}"',
+            f'if exist "{UPDATE_FAILED_LOG}" del /f "{UPDATE_FAILED_LOG}"',
             '',
             ':: Phase 1: Rename current runtime aside (recoverable)',
             'echo [1/4] Backing up current version...',
@@ -518,8 +580,10 @@ def extract_and_prepare(zip_path: str, current_pid: int | None = None) -> dict:
             f'> "{UPDATE_RESULT_FILE}" echo status=success',
             f'>> "{UPDATE_RESULT_FILE}" echo detail=runtime_updated',
             f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
+            f'if exist "{UPDATE_STARTED_FILE}" del /f "{UPDATE_STARTED_FILE}" >nul 2>&1',
+            f'if exist "{UPDATE_LAUNCH_FILE}" del /f "{UPDATE_LAUNCH_FILE}" >nul 2>&1',
             'timeout /t 2 /nobreak >nul',
-            'start "" "Leomail.exe"',
+            'start "" /d "%~dp0" "%~dp0Leomail.exe"',
             '(goto) 2>nul & del "%~f0"',
             '',
             ':: Rollback: restore previous version on failure',
@@ -537,18 +601,20 @@ def extract_and_prepare(zip_path: str, current_pid: int | None = None) -> dict:
             'if exist "Leomail.exe.bak" rename "Leomail.exe.bak" "Leomail.exe"',
             'if exist "_internal.old" rename "_internal.old" "_internal"', 
             '',
-            'echo Update failed at %date% %time% > "_update_failed.log"',
-            'echo Previous version preserved. Recovery from .bak/.old files. >> "_update_failed.log"',
+            f'echo Update failed at %date% %time% > "{UPDATE_FAILED_LOG}"',
+            f'echo Previous version preserved. Recovery from .bak/.old files. >> "{UPDATE_FAILED_LOG}"',
             f'> "{UPDATE_RESULT_FILE}" echo status=rollback',
             f'>> "{UPDATE_RESULT_FILE}" echo detail=previous_version_restored',
             f'>> "{UPDATE_RESULT_FILE}" echo at=%date% %time%',
+            f'if exist "{UPDATE_STARTED_FILE}" del /f "{UPDATE_STARTED_FILE}" >nul 2>&1',
+            f'if exist "{UPDATE_LAUNCH_FILE}" del /f "{UPDATE_LAUNCH_FILE}" >nul 2>&1',
             '',
             'echo.',
             'echo Previous version has been restored.',
             'echo Starting Leomail in 3 seconds...',
             'echo.',
             'timeout /t 3 /nobreak >nul',
-            'if exist "Leomail.exe" start "" "Leomail.exe"',
+            'if exist "Leomail.exe" start "" /d "%~dp0" "%~dp0Leomail.exe"',
             '(goto) 2>nul & del "%~f0"',
         ]
         bat_content = '\r\n'.join(bat_lines) + '\r\n'
